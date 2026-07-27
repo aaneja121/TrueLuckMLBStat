@@ -44,13 +44,23 @@ change, change them there and update its docstrings and `README.md`/this file to
 
 ## Never silently redefine the Luck Score
 
-`compute_raw_luck` (additive, `mlb_luck_score.scoring.raw_luck`) and
-`raw_luck_to_public_score` (non-additive, provisional, `mlb_luck_score.scoring.public_score`)
-have exact, documented formulas. Do not change the formula, the default value map, or the
-class ordering without: (1) updating every docstring that states the formula, (2) updating
-the corresponding tests in `tests/test_scoring.py`, and (3) calling out the change clearly
-to the user as a redefinition, not a bug fix. Silent redefinition breaks comparability
-across any results already produced.
+The current (Version 0.2) default is `compute_raw_contact_luck_runs`
+(`mlb_luck_score.scoring.contact_luck`, using the fixed run-value table in
+`mlb_luck_score.scoring.run_values.DEFAULT_RUN_VALUE_MAP`) and
+`compute_empirical_public_score` (`mlb_luck_score.scoring.empirical_score`, using a
+`ReferenceScoreArtifact` built by `mlb_luck_score.models.build_reference_score`). The
+Version 0.1 ordinal functions (`mlb_luck_score.scoring.raw_luck.compute_raw_luck`,
+`mlb_luck_score.scoring.public_score.raw_luck_to_public_score`) are LEGACY -- kept only
+for backward compatibility and explicit Version-0.1-vs-0.2 comparison, never as the
+default for new work. All of these have exact, documented formulas. Do not change a
+formula, the default run-value/value map, or the class ordering without: (1) updating
+every docstring that states the formula, (2) updating the corresponding tests
+(`tests/test_contact_luck.py`, `tests/test_run_values.py`, `tests/test_empirical_score.py`,
+`tests/test_scoring.py`), and (3) calling out the change clearly to the user as a
+redefinition, not a bug fix. Silent redefinition breaks comparability across any results
+already produced. If you ever add a new run-value source (e.g. a different season range
+or a context-aware model), version it explicitly (`scoring_version` in
+`ReferenceScoreArtifact`) rather than overwriting `DEFAULT_RUN_VALUE_MAP` in place.
 
 ## Never use class_weight="balanced" (or similar) for the probability baseline
 

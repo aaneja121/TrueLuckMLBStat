@@ -1,5 +1,6 @@
 .PHONY: setup format lint typecheck test check download-sample clean-data \
-	download-development-data clean-development-data train compare-models demo notebook
+	download-development-data clean-development-data train compare-models \
+	build-reference-score demo notebook
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -82,6 +83,15 @@ compare-models:
 		--output-dir outputs/tables \
 		--figures-dir outputs/figures/model_comparison \
 		--include-post-hoc-calibration
+
+# Builds the Version 0.2 empirical public-score reference artifact: trains
+# the unweighted baseline on 2021-2023, scores 2024 (out-of-sample), and
+# stores positive/negative raw-contact-luck quantile tables under artifacts/
+# (git-ignored). See "Version 0.2 scoring" in README.md.
+build-reference-score:
+	$(PY) -m mlb_luck_score.models.build_reference_score \
+		--input data/processed/cleaned_development_data.parquet \
+		--output-dir artifacts
 
 demo:
 	$(PY) -m mlb_luck_score.models.predict_outcomes --demo

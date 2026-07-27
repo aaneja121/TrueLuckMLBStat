@@ -356,8 +356,11 @@ make notebook        # launches Jupyter in notebooks/
   calibration error (ECE) overall and by class, plots per variant, and an explicit
   recall-vs-calibration interpretation section. See "Model comparison and probability
   calibration" above for the real-data findings this notebook reproduces.
-- `04_luck_score_demo.ipynb` -- one example play end-to-end: actual outcome, predicted
-  distribution, raw luck, public score, confidence report, explicit disclaimer.
+- `04_luck_score_demo.ipynb` -- **Version 0.2**: one out-of-sample 2024 example play
+  end-to-end using the fixed run-value table and empirical percentile public score
+  (predicted distribution, run values, raw contact luck in runs, empirical score,
+  confidence report), a clearly-labeled Version 0.1 legacy comparison for the same play,
+  and a 2024 reference-distribution summary (stats, quantiles, histograms).
 
 All four notebooks detect missing data/artifacts and print clear instructions instead of
 crashing; `04` additionally falls back to a small synthetic example so it is always
@@ -400,7 +403,69 @@ in the combined output (not just the requested season list) before returning, as
 in depth. Do not add a code path that uses 2025 without the explicit, one-time,
 intentional flag.
 
-## Preliminary raw-luck definition
+## Version 0.2 scoring: fixed run values + empirical public score
+
+Version 0.2 replaces both Version 0.1 placeholders below with empirically grounded ones.
+**This is the current default** -- see `mlb_luck_score.scoring.contact_luck` and
+`mlb_luck_score.scoring.empirical_score`.
+
+**Fixed run-value table** (`mlb_luck_score.scoring.run_values.DEFAULT_RUN_VALUE_MAP`):
+recovered from published FanGraphs Guts constants (2021-2024) via the standard
+linear-weights identity `run_value(event) = (wOBA_event_weight - league_wOBA) /
+wOBA_scale` (an out has `wOBA_event_weight = 0`), then averaged with equal weight across
+the four seasons. Computed programmatically from the source constants, not hardcoded:
+
+| outcome  | run value (runs) |
+|----------|------------------:|
+| out      | -0.254916 |
+| single   |  0.463266 |
+| double   |  0.763026 |
+| triple   |  1.033068 |
+| home_run |  1.400288 |
+
+This table is **context-neutral**: it does not use a play's actual base/out state, runs
+scored, win probability, or RE24 -- a bases-loaded triple and a bases-empty triple get the
+identical value. That's a deliberate Version 0.2 scope choice (see `mlb_luck_score.scoring.
+contact_luck` module docstring), not an oversight.
+
+```
+expected_run_value   = sum(predicted_probability[outcome] * run_value[outcome])
+actual_run_value      = run_value[observed_outcome]
+raw_contact_luck_runs = actual_run_value - expected_run_value
+```
+
+`raw_contact_luck_runs` is additive (in runs) -- see `mlb_luck_score.scoring.aggregation`
+for season-level `total_raw_contact_luck_runs`, `positive_raw_luck_runs`,
+`negative_raw_luck_runs`, and a per-100-eligible-events rate. **No leaderboard
+qualification threshold is defined yet.**
+
+**Empirical public score** (`mlb_luck_score.scoring.empirical_score.
+compute_empirical_public_score`): maps `raw_contact_luck_runs` to a **signed percentile**
+within a genuinely out-of-sample reference distribution -- the `unweighted` baseline's
+predictions on 2024 validation data (trained only on 2021-2023; 2024 and 2025 never used
+for training). Zero raw luck maps to exactly 0; positive raw luck maps to its percentile
+among positive reference plays (0 to +100); negative raw luck maps to the percentile of
+its magnitude among negative reference plays' magnitudes, negated (0 to -100); values
+beyond the historical range are clipped to +-100. Build the reference artifact with:
+
+```bash
+make build-reference-score
+# equivalent to:
+python -m mlb_luck_score.models.build_reference_score \
+    --input data/processed/cleaned_development_data.parquet --output-dir artifacts
+```
+
+This writes `artifacts/reference_score_v0.2.0.json` (git-ignored) with the model variant,
+training/reference seasons, run-value table, sample counts, quantile tables, and source
+metadata. **Never sum or average empirical public scores to build a season metric** -- the
+mapping is non-linear and per-play; use raw contact luck (runs) instead (`mlb_luck_score.
+scoring.aggregation`). The reference distribution is never refit on 2025.
+
+## Preliminary raw-luck definition (Version 0.1, LEGACY)
+
+> Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
+> Version-0.1-vs-0.2 comparisons (see notebook `04_luck_score_demo.ipynb`'s "Legacy
+> Version 0.1 comparison" section).
 
 ```
 expected_value = sum(predicted_probability[outcome] * value[outcome])
@@ -411,19 +476,21 @@ raw_luck        = actual_value - expected_value
 using the Version 0.1 ordinal value map `{out: 0, single: 1, double: 2, triple: 3,
 home_run: 4}` (`mlb_luck_score.config.DEFAULT_VALUE_MAP`, configurable). This is a
 research placeholder: it ignores base/out state, park, and win-expectancy context, and
-the ordinal spacing (0/1/2/3/4) is not a validated run-value model. Raw luck IS additive
-by construction (see `mlb_luck_score.scoring.raw_luck`).
+the ordinal spacing (0/1/2/3/4) is not a validated run-value model -- Version 0.2 fixes
+this with real run values. Raw luck IS additive by construction (see
+`mlb_luck_score.scoring.raw_luck`, now legacy).
 
-## Why the public score is not additive
+## Why the legacy public score is not additive (Version 0.1, LEGACY)
 
-The public -100..+100 score (`mlb_luck_score.scoring.public_score`) applies a bounded,
-monotonic, sign-preserving transform (`100 * tanh(raw_luck / scale)`) to raw luck so it
-fits a stable, intuitive display range. That transform is non-linear, so summing public
-scores across plays does **not** equal the public score of the summed raw luck -- if you
-need an additive quantity (e.g. season aggregation), use raw luck, not the public score.
-The current mapping is an explicitly provisional placeholder; the final version should be
-fit empirically against a historical held-out distribution of raw-luck values (see
-`EmpiricalScoreCalibrator`, an unimplemented extension point).
+> Superseded by the empirical public score above.
+
+The legacy public -100..+100 score (`mlb_luck_score.scoring.public_score.
+raw_luck_to_public_score`) applies a bounded, monotonic, sign-preserving transform
+(`100 * tanh(raw_luck / scale)`) to raw luck so it fits a stable, intuitive display range.
+That transform is non-linear, so summing public scores across plays does **not** equal
+the public score of the summed raw luck -- if you need an additive quantity (e.g. season
+aggregation), use raw luck, not the public score. This arbitrary functional form is why
+Version 0.2 replaced it with the empirical percentile mapping above.
 
 ## Confidence limitations
 
@@ -454,17 +521,18 @@ redistributing any derived data outside this repository.
 
 ## Current status
 
-Version 0.1 bootstrap: data acquisition (one-week sample and full 2021-2024 development
-dataset, both downloaded and cleaned against real Statcast data), cleaning, feature
-engineering, a baseline model, calibration diagnostics, preliminary raw luck, a
-placeholder public score, and a data-completeness report are all implemented and covered
-by offline synthetic tests. The real 2021-2024 dataset has been trained and evaluated;
-see "Model comparison and probability calibration" above for the real, honestly-reported
-results -- including a confirmed severe miscalibration issue in an earlier
-`class_weight="balanced"` variant, now fixed by defaulting to the unweighted variant.
-**Luck scores have not been computed or published against real data** -- that is
-deliberately deferred until the probability baseline's calibration is judged acceptable
-(see the disclaimer at the top of that section).
+Data acquisition (one-week sample and full 2021-2024 development dataset, both
+downloaded and cleaned against real Statcast data), cleaning, feature engineering, a
+baseline model, calibration diagnostics, the Version 0.2 fixed run-value table, raw
+contact luck, the empirical percentile public score, season-aggregation primitives, and a
+data-completeness report are all implemented and covered by offline synthetic tests. The
+real 2021-2024 dataset has been trained, evaluated, and used to build the real Version
+0.2 reference artifact; see "Model comparison and probability calibration" and "Version
+0.2 scoring" above for the real, honestly-reported results -- including a confirmed
+severe miscalibration issue in an earlier `class_weight="balanced"` variant, now fixed by
+defaulting to the unweighted variant. Notebook `04_luck_score_demo.ipynb` has been run
+against real data and shows real Version 0.2 raw-luck and empirical-score values for a
+genuinely out-of-sample 2024 example play.
 
 ## Future work
 
@@ -475,11 +543,14 @@ deliberately deferred until the probability baseline's calibration is judged acc
 - Batter-runner decision-quality modeling
 - Batter-runner execution modeling
 - Park and bounce effects
+- Context-aware run values (using actual base/out state, win probability, or RE24,
+  instead of Version 0.2's fixed context-neutral table)
 - Shapley-style attribution across luck components
 - Confidence intervals (historical support, model disagreement, sensitivity analysis,
   calibration uncertainty, bootstrap/posterior intervals)
-- Season-level aggregation
-- Leaderboard qualification thresholds
+- Leaderboard qualification thresholds (season-aggregation primitives exist -- see
+  `mlb_luck_score.scoring.aggregation` -- but no minimum-eligible-events threshold is
+  defined yet)
 - Rare-play rule expansion (the eligible-event list is a v0.1 starting point, not final)
 
 ---

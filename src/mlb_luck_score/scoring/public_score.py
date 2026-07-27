@@ -1,10 +1,13 @@
-"""Provisional -100..+100 public score mapping -- Version 0.1 placeholder.
+"""LEGACY (Version 0.1): tanh-based -100..+100 public score mapping.
 
-IMPORTANT: This is explicitly a placeholder interface, not a validated
-scientific mapping. The final public score should be learned empirically
-from the distribution of raw-luck values observed across a large held-out
-sample of historical plays (e.g. mapping raw luck to its percentile/tail
-position in that distribution), which this repository does not yet do.
+> **Superseded by Version 0.2.** The default public score is now
+> `mlb_luck_score.scoring.empirical_score.compute_empirical_public_score`,
+> which maps raw contact luck to its SIGNED PERCENTILE within a genuine
+> out-of-sample 2024 reference distribution instead of an arbitrary
+> functional form. This module is kept ONLY for backward compatibility and
+> explicit Version-0.1-vs-0.2 comparisons (see notebook
+> `04_luck_score_demo.ipynb`'s "Legacy Version 0.1 comparison" section) --
+> do not use `raw_luck_to_public_score` as the default for new work.
 
 What this module guarantees for Version 0.1:
     - The mapping is monotonic non-decreasing in raw luck.
@@ -15,27 +18,27 @@ What this module guarantees for Version 0.1:
 
 What it does NOT guarantee:
     - That equal raw-luck values across different situations are "equally
-      lucky" in a population sense -- that requires the empirical
-      calibration described below.
+      lucky" in a population sense -- that requires the empirical mapping
+      in `mlb_luck_score.scoring.empirical_score`.
     - Any particular real-world interpretation of a given score value
-      (e.g. "a score of 50 means X% percentile") until that calibration
-      exists.
+      (e.g. "a score of 50 means X% percentile").
 
 The public score is deliberately NOT additive (do not sum public scores
-across plays) -- see raw_luck.py for the additive quantity.
+across plays) -- see `mlb_luck_score.scoring.aggregation` for the additive
+Version 0.2 season-aggregation primitives (which operate on raw luck, never
+on this score).
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
-#: Provisional scaling constant for the default tanh-based mapping. Chosen
-#: only so that the Version 0.1 value map's largest plausible single-play
-#: raw-luck swing (roughly a home run appearing near-certain-out, raw_luck
-#: close to +4) maps to a score well away from the +-100 clip boundary, NOT
-#: from any empirical distribution. Replace via `EmpiricalScoreCalibrator`
-#: once real historical data supports it.
+#: Provisional scaling constant for the legacy tanh-based mapping. Chosen
+#: only so that the Version 0.1 ordinal value map's largest plausible
+#: single-play raw-luck swing (roughly a home run appearing near-certain-out,
+#: raw_luck close to +4) maps to a score well away from the +-100 clip
+#: boundary, NOT from any empirical distribution. See
+#: `mlb_luck_score.scoring.empirical_score` for the Version 0.2 replacement.
 DEFAULT_SCALE = 2.0
 SCORE_MIN = -100.0
 SCORE_MAX = 100.0
@@ -72,32 +75,3 @@ def raw_luck_to_public_score(raw_luck: float, *, scale: float = DEFAULT_SCALE) -
 
     score = SCORE_MAX * math.tanh(raw_luck / scale)
     return max(SCORE_MIN, min(SCORE_MAX, score))
-
-
-@dataclass(frozen=True)
-class EmpiricalScoreCalibrator:
-    """Future extension point: an empirically-fit raw-luck -> score mapping.
-
-    Version 0.1 does not populate this from data. The intended design is a
-    monotonic mapping fit on the empirical distribution of raw-luck values
-    from a large held-out historical sample (e.g. mapping to a signed
-    percentile/tail position within that distribution), so a given score
-    has a stable population-level interpretation. Once fit, an instance of
-    this class would be used in place of `raw_luck_to_public_score`.
-
-    Attributes:
-        reference_quantiles: Sorted raw-luck quantile breakpoints from the
-            historical reference distribution used to fit this calibrator.
-        fitted_on_seasons: Which seasons' data the calibrator was fit on
-            (must exclude the protected 2025 final-test season).
-    """
-
-    reference_quantiles: tuple[float, ...]
-    fitted_on_seasons: tuple[int, ...]
-
-    def score(self, raw_luck: float) -> float:
-        raise NotImplementedError(
-            "EmpiricalScoreCalibrator is a documented extension point for a "
-            "future, data-fit public score mapping. It is not implemented in "
-            "Version 0.1 -- use raw_luck_to_public_score() instead."
-        )

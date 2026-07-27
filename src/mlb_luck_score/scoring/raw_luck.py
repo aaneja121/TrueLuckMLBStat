@@ -1,4 +1,14 @@
-"""Preliminary additive raw-luck calculation -- Version 0.1 research placeholder.
+"""LEGACY (Version 0.1): ordinal-scale additive raw-luck calculation.
+
+> **Superseded by Version 0.2.** The default Contact Luck raw-luck
+> calculation is now `mlb_luck_score.scoring.contact_luck.
+> compute_raw_contact_luck_runs`, which uses fixed, empirically-grounded
+> run values (FanGraphs Guts-derived, see `mlb_luck_score.scoring.
+> run_values`) instead of the arbitrary 0-4 ordinal scale below. This
+> module is kept ONLY for backward compatibility and explicit
+> Version-0.1-vs-0.2 comparisons (see notebook `04_luck_score_demo.ipynb`'s
+> "Legacy Version 0.1 comparison" section) -- do not use it as the default
+> for new work.
 
     expected_value = sum(predicted_probability[outcome] * value[outcome])
     actual_value    = value[observed_outcome]
@@ -12,10 +22,11 @@ units. It is deliberately simple:
 * It ignores base/out state, park, and win-expectancy context.
 * The ordinal value mapping (0/1/2/3/4) is a provisional research choice,
   not a validated run-value model -- a double is not "twice as good" as a
-  single in run-scoring terms.
+  single in run-scoring terms. Version 0.2 fixes this with real run values.
 * Raw luck is additive by construction (differences of expectations are
   additive), but the public-facing -100..+100 score derived from it is NOT
-  additive -- see `mlb_luck_score.scoring.public_score`.
+  additive -- see `mlb_luck_score.scoring.public_score` (also legacy; see
+  `mlb_luck_score.scoring.empirical_score` for the Version 0.2 replacement).
 
 Do not silently redefine this formula or the default value map elsewhere.
 """
