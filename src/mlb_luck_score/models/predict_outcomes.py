@@ -52,11 +52,20 @@ def load_model(artifact_dir: Path, model_version: str) -> TrainedModel:
         )
     pipeline = joblib.load(model_path)
     metadata = json.loads(metadata_path.read_text())
+    variant = metadata.get("variant", "unknown_legacy_artifact")
+    if "class_balanced" in variant:
+        logger.warning(
+            "Loaded artifact variant '%s' is a labeled comparison model with known "
+            "miscalibrated probabilities -- do not use it for the Contact Luck score.",
+            variant,
+        )
     return TrainedModel(
         pipeline=pipeline,
         numeric_features=metadata["numeric_features"],
         categorical_features=metadata["categorical_features"],
         class_order=metadata["class_order"],
+        class_weight=metadata.get("class_weight"),
+        variant=variant,
     )
 
 

@@ -248,6 +248,80 @@ the one-week sample, which has 0 rows in the 2021-2023 training window; point `-
 `data/processed/cleaned_development_data.parquet` (see "Full development dataset" above)
 to actually train the model.
 
+By default `train_model`/`make train` use `class_weight=None` (the unweighted probability
+baseline) -- see "Model comparison and probability calibration" immediately below for why.
+
+## Model comparison and probability calibration
+
+> **Do not calculate or publish Luck Scores until the selected model has acceptably
+> calibrated probabilities.**
+
+An earlier baseline trained `LogisticRegression(class_weight="balanced")`. On real
+2021-2024 Statcast data this produced **severely miscalibrated probabilities** -- e.g. on
+2024 validation data, rows the model called ~74% likely to be a single were observed to
+be a single ~22% of the time (n=638, a reliable bin); similar gaps appeared for double
+(pred 0.45 / observed 0.17, n=5,507), triple (pred 0.54 / observed 0.036, n=2,496), and
+home_run (pred 0.55 / observed 0.32, n=1,294).
+
+A controlled comparison (same 2021-2023 training rows, same untouched 2024 validation
+rows, changing **only** `class_weight`) confirmed the cause: `class_weight="balanced"`
+reweights the loss inversely to training-class frequency, which shifts the model's fitted
+probabilities away from the true class prior. Run it yourself:
+
+```bash
+make compare-models
+# equivalent to:
+python -m mlb_luck_score.models.compare_models \
+    --input data/processed/cleaned_development_data.parquet \
+    --output-dir outputs/tables \
+    --figures-dir outputs/figures/model_comparison \
+    --include-post-hoc-calibration
+```
+
+This compares four variants on the same untouched 2024 validation season (results from
+the real dataset, reproduced 2026-07-27):
+
+| variant | log loss | expected calibration error (ECE) | accuracy | recall(triple) |
+|---|---|---|---|---|
+| `unweighted` (`class_weight=None`) | **0.670** | **0.014** | 0.751 | 0.001 |
+| `class_balanced_comparison_only` (`class_weight="balanced"`) | 1.078 | 0.134 | 0.549 | 0.429 |
+| `naive_prevalence` (ignores all features) | 0.937 | 0.002 | 0.675 | 0.000 |
+| `unweighted_post_hoc_calibrated` (isotonic, time-ordered) | 0.723 | 0.048 | 0.699 | 0.000 |
+
+**Recall is not calibration.** `class_balanced_comparison_only` shows much higher recall
+on rare classes (e.g. triple: 0.429 vs. 0.001) -- it's tuned to predict them more often --
+but a far worse log loss and nearly 10x worse ECE. That "better" recall is not evidence of
+trustworthy probabilities; for a luck metric built on probability *magnitude*
+(`expected_value = sum(p(outcome) * value(outcome))`), calibration is what matters, and
+`class_balanced_comparison_only` fails badly on it. It is preserved in the codebase only
+as an explicitly-labeled comparison model (`train_model(..., class_weight="balanced")`,
+CLI `--class-weight balanced`) -- never use it for the Contact Luck score.
+
+**`naive_prevalence`** (predicts the training-set marginal distribution for every row,
+ignoring all features) is a sanity floor, not a candidate: it has a trivially low ECE
+(it's "calibrated on average" by construction) but is beaten by `unweighted` on log loss
+and every per-class Brier score, meaning `unweighted` adds real discriminative value on
+top of being well-calibrated.
+
+**Post-hoc calibration did not help here.** `unweighted_post_hoc_calibrated` uses a
+time-ordered design (base model trained on 2021-2022 only, isotonic calibration fit on
+2023 only, evaluated on 2024 -- three non-overlapping season groups, see
+`mlb_luck_score.config.CALIBRATION_BASE_TRAIN_SEASONS`/`CALIBRATION_FIT_SEASONS`/
+`CALIBRATION_EVAL_SEASONS`) specifically so the calibrator is never fit and evaluated on
+the same rows. It made both log loss and ECE *worse* than the plain `unweighted` model on
+this data. Current recommendation: use the plain unweighted model; do not add a post-hoc
+calibration layer unless a future check shows it actually helps.
+
+**Current recommendation:** `unweighted` (`class_weight=None`, the default) is the
+candidate Contact Luck probability baseline. Its remaining known imperfections (e.g. the
+`single` class shows real, reliable miscalibration in two bins -- predicted 0.45 vs.
+observed 0.63 at n=8,899, and predicted 0.62 vs. observed 0.27 at n=840) are far smaller
+than `class_balanced_comparison_only`'s, but are not zero -- treat this as a Version 0.1
+finding to keep monitoring, not a final validated result. Full per-bin calibration tables
+and plots are in `outputs/tables/model_comparison_detail.json` and
+`outputs/figures/model_comparison/` after running `make compare-models`, and in notebook
+`03_calibration.ipynb`.
+
 ## Testing
 
 ```bash
@@ -273,11 +347,15 @@ make notebook        # launches Jupyter in notebooks/
   `cleaned_development_data.parquet` when present, falling back to the one-week sample.
 - `02_contact_model.ipynb` -- time-based split demo (training rows by season for
   2021-2023, validation rows for 2024, outcome counts by split, and a check for whether
-  all five outcome classes are represented in each split), feature pipeline, baseline
-  training, predictions, core evaluation metrics. Same dataset-preference fallback as
-  notebook 01.
-- `03_calibration.ipynb` -- calibration table generation, one plot per outcome class,
-  interpretation warnings, sample-size reporting.
+  all five outcome classes are represented in each split), feature pipeline, trains both
+  the `unweighted` and `class_balanced_comparison_only` variants side by side with core
+  evaluation metrics. Same dataset-preference fallback as notebook 01.
+- `03_calibration.ipynb` -- runs the full model comparison
+  (`mlb_luck_score.models.compare_models`): unweighted vs. class-balanced vs.
+  naive-prevalence vs. time-ordered post-hoc-calibrated, with calibration tables, expected
+  calibration error (ECE) overall and by class, plots per variant, and an explicit
+  recall-vs-calibration interpretation section. See "Model comparison and probability
+  calibration" above for the real-data findings this notebook reproduces.
 - `04_luck_score_demo.ipynb` -- one example play end-to-end: actual outcome, predicted
   distribution, raw luck, public score, confidence report, explicit disclaimer.
 
@@ -297,6 +375,13 @@ runnable immediately after bootstrap.
 Rolling validation is also supported for iteration, e.g. train on 2021-2022 / validate
 on 2023, then train on 2021-2023 / validate on 2024, by passing `--train-seasons` /
 `--validation-seasons` explicitly.
+
+For post-hoc probability calibration specifically, a separate, non-overlapping
+three-way split is used (`mlb_luck_score.config.CALIBRATION_BASE_TRAIN_SEASONS` /
+`CALIBRATION_FIT_SEASONS` / `CALIBRATION_EVAL_SEASONS`): base model on 2021-2022, the
+calibration layer fit on 2023, evaluation on 2024. This is distinct from
+`TRAIN_SEASONS`/`VALIDATION_SEASONS` above so a calibrator is never fit and evaluated on
+the same rows.
 
 ## Untouched 2025 test rule
 
@@ -370,15 +455,16 @@ redistributing any derived data outside this repository.
 ## Current status
 
 Version 0.1 bootstrap: data acquisition (one-week sample and full 2021-2024 development
-dataset), cleaning, feature engineering, a baseline model, calibration diagnostics,
-preliminary raw luck, a placeholder public score, and a data-completeness report are all
-implemented and covered by offline synthetic tests. The full development dataset
-download/clean workflow has been tested with synthetic multi-season data but the real
-2021-2024 Statcast data has not yet been downloaded or trained on in this repository (it
-requires explicit approval for the network use and runtime -- see "Full development
-dataset" above). No real predictive-performance claims have been validated against a real
-held-out sample -- run the pipeline against real data and inspect the actual evaluation
-metrics before drawing any conclusion.
+dataset, both downloaded and cleaned against real Statcast data), cleaning, feature
+engineering, a baseline model, calibration diagnostics, preliminary raw luck, a
+placeholder public score, and a data-completeness report are all implemented and covered
+by offline synthetic tests. The real 2021-2024 dataset has been trained and evaluated;
+see "Model comparison and probability calibration" above for the real, honestly-reported
+results -- including a confirmed severe miscalibration issue in an earlier
+`class_weight="balanced"` variant, now fixed by defaulting to the unweighted variant.
+**Luck scores have not been computed or published against real data** -- that is
+deliberately deferred until the probability baseline's calibration is judged acceptable
+(see the disclaimer at the top of that section).
 
 ## Future work
 

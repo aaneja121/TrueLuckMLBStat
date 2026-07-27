@@ -1,5 +1,5 @@
 .PHONY: setup format lint typecheck test check download-sample clean-data \
-	download-development-data clean-development-data train demo notebook
+	download-development-data clean-development-data train compare-models demo notebook
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -72,6 +72,16 @@ train:
 	$(PY) -m mlb_luck_score.models.train_contact_model \
 		--input $$INPUT \
 		--output-dir artifacts
+
+# Controlled comparison of contact-model variants (unweighted vs
+# class-balanced vs naive-prevalence vs time-ordered post-hoc-calibrated) on
+# untouched 2024 validation data. See "Model comparison" in README.md.
+compare-models:
+	$(PY) -m mlb_luck_score.models.compare_models \
+		--input data/processed/cleaned_development_data.parquet \
+		--output-dir outputs/tables \
+		--figures-dir outputs/figures/model_comparison \
+		--include-post-hoc-calibration
 
 demo:
 	$(PY) -m mlb_luck_score.models.predict_outcomes --demo

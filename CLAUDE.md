@@ -52,6 +52,35 @@ the corresponding tests in `tests/test_scoring.py`, and (3) calling out the chan
 to the user as a redefinition, not a bug fix. Silent redefinition breaks comparability
 across any results already produced.
 
+## Never use class_weight="balanced" (or similar) for the probability baseline
+
+`train_model`'s default `class_weight=None` is load-bearing, not arbitrary. It was
+changed FROM `class_weight="balanced"` after that setting was confirmed (via a controlled
+comparison on real 2021-2024 data, isolating `class_weight` as the only variable changed)
+to cause severe probability miscalibration -- e.g. rows called ~54% likely to be a triple
+were observed to be one ~3.6% of the time. See "Model comparison and probability
+calibration" in README.md and `mlb_luck_score.models.compare_models` for the exact numbers
+and methodology. `class_weight="balanced"` is preserved ONLY as the explicitly-labeled
+`VARIANT_CLASS_BALANCED` comparison model (`mlb_luck_score.models.train_contact_model`) --
+never use its output, or any other class-reweighting/oversampling scheme, to produce
+probabilities for the Contact Luck score, no matter how good its accuracy or per-class
+recall looks. Recall/accuracy and calibration are different questions -- a model can
+excel at one while failing the other. If you ever change the default `class_weight` or
+add a new reweighting scheme, verify calibration with
+`mlb_luck_score.models.compare_models.run_comparison` first and report the actual ECE/log
+loss numbers, not just accuracy.
+
+## Do not compute or publish Luck Scores against real data with a miscalibrated model
+
+`mlb_luck_score.scoring.raw_luck` requires well-calibrated probabilities to mean anything
+(`expected_value = sum(p(outcome) * value(outcome))`) -- a model that ranks outcomes
+correctly but assigns systematically wrong probabilities produces biased raw-luck values
+even though its classification metrics look fine. Before computing real (non-synthetic)
+raw-luck or public-score values, check the current model's calibration via `make
+compare-models` / notebook 03 and report the actual numbers. If a change makes
+calibration meaningfully worse, do not fold it into the default without calling that out
+explicitly.
+
 ## Never commit datasets, secrets, virtual environments, or model artifacts
 
 `.gitignore` already excludes `.venv/`, `.env`, `data/raw/*`, `data/interim/*`,

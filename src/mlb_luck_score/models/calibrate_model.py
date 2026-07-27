@@ -31,6 +31,7 @@ from sklearn.frozen import FrozenEstimator
 from sklearn.pipeline import Pipeline
 
 from mlb_luck_score.config import CLASS_ORDER
+from mlb_luck_score.models.train_contact_model import reorder_proba_columns
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,74 @@ def compute_calibration_table(
                 min_reliable_bin_samples,
             )
     return table
+
+
+def compute_expected_calibration_error(
+    calibration_table: pd.DataFrame, *, only_reliable: bool = False
+) -> float:
+    """Sample-count-weighted mean absolute calibration error.
+
+    Defined as::
+
+        ECE = sum(sample_count_i * abs_calibration_error_i) / sum(sample_count_i)
+
+    computed across every (outcome_class, probability_bin) row in the
+    table -- i.e. a single aggregate one-vs-rest expected calibration error
+    across all five classes. Larger bins (more samples) count
+    proportionally more, so a badly-miscalibrated bin with few samples
+    can't dominate the aggregate the way an unweighted mean would let it.
+
+    Args:
+        calibration_table: Output of `compute_calibration_table`.
+        only_reliable: If True, restrict to bins already marked
+            `reliable=True` (at least `MIN_RELIABLE_BIN_SAMPLES` rows).
+
+    Returns:
+        The weighted-mean absolute calibration error, in [0, 1].
+
+    Raises:
+        ValueError: If the (possibly filtered) table is empty.
+    """
+    table = calibration_table[calibration_table["reliable"]] if only_reliable else calibration_table
+    if table.empty:
+        raise ValueError("Cannot compute expected calibration error from an empty table")
+    weights = table["sample_count"].to_numpy()
+    errors = table["abs_calibration_error"].to_numpy()
+    return float(np.average(errors, weights=weights))
+
+
+def compute_expected_calibration_error_by_class(
+    calibration_table: pd.DataFrame, *, only_reliable: bool = False
+) -> dict[str, float]:
+    """Per-class expected calibration error (see `compute_expected_calibration_error`).
+
+    Useful for spotting that one class (e.g. a rare one) drives most of an
+    aggregate ECE, and for comparing calibration quality class-by-class
+    across model variants -- distinct from that class's classification
+    recall (see `mlb_luck_score.models.compare_models`).
+    """
+    result: dict[str, float] = {}
+    for cls, group in calibration_table.groupby("outcome_class"):
+        subset = group[group["reliable"]] if only_reliable else group
+        if subset.empty:
+            continue
+        result[str(cls)] = float(
+            np.average(subset["abs_calibration_error"], weights=subset["sample_count"])
+        )
+    return result
+
+
+def predict_proba_calibrated(calibrated: CalibratedClassifierCV, x: pd.DataFrame) -> pd.DataFrame:
+    """Predict probabilities from a fitted `CalibratedClassifierCV`, `CLASS_ORDER`-ordered.
+
+    `CalibratedClassifierCV.classes_` is alphabetically ordered like any
+    other sklearn classifier -- reuses
+    `mlb_luck_score.models.train_contact_model.reorder_proba_columns` so
+    calibrated and uncalibrated models are directly comparable.
+    """
+    raw_proba = calibrated.predict_proba(x)
+    classes = [str(c) for c in calibrated.classes_]
+    return reorder_proba_columns(raw_proba, classes, x.index)
 
 
 def fit_calibrated_classifier(

@@ -78,6 +78,26 @@ VALIDATION_SEASONS: tuple[int, ...] = (2024,)
 FINAL_TEST_SEASONS: tuple[int, ...] = (2025,)
 PROSPECTIVE_SEASONS: tuple[int, ...] = (2026,)
 
+#: Seasons for the time-ordered POST-HOC CALIBRATION design -- distinct from
+#: `TRAIN_SEASONS`/`VALIDATION_SEASONS` above (which are used for the main
+#: baseline model's train/validation split). A post-hoc calibration layer
+#: (e.g. isotonic regression via `CalibratedClassifierCV`) must be fit on
+#: data the base model never trained on, and evaluated on data neither the
+#: base model nor the calibrator ever saw -- otherwise the evaluation is
+#: optimistic. This gives three non-overlapping season groups:
+#:   - `CALIBRATION_BASE_TRAIN_SEASONS`: train the base classifier only.
+#:   - `CALIBRATION_FIT_SEASONS`: fit the calibration layer only (never used
+#:     for base training).
+#:   - `CALIBRATION_EVAL_SEASONS`: final evaluation only (never used for base
+#:     training or calibration fitting). Deliberately equal to
+#:     `VALIDATION_SEASONS` (2024) so calibrated and uncalibrated models are
+#:     compared on the same untouched season.
+#: See `mlb_luck_score.models.compare_models` and CLAUDE.md. Never fit a
+#: calibrator and evaluate it on the same rows.
+CALIBRATION_BASE_TRAIN_SEASONS: tuple[int, ...] = (2021, 2022)
+CALIBRATION_FIT_SEASONS: tuple[int, ...] = (2023,)
+CALIBRATION_EVAL_SEASONS: tuple[int, ...] = (2024,)
+
 #: Small default sample window used by `make download-sample` and the
 #: downloader CLI's defaults. Intentionally narrow (one week) so repository
 #: bootstrap never triggers a full-season download.

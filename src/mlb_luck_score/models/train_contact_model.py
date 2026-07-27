@@ -12,6 +12,20 @@ a deliberately simple baseline -- no claim of strong predictive performance
 is made without actual validation results, which this command prints and
 saves alongside the model artifact.
 
+IMPORTANT -- class_weight and probability quality: `train_model` defaults to
+`class_weight=None` (`VARIANT_UNWEIGHTED`). This is deliberate and was
+verified empirically (see `mlb_luck_score.models.compare_models` and
+CLAUDE.md): setting `class_weight="balanced"` reweights the loss inversely
+to training-class frequency, which shifts the fitted model's priors away
+from the true class distribution. On real 2021-2023/2024 data this produced
+severe probability miscalibration (e.g. rows the model called ~54% likely
+to be a triple were observed to be a triple ~3.6% of the time) even though
+the *unweighted* model's aggregate predicted-vs-observed frequencies matched
+almost exactly and its log loss was ~40% lower. `class_weight="balanced"` is
+preserved ONLY as `VARIANT_CLASS_BALANCED`, an explicitly-labeled comparison
+model -- it must never be used to produce probabilities for the Contact Luck
+score.
+
 2025 is a protected final-test season: this command refuses to train or
 validate on it unless `--allow-final-evaluation` is explicitly passed.
 """
@@ -55,6 +69,14 @@ MODEL_FILENAME_TEMPLATE = "contact_model_v{version}.joblib"
 METADATA_FILENAME_TEMPLATE = "contact_model_v{version}_metadata.json"
 EVALUATION_FILENAME_TEMPLATE = "contact_model_v{version}_evaluation.json"
 
+#: The candidate Contact Luck probability baseline: no class weighting, so
+#: predicted probabilities reflect the true training-class distribution.
+VARIANT_UNWEIGHTED = "unweighted_probability_baseline"
+#: Preserved ONLY as an explicitly-labeled comparison model. Verified to
+#: produce severely miscalibrated probabilities (see module docstring) --
+#: never use this variant's output as a Contact Luck probability.
+VARIANT_CLASS_BALANCED = "class_balanced_comparison_only"
+
 
 @dataclass
 class TrainedModel:
@@ -62,6 +84,8 @@ class TrainedModel:
     numeric_features: list[str]
     categorical_features: list[str]
     class_order: list[str] = field(default_factory=lambda: list(CLASS_ORDER))
+    class_weight: str | None = None
+    variant: str = VARIANT_UNWEIGHTED
 
 
 def _prepare_xy(
@@ -73,18 +97,53 @@ def _prepare_xy(
     return x, y
 
 
-def train_model(train_df: pd.DataFrame, *, include_optional_features: bool = False) -> TrainedModel:
-    """Fit the baseline logistic-regression pipeline on training-eligible rows."""
+def train_model(
+    train_df: pd.DataFrame,
+    *,
+    include_optional_features: bool = False,
+    class_weight: str | None = None,
+) -> TrainedModel:
+    """Fit the baseline logistic-regression pipeline on training-eligible rows.
+
+    Args:
+        train_df: Training-eligible rows (already filtered to
+            `eligible_for_training` and the desired training seasons).
+        include_optional_features: Whether to include optional features
+            (sprint speed, alignment classifications) when available.
+        class_weight: Passed straight through to `LogisticRegression`.
+            Defaults to `None` -- the probability-safe choice, and the one
+            that should be used for the Contact Luck probability baseline.
+            `"balanced"` is supported ONLY to produce the explicitly-labeled
+            `VARIANT_CLASS_BALANCED` comparison model; it is verified (see
+            module docstring) to severely distort predicted probabilities.
+            Every triple must be KEPT in the training data regardless of
+            `class_weight` -- this argument changes how the loss weights
+            classes during fitting, not which rows are used.
+    """
     numeric_features, categorical_features = select_available_features(
         train_df, include_optional=include_optional_features
     )
     logger.info("Numeric features: %s", numeric_features)
     logger.info("Categorical features: %s", categorical_features)
 
+    if class_weight == "balanced":
+        logger.warning(
+            "Training with class_weight='balanced' (%s). This variant is a "
+            "labeled COMPARISON MODEL ONLY -- its predicted probabilities are "
+            "known to be severely miscalibrated and must NOT be used for the "
+            "Contact Luck score.",
+            VARIANT_CLASS_BALANCED,
+        )
+        variant = VARIANT_CLASS_BALANCED
+    elif class_weight is None:
+        variant = VARIANT_UNWEIGHTED
+    else:
+        variant = f"custom_class_weight[{class_weight}]"
+
     preprocessor = build_preprocessing_pipeline(numeric_features, categorical_features)
     classifier = LogisticRegression(
         max_iter=2000,
-        class_weight="balanced",
+        class_weight=class_weight,
         random_state=RANDOM_SEED,
     )
     pipeline = Pipeline(steps=[("preprocess", preprocessor), ("classify", classifier)])
@@ -103,7 +162,27 @@ def train_model(train_df: pd.DataFrame, *, include_optional_features: bool = Fal
         pipeline=pipeline,
         numeric_features=numeric_features,
         categorical_features=categorical_features,
+        class_weight=class_weight,
+        variant=variant,
     )
+
+
+def reorder_proba_columns(
+    raw_proba: np.ndarray, classes: list[str], index: pd.Index
+) -> pd.DataFrame:
+    """Reindex a raw (n_rows, n_classes) probability array to `CLASS_ORDER`.
+
+    Shared by any estimator whose `.classes_` attribute orders classes
+    alphabetically (every sklearn classifier does this, including
+    `CalibratedClassifierCV` -- see `mlb_luck_score.models.calibrate_model`)
+    rather than in the project's canonical `CLASS_ORDER`. Any class absent
+    from `classes` (e.g. never seen in training) is filled with 0.0.
+    """
+    proba_df = pd.DataFrame(raw_proba, columns=classes, index=index)
+    for cls in CLASS_ORDER:
+        if cls not in proba_df.columns:
+            proba_df[cls] = 0.0
+    return proba_df[list(CLASS_ORDER)]
 
 
 def predict_proba_ordered(trained: TrainedModel, x: pd.DataFrame) -> pd.DataFrame:
@@ -116,11 +195,7 @@ def predict_proba_ordered(trained: TrainedModel, x: pd.DataFrame) -> pd.DataFram
     """
     raw_proba = trained.pipeline.predict_proba(x)
     classes = list(trained.pipeline.named_steps["classify"].classes_)
-    proba_df = pd.DataFrame(raw_proba, columns=classes, index=x.index)
-    for cls in CLASS_ORDER:
-        if cls not in proba_df.columns:
-            proba_df[cls] = 0.0
-    return proba_df[list(CLASS_ORDER)]
+    return reorder_proba_columns(raw_proba, classes, x.index)
 
 
 def validate_probabilities(proba_df: pd.DataFrame, *, atol: float = 1e-6) -> None:
@@ -151,7 +226,11 @@ def evaluate_model(trained: TrainedModel, eval_df: pd.DataFrame) -> dict[str, An
     y_true = y_eval.to_numpy()
     labels = list(CLASS_ORDER)
 
-    metrics: dict[str, Any] = {"sample_count": int(len(eval_df))}
+    metrics: dict[str, Any] = {
+        "variant": trained.variant,
+        "class_weight": trained.class_weight,
+        "sample_count": int(len(eval_df)),
+    }
 
     try:
         # sklearn's log_loss silently assumes y_prob columns are ordered
@@ -205,6 +284,8 @@ def save_artifact(
 
     metadata = {
         "model_version": model_version,
+        "variant": trained.variant,
+        "class_weight": trained.class_weight,
         "training_seasons": train_seasons,
         "numeric_features": trained.numeric_features,
         "categorical_features": trained.categorical_features,
@@ -231,6 +312,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--validation-seasons", type=int, nargs="+", default=list(VALIDATION_SEASONS)
     )
     parser.add_argument("--include-optional-features", action="store_true")
+    parser.add_argument(
+        "--class-weight",
+        choices=("none", "balanced"),
+        default="none",
+        help=(
+            "'none' (default) trains the unweighted probability baseline -- use this for "
+            "the Contact Luck score. 'balanced' trains the explicitly-labeled comparison "
+            "model only; its probabilities are verified to be severely miscalibrated and "
+            "must not be used for scoring (see module docstring)."
+        ),
+    )
     parser.add_argument(
         "--allow-final-evaluation",
         action="store_true",
@@ -260,7 +352,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     logger.info("Training on %d rows from seasons %s", len(train_df), args.train_seasons)
 
-    trained = train_model(train_df, include_optional_features=args.include_optional_features)
+    class_weight = None if args.class_weight == "none" else args.class_weight
+    if class_weight == "balanced":
+        logger.warning(
+            "--class-weight=balanced was requested: this produces the "
+            "VARIANT_CLASS_BALANCED comparison model. Its probabilities are verified to be "
+            "severely miscalibrated (see module docstring) -- do not use this artifact for "
+            "the Contact Luck score."
+        )
+    trained = train_model(
+        train_df,
+        include_optional_features=args.include_optional_features,
+        class_weight=class_weight,
+    )
 
     model_path, metadata_path = save_artifact(
         trained,
