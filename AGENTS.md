@@ -1,0 +1,118 @@
+# AGENTS.md -- persistent rules for AI coding agents in this repository
+
+This file governs how any AI coding agent (Claude Code, other CLI agents, IDE
+assistants) should work in **Contact Luck Prototype v0.1**. Read `README.md` first
+for project scope and terminology; this file is about *how to work here safely*, not
+*what the project is*. (`CLAUDE.md` contains the same rules for Claude Code
+specifically -- keep the two in sync if you update either.)
+
+## The single most important rule
+
+> **Never tune, iterate, or select features using 2025 results.**
+
+2025 is the untouched final-test season (see `mlb_luck_score.config.FINAL_TEST_SEASONS`
+and `assert_seasons_allowed`). It is enforced in code -- any command that touches a
+season list must call `assert_seasons_allowed(...)` and must not pass
+`allow_final_evaluation=True` except for a genuine, intentional, one-time final
+evaluation the user has explicitly asked for. Do not add a new code path (notebook
+cell, script, ad hoc analysis) that reads 2025 data during normal development. If
+unsure whether something counts as "tuning" on 2025, treat it as tuning and ask first.
+
+## Avoid target leakage
+
+Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,
+`estimated_woba_using_speedangle`, `woba_value`, `delta_home_win_exp`, or any other
+column computed from or encoding the play's result as a model input feature. The
+enforced list lives in `mlb_luck_score.config.LEAKAGE_COLUMNS`; the check is
+`mlb_luck_score.features.build_contact_features.assert_no_leakage`. If you add a new
+feature, check whether it's post-outcome before wiring it in, and prefer running the
+leakage check over trusting your own judgment.
+
+## Keep eligibility logic centralized
+
+All fair-batted-ball eligibility rules, outcome-class mapping, and training-exclusion
+reasons live in `mlb_luck_score/eligibility.py` and nowhere else. Do not duplicate the
+eligible-event list, the outcome mapping, or the ambiguous-event handling in another
+module, script, or notebook -- import from `eligibility.py`. If the rules need to
+change, change them there and update its docstrings and `README.md`/this file together.
+
+## Never silently redefine the Luck Score
+
+`compute_raw_luck` (additive, `mlb_luck_score.scoring.raw_luck`) and
+`raw_luck_to_public_score` (non-additive, provisional,
+`mlb_luck_score.scoring.public_score`) have exact, documented formulas. Do not change
+the formula, the default value map, or the class ordering without: (1) updating every
+docstring that states the formula, (2) updating the corresponding tests in
+`tests/test_scoring.py`, and (3) calling out the change clearly to the user as a
+redefinition, not a bug fix. Silent redefinition breaks comparability across any
+results already produced.
+
+## Never commit datasets, secrets, virtual environments, or model artifacts
+
+`.gitignore` already excludes `.venv/`, `.env`, `data/raw/*`, `data/interim/*`,
+`data/processed/*`, `artifacts/*`, and `outputs/{figures,tables}/*` (keeping only
+`.gitkeep` placeholders). Before committing, run `git status` and double-check nothing
+under those paths, and nothing that looks like an API key or credential, is staged.
+
+## Confidence must never dampen the score
+
+The Version 0.1 confidence report (`mlb_luck_score.scoring.confidence`) is descriptive
+data-completeness reporting only. Do not use it to pull `raw_luck` or the public score
+toward zero, and do not present it as a statistical uncertainty estimate -- it isn't
+one.
+
+## Use conservative scientific language
+
+Do not describe the model as "accurate," "validated," or "calibrated" without pointing
+to the specific evaluation numbers that support the claim, computed on real held-out
+(non-2025) data. Running calibration or evaluation code successfully is not evidence
+that the results are good -- report the actual numbers and let them speak. Prefer
+"provisional," "preliminary," and "Version 0.1 research placeholder" over stronger
+language, matching the existing docstrings.
+
+## Document assumptions and provisional choices
+
+Every provisional constant (the ordinal value map, the public-score scale, the
+spray-angle formula, the eligible-event list) already has a docstring explaining it is
+a Version 0.1 choice, not a validated result. When you add a new one, do the same --
+future readers (human or agent) should be able to tell a documented placeholder from a
+validated result at a glance.
+
+## Prefer small, reviewable changes
+
+This is a research prototype under active iteration. Prefer focused diffs over broad
+refactors; don't restructure multiple modules in one change unless asked.
+
+## Inspect existing work before editing
+
+Before modifying a module, read it (and its tests) in full. Before running any git
+operation, run `git status` first -- do not assume the working tree is clean.
+
+## Avoid destructive Git operations
+
+Never run `git push --force`, `git reset --hard`, `git checkout -- <path>` /
+`git restore` over uncommitted work, `git clean -f`, or `git branch -D` unless the user
+explicitly asks for that specific action in that specific moment. Prefer creating a new
+commit over amending an existing one.
+
+## Ask before pushing, publishing, or changing external resources
+
+Never `git push`, never create or modify a git remote, never create cloud resources,
+and never touch CI/CD configuration without the user explicitly asking first in that
+conversation. Downloading Statcast data requires internet access -- that's expected and
+fine, but always say so before running a download.
+
+## Before finishing any change
+
+Run, in this order, and fix failures before reporting done (or explain clearly why you
+couldn't):
+
+```bash
+.venv/bin/python -m ruff format src tests   # or: make format
+.venv/bin/python -m ruff check src tests    # or: make lint
+.venv/bin/python -m mypy src                # or: make typecheck
+.venv/bin/python -m pytest                  # or: make test
+```
+
+All four are bundled in `make check`. The test suite must remain fully offline --
+never add a test that requires network access or real Statcast data.

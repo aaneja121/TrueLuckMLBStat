@@ -1,0 +1,10 @@
+# Runtime dependencies for mlb_luck_score.
+# Human-readable, minimum-version constraints -- see pyproject.toml for the
+# authoritative packaging metadata used by `pip install -e .`.
+pandas>=2.1
+numpy>=1.26
+scikit-learn>=1.6  # FrozenEstimator (used for post-hoc calibration) requires >=1.6
+pyarrow>=14.0
+requests>=2.31
+pybaseball>=2.2.4
+joblib>=1.3
