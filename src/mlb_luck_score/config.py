@@ -140,6 +140,22 @@ def development_raw_path(raw_dir: Path, season: int) -> Path:
     return raw_dir / DEVELOPMENT_RAW_FILENAME_TEMPLATE.format(season=season)
 
 
+#: Public MLB Stats API base URL used by
+#: `mlb_luck_score.data.download_game_metadata` to recover venue/roof/
+#: surface metadata per game (Statcast itself does not include a usable
+#: venue field -- see CLAUDE.md). No API key required.
+MLB_STATS_API_BASE_URL = "https://statsapi.mlb.com/api/v1"
+
+#: Filename template for per-season game-metadata cache files, mirroring
+#: `DEVELOPMENT_RAW_FILENAME_TEMPLATE`'s pattern so the two never collide.
+GAME_METADATA_FILENAME_TEMPLATE = "game_metadata_{season}.parquet"
+
+
+def game_metadata_path(raw_dir: Path, season: int) -> Path:
+    """Path to a single season's cached game-metadata Parquet file."""
+    return raw_dir / GAME_METADATA_FILENAME_TEMPLATE.format(season=season)
+
+
 class ProtectedSeasonError(ValueError):
     """Raised when a command would use a protected final-test season."""
 

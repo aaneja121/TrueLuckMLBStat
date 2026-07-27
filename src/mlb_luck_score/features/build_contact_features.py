@@ -9,7 +9,7 @@ may enter the feature set (see `mlb_luck_score.config.LEAKAGE_COLUMNS`).
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -98,6 +98,7 @@ def select_available_features(
     df: pd.DataFrame,
     *,
     include_optional: bool = False,
+    extra_categorical_features: Sequence[str] = (),
     min_non_null_fraction: float = MIN_NON_NULL_FRACTION,
 ) -> tuple[list[str], list[str]]:
     """Choose numeric/categorical features actually usable in `df`.
@@ -107,6 +108,20 @@ def select_available_features(
     Nothing is silently imputed away at the column-selection stage --
     per-row imputation happens inside the returned preprocessing pipeline.
 
+    Args:
+        df: Training-eligible rows.
+        include_optional: Whether to include the standard optional features
+            (sprint speed, alignment classifications).
+        extra_categorical_features: Additional categorical feature names to
+            consider beyond the standard set, subject to the SAME
+            missingness threshold and leakage check as every other feature.
+            Used for one-off, explicitly-labeled comparison variants (e.g.
+            adding `venue_id` for a park-aware candidate model) without
+            changing the default feature set for ordinary callers. Empty by
+            default -- passing nothing here is identical to prior behavior.
+        min_non_null_fraction: Minimum non-null fraction required to keep a
+            candidate feature.
+
     Returns:
         (numeric_features, categorical_features) actually usable.
     """
@@ -115,6 +130,9 @@ def select_available_features(
     if include_optional:
         numeric_candidates += list(OPTIONAL_NUMERIC_FEATURES)
         categorical_candidates += list(OPTIONAL_CATEGORICAL_FEATURES)
+    categorical_candidates += [
+        c for c in extra_categorical_features if c not in categorical_candidates
+    ]
 
     def _keep(col: str) -> bool:
         if col not in df.columns:

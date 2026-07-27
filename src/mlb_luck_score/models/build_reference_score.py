@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -67,6 +68,7 @@ def build_reference_artifact(
     n_quantile_points: int = DEFAULT_N_QUANTILE_POINTS,
     scoring_version: str = DEFAULT_SCORING_VERSION,
     allow_final_evaluation: bool = False,
+    extra_categorical_features: Sequence[str] = (),
 ) -> ReferenceScoreArtifact:
     """Train the unweighted baseline and build the empirical reference.
 
@@ -81,9 +83,17 @@ def build_reference_artifact(
         run_value_map: Fixed run-value table. Defaults to `DEFAULT_RUN_VALUE_MAP`.
         n_quantile_points: Number of evenly-spaced percentile points (0-100
             inclusive) to store per side.
-        scoring_version: Version tag recorded in the artifact.
+        scoring_version: Version tag recorded in the artifact. Use a
+            distinct version (e.g. "0.3.0") when building a reference for a
+            different model variant so it never overwrites another
+            version's artifact file (see `mlb_luck_score.models.
+            build_reference_score.REFERENCE_ARTIFACT_FILENAME_TEMPLATE`).
         allow_final_evaluation: Must be True to permit 2025 in either season
             list -- never pass this for routine use.
+        extra_categorical_features: Additional categorical features beyond
+            the standard set (e.g. `("venue_id",)` to build a park-aware
+            reference artifact -- see `mlb_luck_score.models.
+            compare_park_aware`). Empty by default.
 
     Returns:
         A `ReferenceScoreArtifact` ready to save or score against.
@@ -110,7 +120,9 @@ def build_reference_artifact(
     logger.info(
         "Training unweighted baseline on %d rows (seasons %s)", len(train_df), train_seasons
     )
-    trained = train_model(train_df, class_weight=None)
+    trained = train_model(
+        train_df, class_weight=None, extra_categorical_features=extra_categorical_features
+    )
     feature_cols = trained.numeric_features + trained.categorical_features
     proba_df = predict_proba_ordered(trained, reference_df[feature_cols])
 
@@ -172,6 +184,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scoring-version", default=DEFAULT_SCORING_VERSION)
     parser.add_argument("--n-quantile-points", type=int, default=DEFAULT_N_QUANTILE_POINTS)
     parser.add_argument(
+        "--extra-categorical-features",
+        nargs="*",
+        default=(),
+        help="Extra categorical features beyond the standard set (e.g. venue_id).",
+    )
+    parser.add_argument(
         "--allow-final-evaluation",
         action="store_true",
         help="Required to use the protected 2025 season. Never pass this for routine use.",
@@ -192,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
             n_quantile_points=args.n_quantile_points,
             scoring_version=args.scoring_version,
             allow_final_evaluation=args.allow_final_evaluation,
+            extra_categorical_features=tuple(args.extra_categorical_features),
         )
     except ValueError as exc:
         logger.error(str(exc))

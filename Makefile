@@ -1,6 +1,7 @@
 .PHONY: setup format lint typecheck test check download-sample clean-data \
 	download-development-data clean-development-data train compare-models \
-	build-reference-score demo notebook
+	build-reference-score download-game-metadata join-venue-metadata \
+	compare-park-aware demo notebook
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -92,6 +93,34 @@ build-reference-score:
 	$(PY) -m mlb_luck_score.models.build_reference_score \
 		--input data/processed/cleaned_development_data.parquet \
 		--output-dir artifacts
+
+# Downloads per-game venue/roof/surface metadata for 2021-2024 from the
+# public MLB Stats API (Statcast itself has no usable venue field). One
+# Parquet file per season, resumable. See "Park-aware (Version 0.3)" in
+# README.md.
+download-game-metadata:
+	$(PY) -m mlb_luck_score.data.download_game_metadata \
+		--seasons 2021 2022 2023 2024 \
+		--output-dir data/raw
+
+# Joins the per-season game-metadata files to the cleaned development
+# dataset by game_pk and reports coverage (match rate, unmatched games/rows,
+# counts by venue/season). Fails clearly if a game maps to multiple venues.
+join-venue-metadata:
+	$(PY) -m mlb_luck_score.data.join_venue_metadata \
+		--cleaned-input data/processed/cleaned_development_data.parquet \
+		--metadata-dir data/raw \
+		--output data/processed/cleaned_development_data_with_venue.parquet
+
+# Controlled comparison: baseline_v02 (current unweighted model) vs
+# park_aware_v03_candidate (same model + categorical venue_id) on untouched
+# 2024 validation data, including calibration by venue. Does NOT
+# automatically adopt the park-aware variant -- see README.md.
+compare-park-aware:
+	$(PY) -m mlb_luck_score.models.compare_park_aware \
+		--input data/processed/cleaned_development_data_with_venue.parquet \
+		--output-dir outputs/tables \
+		--figures-dir outputs/figures/park_aware
 
 demo:
 	$(PY) -m mlb_luck_score.models.predict_outcomes --demo

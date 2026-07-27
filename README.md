@@ -361,8 +361,11 @@ make notebook        # launches Jupyter in notebooks/
   (predicted distribution, run values, raw contact luck in runs, empirical score,
   confidence report), a clearly-labeled Version 0.1 legacy comparison for the same play,
   and a 2024 reference-distribution summary (stats, quantiles, histograms).
+- `05_park_aware_analysis.ipynb` -- **Version 0.3**: venue coverage and counts by park,
+  `baseline_v02` vs. `park_aware_v03_candidate` metrics, calibration by park, and the 2024
+  example plays whose predicted distribution changed the most after adding `venue_id`.
 
-All four notebooks detect missing data/artifacts and print clear instructions instead of
+All five notebooks detect missing data/artifacts and print clear instructions instead of
 crashing; `04` additionally falls back to a small synthetic example so it is always
 runnable immediately after bootstrap.
 
@@ -461,6 +464,64 @@ metadata. **Never sum or average empirical public scores to build a season metri
 mapping is non-linear and per-play; use raw contact luck (runs) instead (`mlb_luck_score.
 scoring.aggregation`). The reference distribution is never refit on 2025.
 
+## Park-aware model comparison (Version 0.3)
+
+Statcast itself has no usable venue field, so venue metadata is recovered separately from
+the public MLB Stats API (no key required) and joined by `game_pk`:
+
+```bash
+make download-game-metadata   # per-season game_pk/venue_id/venue_name/roof_type/surface_type
+make join-venue-metadata      # left-join onto the cleaned development dataset, with a report
+make compare-park-aware       # baseline_v02 vs park_aware_v03_candidate, see below
+```
+
+`is_neutral_site` is a derived heuristic (a game at a different venue than that team's most
+common home park that season), not a raw API field -- verified against real 2021-2024 data,
+it correctly identifies every known neutral-site game (the London Series, Mexico City
+Series, Little League Classic, and the Rickwood Field tribute game). A small number of
+real games (the MLB Field of Dreams games) have no venue at all in the API response; these
+rows are kept with venue fields null and `has_venue_metadata=False`, never dropped.
+
+**`park_aware_v03_candidate`** is the exact same unweighted model and features as
+`baseline_v02`, plus one additional categorical feature, `venue_id`
+(`mlb_luck_score.models.compare_park_aware`). Real 2021-2024 results (99.98% venue match
+rate, 0 conflicting mappings):
+
+| variant | log loss | ECE | home-run ECE | accuracy (secondary) |
+|---|---|---|---|---|
+| `baseline_v02` | 0.670321 | 0.014413 | 0.002706 | 0.7515 |
+| `park_aware_v03_candidate` | 0.668930 | 0.014167 | 0.002977 | 0.7509 |
+
+Both overall log loss and overall ECE improve slightly, and the automated rule (see
+`recommend_park_aware_adoption`) recommends adoption with no venues crossing its
+"material regression" threshold. **The improvement is real but small** -- and the
+per-class/per-venue picture is mixed, not uniformly better (e.g. home-run ECE is slightly
+*worse*, and Fenway Park's per-venue ECE increases from 0.016 to 0.025, the largest
+movement of any reliably-sampled park, without crossing the automated threshold). Treat
+this as a genuine but modest positive signal, not a decisive one.
+
+Qualitatively, `venue_id` is learning something real, not just noise: the five 2024
+validation rows whose predicted distribution changed the most after adding venue are all
+Coors Field plays, where the park-aware model shifts probability mass *away* from
+home run and *toward* triple/double/out for hard-hit fly balls -- consistent with Coors
+Field's famously oversized outfield (built deep specifically to counteract altitude-driven
+carry), which is well known to convert would-be home runs elsewhere into extra-base hits.
+
+**Adoption rule: `park_aware_v03_candidate` has NOT been adopted as the default.** Per the
+task's adoption rule, a park-aware model is only ever a candidate; switching the default
+requires an explicit, deliberate decision informed by (not dictated by) the numbers above.
+See notebook `05_park_aware_analysis.ipynb` for the full breakdown, including calibration
+by park and fly-ball/high-projected-distance subgroup calibration. Published park factors
+(altitude, wall height/distance, prevailing wind) are explicitly NOT used yet -- only the
+venue's bare categorical identity. If `park_aware_v03_candidate` is ever adopted, build its
+reference artifact under a distinct version (never overwriting `reference_score_v0.2.0.json`):
+
+```bash
+python -m mlb_luck_score.models.build_reference_score \
+    --input data/processed/cleaned_development_data_with_venue.parquet \
+    --output-dir artifacts --scoring-version 0.3.0 --extra-categorical-features venue_id
+```
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
@@ -505,10 +566,12 @@ uncertainty, and bootstrap/posterior intervals are reserved for future work.
 ## Data licensing and redistribution caution
 
 Statcast data is provided publicly by MLB Advanced Media / Baseball Savant via
-`pybaseball`. This repository does not redistribute any downloaded data (see
-`.gitignore`); downloaded files stay local under `data/raw/`, `data/interim/`, and
-`data/processed/`, all git-ignored. Review MLB/Baseball Savant's terms before
-redistributing any derived data outside this repository.
+`pybaseball`. Venue/roof/surface game metadata (Version 0.3) is provided publicly by the
+MLB Stats API (`statsapi.mlb.com`, no key required). This repository does not redistribute
+any downloaded data (see `.gitignore`); downloaded files stay local under `data/raw/`,
+`data/interim/`, and `data/processed/`, all git-ignored. Review MLB Advanced Media/
+Baseball Savant's and the MLB Stats API's terms before redistributing any derived data
+outside this repository.
 
 ## Reproducibility
 
@@ -532,10 +595,16 @@ real 2021-2024 dataset has been trained, evaluated, and used to build the real V
 severe miscalibration issue in an earlier `class_weight="balanced"` variant, now fixed by
 defaulting to the unweighted variant. Notebook `04_luck_score_demo.ipynb` has been run
 against real data and shows real Version 0.2 raw-luck and empirical-score values for a
-genuinely out-of-sample 2024 example play.
+genuinely out-of-sample 2024 example play. Venue metadata (Version 0.3) has been
+downloaded and joined for real 2021-2024 data (99.98% match rate); the park-aware model
+comparison has been run for real -- see "Park-aware model comparison (Version 0.3)" above
+for the exact results. `park_aware_v03_candidate` is a documented candidate, not adopted
+as the default.
 
 ## Future work
 
+- Published park factors (altitude, wall height/distance, prevailing wind) -- Version 0.3
+  uses only the venue's bare categorical identity, not park-specific physical factors
 - Weather normalization and air-density modeling
 - Park geometry effects
 - Exact defender positioning, reaction, and route modeling

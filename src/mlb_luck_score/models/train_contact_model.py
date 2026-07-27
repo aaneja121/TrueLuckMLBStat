@@ -36,6 +36,7 @@ import argparse
 import json
 import logging
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,6 +103,7 @@ def train_model(
     *,
     include_optional_features: bool = False,
     class_weight: str | None = None,
+    extra_categorical_features: Sequence[str] = (),
 ) -> TrainedModel:
     """Fit the baseline logistic-regression pipeline on training-eligible rows.
 
@@ -119,9 +121,17 @@ def train_model(
             Every triple must be KEPT in the training data regardless of
             `class_weight` -- this argument changes how the loss weights
             classes during fitting, not which rows are used.
+        extra_categorical_features: Additional categorical features beyond
+            the standard set (e.g. `("venue_id",)` for a park-aware
+            comparison variant -- see `mlb_luck_score.models.
+            compare_park_aware`). Empty by default, so ordinary callers see
+            no behavior change. Subject to the same missingness/leakage
+            checks as every other feature (see `select_available_features`).
     """
     numeric_features, categorical_features = select_available_features(
-        train_df, include_optional=include_optional_features
+        train_df,
+        include_optional=include_optional_features,
+        extra_categorical_features=extra_categorical_features,
     )
     logger.info("Numeric features: %s", numeric_features)
     logger.info("Categorical features: %s", categorical_features)

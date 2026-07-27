@@ -92,6 +92,20 @@ compare-models` / notebook 03 and report the actual numbers. If a change makes
 calibration meaningfully worse, do not fold it into the default without calling that out
 explicitly.
 
+## Never silently adopt a candidate model variant as the default
+
+`park_aware_v03_candidate` (`mlb_luck_score.models.compare_park_aware`, adds `venue_id` to
+the Version 0.2 `baseline_v02` features) is a documented CANDIDATE, not the default --
+`train_model`'s default feature set does not include `venue_id`. This pattern generalizes:
+any future comparison variant (park factors, weather, defensive positioning, etc.) stays a
+candidate, reported with its exact metrics via `recommend_*`-style rule-based logic, until
+a maintainer explicitly decides to adopt it. A rule-based recommendation is a starting
+point for judgment (read the full by-venue/by-subgroup table yourself -- a real,
+noteworthy regression can exist below a conservative automated threshold), never a
+substitute for it. If a candidate is adopted, give it a distinct `scoring_version` in its
+`ReferenceScoreArtifact` (see `mlb_luck_score.models.build_reference_score`) rather than
+overwriting an earlier version's artifact file.
+
 ## Never commit datasets, secrets, virtual environments, or model artifacts
 
 `.gitignore` already excludes `.venv/`, `.env`, `data/raw/*`, `data/interim/*`,
