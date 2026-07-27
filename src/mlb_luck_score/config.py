@@ -84,6 +84,41 @@ PROSPECTIVE_SEASONS: tuple[int, ...] = (2026,)
 DEFAULT_SAMPLE_START_DATE = "2024-04-01"
 DEFAULT_SAMPLE_END_DATE = "2024-04-07"
 
+#: All seasons used anywhere in the time-based development design (training
+#: + validation). Deliberately excludes `FINAL_TEST_SEASONS` (2025) and
+#: `PROSPECTIVE_SEASONS` (2026) -- this is the season list
+#: `mlb_luck_score.data.download_development_data` and
+#: `mlb_luck_score.data.clean_development_data` default to.
+DEVELOPMENT_SEASONS: tuple[int, ...] = TRAIN_SEASONS + VALIDATION_SEASONS
+
+#: Documented, best-effort MLB regular-season date ranges (commonly-cited
+#: Opening Day through the last day of the 162-game slate) used by
+#: `mlb_luck_score.data.download_development_data`. These are NOT scraped
+#: from a live schedule API -- they are a Version 0.1 research choice.
+#: Known simplification: 2024 excludes the earlier Seoul Series games
+#: (2024-03-20/21), which most of the league did not play in.
+#: Intentionally has NO entry for 2025 (defense in depth alongside
+#: `assert_seasons_allowed`: even with `allow_final_evaluation=True`, this
+#: dict must be extended before 2025 could be downloaded via this command).
+MLB_REGULAR_SEASON_DATE_RANGES: dict[int, tuple[str, str]] = {
+    2021: ("2021-04-01", "2021-10-03"),
+    2022: ("2022-04-07", "2022-10-05"),
+    2023: ("2023-03-30", "2023-10-01"),
+    2024: ("2024-03-28", "2024-09-29"),
+}
+
+#: Filename template for per-season development raw files, shared by the
+#: downloader and the cleaner so they always agree on where a season's raw
+#: data lives. Deliberately distinct from the one-week bootstrap sample
+#: filename (`statcast_2024_sample.parquet`) so the two workflows can never
+#: collide or overwrite one another.
+DEVELOPMENT_RAW_FILENAME_TEMPLATE = "statcast_{season}_regular_season.parquet"
+
+
+def development_raw_path(raw_dir: Path, season: int) -> Path:
+    """Path to a single development season's raw Statcast Parquet file."""
+    return raw_dir / DEVELOPMENT_RAW_FILENAME_TEMPLATE.format(season=season)
+
 
 class ProtectedSeasonError(ValueError):
     """Raised when a command would use a protected final-test season."""

@@ -18,6 +18,13 @@ evaluation the user has explicitly asked for. Do not add a new code path (notebo
 cell, script, ad hoc analysis) that reads 2025 data during normal development. If
 unsure whether something counts as "tuning" on 2025, treat it as tuning and ask first.
 
+This applies equally to `mlb_luck_score.data.download_development_data` and
+`mlb_luck_score.data.clean_development_data` (the full 2021-2024 dataset workflow): both
+call `assert_seasons_allowed`, and the downloader has no configured date range for 2025
+in `mlb_luck_score.config.MLB_REGULAR_SEASON_DATE_RANGES` as a second layer of
+protection. If you ever add a new season to that dict or to `DEVELOPMENT_SEASONS`,
+2025 must never be one of them.
+
 ## Avoid target leakage
 
 Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,
@@ -100,7 +107,12 @@ commit over amending an existing one.
 Never `git push`, never create or modify a git remote, never create cloud resources,
 and never touch CI/CD configuration without the user explicitly asking first in that
 conversation. Downloading Statcast data requires internet access -- that's expected and
-fine, but always say so before running a download.
+fine, but always say so before running a download. The full development dataset
+download (`make download-development-data`, all four 2021-2024 seasons) is large and
+can take a long time (see README.md "Full development dataset" for storage/runtime
+estimates) -- implement and test that workflow with synthetic data first, then show the
+user the exact command and its storage/runtime considerations, and get explicit
+approval before actually running it against the network.
 
 ## Before finishing any change
 

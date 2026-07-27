@@ -173,6 +173,64 @@ engineered spray features, a `season` column, and eligibility/training-exclusion
 Never requires network access; never crashes on missing optional columns, empty input,
 or malformed dates (each is logged and handled explicitly, not silently coerced).
 
+## Full development dataset (2021-2024)
+
+The one-week sample above is too small to train on (0 rows fall in the 2021-2023 training
+window). To actually train the baseline model, download full regular-season Statcast data
+for all four development seasons:
+
+```bash
+make download-development-data
+# equivalent to:
+python -m mlb_luck_score.data.download_development_data \
+    --seasons 2021 2022 2023 2024 --output-dir data/raw
+
+make clean-development-data
+# equivalent to:
+python -m mlb_luck_score.data.clean_development_data \
+    --seasons 2021 2022 2023 2024 --raw-dir data/raw \
+    --output data/processed/cleaned_development_data.parquet
+```
+
+**Before running this for real:**
+
+- **Requires internet access** and downloads roughly 26x more data than the one-week
+  sample, per season, across all four seasons.
+- **Storage (rough estimate, scaled from the one-week sample's actual size — 4.1MB raw /
+  26,072 pitch-level rows / 4,451 cleaned rows for 7 days of 2024):**
+  - ~100-110MB raw Parquet per season (~700,000 pitch-level rows/season) -> **~400-450MB
+    total** across `data/raw/statcast_2021_regular_season.parquet` through `_2024_`.
+  - ~120-150MB total for the combined `data/processed/cleaned_development_data.parquet`
+    (~450,000-500,000 eligible batted-ball rows across all four seasons).
+  - All of this stays under git-ignored `data/` -- nothing here gets committed.
+- **Runtime:** downloads happen in small chunks (5 days by default) with retries between
+  requests; based on Baseball Savant's typical response times this is commonly in the
+  range of tens of minutes to a few hours for all four seasons combined, depending on
+  network conditions and server load. This is an estimate, not a measurement -- run
+  `--dry-run` first (see below) to confirm the chunk plan, and consider timing a single
+  season before committing to all four.
+- Per-season files are **resumable**: if the command is interrupted or a season fails
+  (e.g. a transient network error), re-running it skips seasons that already downloaded
+  successfully and only retries what's missing or failed -- it does not restart from
+  scratch.
+- **Never overwrites the one-week sample**: this command always writes
+  `statcast_<season>_regular_season.parquet` / `cleaned_development_data.parquet`,
+  distinct filenames from `statcast_2024_sample.parquet` /
+  `cleaned_batted_balls.parquet`. Both workflows can coexist.
+- Use `--dry-run` on the downloader to see the exact per-season chunk plan with **no**
+  network access:
+  ```bash
+  python -m mlb_luck_score.data.download_development_data --dry-run
+  ```
+- `mlb_luck_score.data.clean_development_data` fails clearly (before doing any work) if
+  any requested season's raw file is missing, logs row totals and training-exclusion
+  reasons **separately by season**, and deterministically deduplicates across season
+  files (defense in depth -- `game_pk` is globally unique, so cross-season duplicates
+  should not occur in practice).
+- Both commands refuse to touch the protected 2025 season unless
+  `--allow-final-evaluation` is explicitly passed -- and the downloader has no
+  configured date range for 2025 at all, as a second layer of protection.
+
 ## Training
 
 ```bash
@@ -185,7 +243,10 @@ python -m mlb_luck_score.models.train_contact_model \
 
 Trains on `TRAIN_SEASONS` (2021-2023 by default) and evaluates on `VALIDATION_SEASONS`
 (2024 by default) -- see "Time-based validation design" below. Model artifacts and
-metadata are written under `artifacts/` (git-ignored).
+metadata are written under `artifacts/` (git-ignored). Note the default `--input` here is
+the one-week sample, which has 0 rows in the 2021-2023 training window; point `--input` at
+`data/processed/cleaned_development_data.parquet` (see "Full development dataset" above)
+to actually train the model.
 
 ## Testing
 
@@ -207,9 +268,14 @@ make notebook        # launches Jupyter in notebooks/
 ```
 
 - `01_data_exploration.ipynb` -- outcome counts, missingness, eligible vs. excluded
-  counts, contact-variable distributions.
-- `02_contact_model.ipynb` -- time-based split demo, feature pipeline, baseline
-  training, predictions, core evaluation metrics.
+  counts, contact-variable distributions, and a per-season summary (eligible/
+  training-eligible counts and outcome-class breakdown by season). Prefers
+  `cleaned_development_data.parquet` when present, falling back to the one-week sample.
+- `02_contact_model.ipynb` -- time-based split demo (training rows by season for
+  2021-2023, validation rows for 2024, outcome counts by split, and a check for whether
+  all five outcome classes are represented in each split), feature pipeline, baseline
+  training, predictions, core evaluation metrics. Same dataset-preference fallback as
+  notebook 01.
 - `03_calibration.ipynb` -- calibration table generation, one plot per outcome class,
   interpretation warnings, sample-size reporting.
 - `04_luck_score_demo.ipynb` -- one example play end-to-end: actual outcome, predicted
@@ -239,9 +305,15 @@ on 2023, then train on 2021-2023 / validate on 2024, by passing `--train-seasons
 This is enforced in code, not just documentation:
 `mlb_luck_score.config.assert_seasons_allowed()` raises `ProtectedSeasonError` whenever
 2025 appears in a season list, unless the caller explicitly passes
-`allow_final_evaluation=True` (CLI: `--allow-final-evaluation`). The downloader and the
-trainer both call this guard. Do not add a code path that uses 2025 without this
-explicit, one-time, intentional flag.
+`allow_final_evaluation=True` (CLI: `--allow-final-evaluation`). Every season-aware
+command calls this guard: the single-range downloader, the trainer, and both
+`download_development_data` / `clean_development_data`. The development downloader has a
+second layer of protection -- `mlb_luck_score.config.MLB_REGULAR_SEASON_DATE_RANGES` has
+no entry for 2025 at all, so it can't be downloaded via that command even if the guard
+were bypassed. `clean_development_data` also re-checks the *actual* `season` values found
+in the combined output (not just the requested season list) before returning, as defense
+in depth. Do not add a code path that uses 2025 without the explicit, one-time,
+intentional flag.
 
 ## Preliminary raw-luck definition
 
@@ -297,12 +369,16 @@ redistributing any derived data outside this repository.
 
 ## Current status
 
-Version 0.1 bootstrap: data acquisition, cleaning, feature engineering, a baseline
-model, calibration diagnostics, preliminary raw luck, a placeholder public score, and a
-data-completeness report are all implemented and covered by offline synthetic tests. No
-real predictive-performance claims have been validated against a real held-out sample as
-part of this bootstrap -- run the pipeline against real data and inspect the actual
-evaluation metrics before drawing any conclusion.
+Version 0.1 bootstrap: data acquisition (one-week sample and full 2021-2024 development
+dataset), cleaning, feature engineering, a baseline model, calibration diagnostics,
+preliminary raw luck, a placeholder public score, and a data-completeness report are all
+implemented and covered by offline synthetic tests. The full development dataset
+download/clean workflow has been tested with synthetic multi-season data but the real
+2021-2024 Statcast data has not yet been downloaded or trained on in this repository (it
+requires explicit approval for the network use and runtime -- see "Full development
+dataset" above). No real predictive-performance claims have been validated against a real
+held-out sample -- run the pipeline against real data and inspect the actual evaluation
+metrics before drawing any conclusion.
 
 ## Future work
 
