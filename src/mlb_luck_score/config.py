@@ -156,6 +156,33 @@ def game_metadata_path(raw_dir: Path, season: int) -> Path:
     return raw_dir / GAME_METADATA_FILENAME_TEMPLATE.format(season=season)
 
 
+#: Public historical METAR/ASOS archive used by
+#: `mlb_luck_score.data.download_historical_weather` to recover station-level
+#: temperature/humidity/pressure/wind observations (no API key required).
+#: See that module's docstring for the exact fields used and their units.
+IOWA_MESONET_ASOS_BASE_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
+
+#: Filename template for per-season MLB schedule-weather cache files
+#: (temperature/wind/condition text hydrated from the `/schedule` endpoint),
+#: mirroring `GAME_METADATA_FILENAME_TEMPLATE`'s pattern.
+SCHEDULE_WEATHER_FILENAME_TEMPLATE = "schedule_weather_{season}.parquet"
+
+
+def schedule_weather_path(raw_dir: Path, season: int) -> Path:
+    """Path to a single season's cached MLB schedule-weather Parquet file."""
+    return raw_dir / SCHEDULE_WEATHER_FILENAME_TEMPLATE.format(season=season)
+
+
+#: Filename template for per-station-per-season historical ASOS observation
+#: cache files.
+STATION_WEATHER_FILENAME_TEMPLATE = "asos_weather_{station_id}_{season}.parquet"
+
+
+def station_weather_path(raw_dir: Path, station_id: str, season: int) -> Path:
+    """Path to a single station-season's cached ASOS observation Parquet file."""
+    return raw_dir / STATION_WEATHER_FILENAME_TEMPLATE.format(station_id=station_id, season=season)
+
+
 class ProtectedSeasonError(ValueError):
     """Raised when a command would use a protected final-test season."""
 

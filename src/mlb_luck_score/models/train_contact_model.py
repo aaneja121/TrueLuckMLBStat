@@ -103,6 +103,7 @@ def train_model(
     *,
     include_optional_features: bool = False,
     class_weight: str | None = None,
+    extra_numeric_features: Sequence[str] = (),
     extra_categorical_features: Sequence[str] = (),
 ) -> TrainedModel:
     """Fit the baseline logistic-regression pipeline on training-eligible rows.
@@ -121,6 +122,12 @@ def train_model(
             Every triple must be KEPT in the training data regardless of
             `class_weight` -- this argument changes how the loss weights
             classes during fitting, not which rows are used.
+        extra_numeric_features: Additional numeric features beyond the
+            standard set (e.g. `mlb_luck_score.features.
+            build_contact_features.GEOMETRY_NUMERIC_FEATURES` for a
+            geometry-aware comparison variant -- see `mlb_luck_score.models.
+            compare_geometry_aware`). Empty by default, so ordinary callers
+            see no behavior change.
         extra_categorical_features: Additional categorical features beyond
             the standard set (e.g. `("venue_id",)` for a park-aware
             comparison variant -- see `mlb_luck_score.models.
@@ -131,6 +138,7 @@ def train_model(
     numeric_features, categorical_features = select_available_features(
         train_df,
         include_optional=include_optional_features,
+        extra_numeric_features=extra_numeric_features,
         extra_categorical_features=extra_categorical_features,
     )
     logger.info("Numeric features: %s", numeric_features)

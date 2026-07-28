@@ -68,6 +68,7 @@ def build_reference_artifact(
     n_quantile_points: int = DEFAULT_N_QUANTILE_POINTS,
     scoring_version: str = DEFAULT_SCORING_VERSION,
     allow_final_evaluation: bool = False,
+    extra_numeric_features: Sequence[str] = (),
     extra_categorical_features: Sequence[str] = (),
 ) -> ReferenceScoreArtifact:
     """Train the unweighted baseline and build the empirical reference.
@@ -90,6 +91,12 @@ def build_reference_artifact(
             build_reference_score.REFERENCE_ARTIFACT_FILENAME_TEMPLATE`).
         allow_final_evaluation: Must be True to permit 2025 in either season
             list -- never pass this for routine use.
+        extra_numeric_features: Additional numeric features beyond the
+            standard set (e.g. `mlb_luck_score.features.
+            build_contact_features.WEATHER_VECTOR_NUMERIC_FEATURES` to
+            build a weather-aware reference artifact -- see
+            `mlb_luck_score.models.compare_weather_aware`). Empty by
+            default.
         extra_categorical_features: Additional categorical features beyond
             the standard set (e.g. `("venue_id",)` to build a park-aware
             reference artifact -- see `mlb_luck_score.models.
@@ -121,7 +128,10 @@ def build_reference_artifact(
         "Training unweighted baseline on %d rows (seasons %s)", len(train_df), train_seasons
     )
     trained = train_model(
-        train_df, class_weight=None, extra_categorical_features=extra_categorical_features
+        train_df,
+        class_weight=None,
+        extra_numeric_features=extra_numeric_features,
+        extra_categorical_features=extra_categorical_features,
     )
     feature_cols = trained.numeric_features + trained.categorical_features
     proba_df = predict_proba_ordered(trained, reference_df[feature_cols])
@@ -184,6 +194,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scoring-version", default=DEFAULT_SCORING_VERSION)
     parser.add_argument("--n-quantile-points", type=int, default=DEFAULT_N_QUANTILE_POINTS)
     parser.add_argument(
+        "--extra-numeric-features",
+        nargs="*",
+        default=(),
+        help="Extra numeric features beyond the standard set (e.g. air_density_kg_m3).",
+    )
+    parser.add_argument(
         "--extra-categorical-features",
         nargs="*",
         default=(),
@@ -210,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             n_quantile_points=args.n_quantile_points,
             scoring_version=args.scoring_version,
             allow_final_evaluation=args.allow_final_evaluation,
+            extra_numeric_features=tuple(args.extra_numeric_features),
             extra_categorical_features=tuple(args.extra_categorical_features),
         )
     except ValueError as exc:

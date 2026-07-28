@@ -364,8 +364,22 @@ make notebook        # launches Jupyter in notebooks/
 - `05_park_aware_analysis.ipynb` -- **Version 0.3**: venue coverage and counts by park,
   `baseline_v02` vs. `park_aware_v03_candidate` metrics, calibration by park, and the 2024
   example plays whose predicted distribution changed the most after adding `venue_id`.
+- `06_park_geometry_analysis.ipynb` -- **Version 0.4**: reviewed geometry schema/coverage,
+  wall-profile visuals per park, spray-angle orientation verification, interpolation examples,
+  the four-way `baseline_v02`/`venue_only_v03_candidate`/`geometry_only_v04_candidate`/
+  `venue_plus_geometry_v04_candidate` comparison, calibration by outcome/venue, near-wall
+  subgroup calibration, paired-bootstrap intervals, example plays, and the adoption
+  recommendation. See "Park geometry (Version 0.4)" above for the real-data results.
+- `07_weather_air_density_analysis.ipynb` -- **Version 0.5**: weather-source/station-mapping
+  overview, coverage by season/venue, observation-time-offset distribution, roof-status
+  coverage, air-density formula/distribution, the four-way `selected_production_baseline`/
+  `weather_basic_v05_candidate`/`weather_vector_v05_candidate`/
+  `geometry_plus_weather_v05_candidate` comparison, calibration by outcome/venue/roof
+  /environmental subgroup, paired-bootstrap intervals, actual-vs-standardized environment
+  examples, and the adoption recommendation. See "Weather and air density (Version 0.5)" above
+  for the real-data results.
 
-All five notebooks detect missing data/artifacts and print clear instructions instead of
+All seven notebooks detect missing data/artifacts and print clear instructions instead of
 crashing; `04` additionally falls back to a small synthetic example so it is always
 runnable immediately after bootstrap.
 
@@ -544,6 +558,299 @@ python -m mlb_luck_score.models.build_reference_score \
     --output-dir artifacts --scoring-version 0.3.0 --extra-categorical-features venue_id
 ```
 
+## Park geometry (Version 0.4)
+
+Version 0.3 asked "which venue was this play in?" (a bare categorical identity). Version 0.4
+asks the more specific question: "given this ball's spray direction and projected travel,
+what wall distance and wall height were relevant?"
+
+**Geometry reference data** (`mlb_luck_score.data.park_geometry.PARK_GEOMETRY_POINTS`) is
+small, hand-curated reference data checked into git -- like `run_values.py` and
+`game_metadata_overrides.py`, not a downloaded dataset. It describes each of the 30 primary
+2021-2024 MLB venues' outfield wall as five discrete points (left-field line, left-center
+alley, straightaway center, right-center alley, right-field line) at spray angles `-45 /
+-22.5 / 0 / +22.5 / +45` degrees -- the same sign convention and fair-territory boundary
+`clean_batted_balls.spray_angle_approx` already uses (0 = center, negative = third-base/left
+side, positive = first-base/right side; verified in `tests/test_park_geometry.py`). Wall
+distance is populated for essentially every point; wall height only where a source explicitly
+gave one for that location. Angles strictly between reviewed points are piecewise-linearly
+interpolated (`interpolate_wall_geometry`); angles outside +-45 degrees are never extrapolated
+-- treated as outside the modeled range.
+
+**Sourcing is important to be honest about**: every record was gathered by an AI coding agent
+(Claude Code) from publicly cited sources (mostly individual-ballpark Wikipedia articles,
+cross-checked against independent web searches where a figure looked internally inconsistent
+-- one such inconsistency, in Kauffman Stadium's dimensions, was caught and corrected this
+way). Every record's `review_status` is `agent_sourced_pending_human_review` -- **this is not
+the same as human review**, and should be treated as a documented Version 0.4 research
+placeholder, not validated ground truth, until a maintainer spot-checks it (see the module
+docstring for the full caveat list, including known simplifications like Citizens Bank Park's
+zigzag "Monty's Angle" and Citi Field's former right-field "nook" being folded into the
+nearest standard point).
+
+**Three venues have more than one geometry configuration** because their real outfield walls
+changed during 2021-2024, each a cited, dated renovation: Oriole Park at Camden Yards (left
+field moved back and raised before Opening Day 2022), Rogers Centre (walls moved in and
+heights staggered before 2023), and Comerica Park (fences adjusted, and a previously-posted
+distance corrected via laser measurement, before 2023). Configuration resolution
+(`resolve_geometry_config`) is date-based and never guesses the nearest configuration for an
+uncovered date -- it returns "unavailable" instead (see `ParkGeometryValidationError` for the
+overlap/conflict checks enforced at import time).
+
+**Temporary and neutral-site venues have NO geometry** by design
+(`TEMPORARY_OR_SPECIAL_VENUE_IDS`): the MLB Field of Dreams games, the 2021 Blue Jays
+alternate home venues (Sahlen Field, TD Ballpark), the London Series, the Mexico City Series,
+the Little League Classic field, and the 2024 Rickwood Field tribute game. These rows are
+retained in baseline analyses with `has_park_geometry=False` and an explicit `geometry_status`
+reason, never dropped or given fabricated geometry.
+
+```bash
+make build-park-geometry      # validates the reviewed table and prints a coverage summary
+make join-park-geometry       # joins geometry onto the venue-joined dataset by
+                               # venue_id + game_date + spray_angle_approx, with a report
+make compare-geometry-aware   # 4-way comparison, see below
+```
+
+**Per-play join** (`mlb_luck_score.data.join_park_geometry`) adds `wall_distance_in_spray_
+direction`, `wall_height_in_spray_direction`, `projected_distance_to_wall_margin`
+(`hit_distance_sc - wall_distance_in_spray_direction`; positive means the measured distance
+exceeded the modeled wall distance along that direction -- this is NOT alone proof of a home
+run, since wall height, trajectory, spin, and measurement error remain unmodeled),
+`near_wall_5ft`/`10ft`/`20ft`, `projected_beyond_wall`, `high_wall_indicator`, and an explicit
+`geometry_status` reason for every row (`missing_venue_id`, `missing_venue_metadata`,
+`temporary_or_special_venue`, `missing_game_date`, `no_geometry_reviewed_for_venue_or_date`,
+`missing_spray_angle`, `outside_modeled_angular_range`, or `ok`). On the real 2021-2024
+dataset: **89.80% of rows** (443,785 / 494,173) resolve usable geometry; the remainder is
+47,012 rows outside the +-45 degree modeled angular range, 3,147 rows at temporary/special
+venues, and 229 rows with a missing spray angle -- zero rows lost to missing venue metadata
+(match rate is 100%, per Version 0.3 above).
+
+**Four-way model comparison** (`mlb_luck_score.models.compare_geometry_aware`) trains
+`baseline_v02`, `venue_only_v03_candidate`, `geometry_only_v04_candidate` (baseline +
+geometry, NO `venue_id`), and `venue_plus_geometry_v04_candidate` (baseline + `venue_id` +
+geometry) on IDENTICAL 2021-2023 training rows, evaluated on the SAME untouched 2024
+validation rows (n=122,132; real results, reproduced 2026-07-27):
+
+| variant | log loss | ECE | home-run ECE | accuracy (secondary) |
+|---|---|---|---|---|
+| `baseline_v02` | 0.670321 | 0.014413 | 0.002706 | 0.7515 |
+| `park_aware_v03_candidate` | 0.668930 | 0.014167 | 0.002977 | 0.7509 |
+| `geometry_only_v04_candidate` | **0.563283** | 0.016284 | **0.001019** | 0.7779 |
+| `venue_plus_geometry_v04_candidate` | **0.559193** | 0.016177 | **0.001074** | 0.7792 |
+
+Both geometry candidates cut log loss by roughly 16% relative to `baseline_v02` and cut
+home-run ECE by roughly 62% -- a genuinely large improvement, and it holds up under a paired,
+`game_pk`-level bootstrap (500 replicates, seed 42, resampling GAMES with replacement so
+within-game correlation is preserved; both the baseline and each candidate are scored on the
+exact same resampled rows each replicate): `geometry_only_v04_candidate`'s log-loss delta is
+-0.107 (95% CI **[-0.109, -0.104]**, entirely below zero) and `venue_plus_geometry_v04_
+candidate`'s is -0.111 (95% CI **[-0.114, -0.108]**) -- the improvement is not noise.
+
+The clearest and most physically meaningful signal is in the **near-wall subgroup**: for plays
+within 5 ft of the modeled wall distance (n=1,952, the hardest calibration regime -- exactly
+where "how far the ball went" alone is most ambiguous about the outcome), ECE drops from
+**0.1181 (`baseline_v02`) to 0.0323 (`geometry_only_v04_candidate`)**, a ~73% relative
+improvement, with the same pattern (smaller but still substantial) at 10 ft and 20 ft. This is
+exactly the kind of effect physical wall geometry should produce, and it is not achievable
+from bare venue identity alone -- `park_aware_v03_candidate` has no way to know how close a
+specific batted ball came to a specific wall.
+
+This improvement does **not** come for free. Applying the Version 0.3 material-venue-
+regression rule (reliably-sampled venue, ECE worsens by >0.01 absolute OR >50% relative)
+flags **`loanDepot park`** (venue_id 4169; a reliable 4,304-row sample; ECE 0.013983 ->
+0.021972, +57% relative) for `geometry_only_v04_candidate`, and **`Estadio Alfredo Harp Helu`**
+(venue_id 5340, the Mexico City Series venue; n=109; ECE 0.038569 -> 0.067957/0.076984) for
+BOTH candidates -- note this venue has no reviewed geometry at all (it's in
+`TEMPORARY_OR_SPECIAL_VENUE_IDS`), so this regression is a real, honestly-reported side effect
+of shared model weights changing overall once geometry features enter the (single, joint)
+logistic regression, not evidence that its own geometry was wrong. Every other reliably-
+sampled venue is unaffected or improved; no near-wall or high-distance subgroup regresses
+materially.
+
+**Adoption rule: neither `geometry_only_v04_candidate` nor `venue_plus_geometry_v04_candidate`
+has been adopted as the default.** `recommend_geometry_adoption` checks 7 of the task's 8
+adoption criteria automatically (log-loss improvement, bootstrap-supported improvement,
+overall/home-run/near-wall-subgroup ECE not materially worse, no material venue regression,
+sufficient geometry coverage) and both candidates fail on the single material-venue-regression
+criterion above -- `recommend_adopt_any_v04_candidate: False`. The 8th criterion ("the model
+is learning physically plausible effects") is deliberately **not automated**; see notebook
+`06_park_geometry_analysis.ipynb` for the qualitative check (top probability-change examples
+compared against `projected_distance_to_wall_margin`). `baseline_v02` remains the production
+default; both v0.4 candidates are retained as evaluated, documented infrastructure.
+
+```bash
+python -m mlb_luck_score.models.build_reference_score \
+    --input data/processed/cleaned_development_data_with_geometry.parquet \
+    --output-dir artifacts --scoring-version 0.4.0 \
+    --extra-categorical-features venue_id wall_segment_label near_wall_5ft near_wall_10ft \
+        near_wall_20ft projected_beyond_wall temporary_or_special_venue geometry_uncertain
+```
+
+(shown for completeness -- since no v0.4 candidate is adopted, this has NOT been run to
+produce a real `reference_score_v0.4.0.json`; if a v0.4 candidate is ever adopted, build its
+reference artifact under this distinct version, never overwriting `reference_score_v0.2.0.json`
+or `v0.3.0.json`.)
+
+**Limitations**: geometry data is agent-sourced pending human review (see above); each park-era
+is a 5-point piecewise-linear simplification, not a true wall curve; wall height is sparse and
+never guessed; no published park factors, weather, air density, or roof-state modeling; a
+positive `projected_distance_to_wall_margin` is not proof of a home run. Contact Luck v0.4
+remains a contact-only research prototype -- it does not yet model weather, air density, roof
+status, exact ball trajectory, defensive positioning, defensive execution, or batter-runner
+advancement. See notebook `06_park_geometry_analysis.ipynb` for the full breakdown (schema
+overview, wall-profile visuals, interpolation examples, coverage by season/venue/batted-ball
+type, four-way comparison, calibration by outcome/venue, near-wall subgroup calibration, paired
+-bootstrap intervals, example plays, and this same adoption recommendation).
+
+## Weather and air density (Version 0.5)
+
+Version 0.5 asks whether actual game-time atmospheric conditions -- temperature, humidity,
+pressure, wind, and roof status, combined into a physically derived air density -- improve
+probability quality beyond the currently-selected production baseline (`baseline_v02`; as of
+this writing, neither the Version 0.3 venue-only nor either Version 0.4 geometry candidate was
+adopted, so `selected_production_baseline` == `baseline_v02`).
+
+**Two independent, complementary sources**, both real, historical, and publicly documented (no
+API key required for either):
+
+1. **MLB Stats API schedule weather** (`/schedule?hydrate=weather`) -- the SAME endpoint and
+   chunked-date-range pattern already used for Version 0.3 venue metadata, just with one extra
+   query parameter. Gives official per-game temperature, wind, and condition text. Critically,
+   **MLB's wind field is already expressed relative to the park's own orientation** (e.g. `"8
+   mph, Out To CF"`, `"5 mph, L To R"`, `"0 mph, Calm"`) -- this repository never needed to
+   independently source true-north field-orientation angles per park (a documented, deliberately
+   deferred gap the task allowed), because MLB has effectively already done that rotation.
+2. **Iowa Environmental Mesonet ASOS archive** (`mesonet.agron.iastate.edu`) -- the ONLY source
+   of humidity and pressure in this repository (MLB's own field has neither). Routine hourly
+   observations (`report_type=3`) from each of the 30 primary venues' nearest reliable station,
+   verified working via a live query before being adopted (`mlb_luck_score.data.
+   venue_environment`). Real 2021-2024 download: **4 schedule-weather files + 116 station-season
+   files (29 unique stations x 4 seasons, two New York ballparks share LaGuardia), zero
+   failures.**
+
+**Venue-environment reference data** (`mlb_luck_score.data.venue_environment.
+VENUE_ENVIRONMENTS`) is small, hand-curated reference data checked into git, following the exact
+same pattern as `park_geometry.py`: approximate venue coordinates, elevation, IANA timezone, and
+assigned weather station, with every station's own coordinates/elevation independently verified
+against a live query (not guessed) and `review_status="agent_sourced_pending_human_review"` on
+every record. **Coors Field is the one venue with a stadium-specific (not station-proxy)
+elevation** (1609.344 m -- the famous "mile-high" figure), since its own assigned station
+(Buckley SFB) is at a materially different elevation and this is exactly the park where altitude
+matters most. All 30 assigned stations are within **25 km** of their venue; roof/retractable
+-roof classification is NOT duplicated here -- it reuses Version 0.3's existing per-game
+`roof_type` field combined with the schedule-weather condition text (see below).
+
+**Roof handling** (`mlb_luck_score.data.build_game_weather.classify_roof_status`) distinguishes
+`outdoor_open_air`, `retractable_roof_open`, `retractable_roof_closed`, `fixed_indoor`, and
+`roof_status_unknown` -- a closed roof is NEVER inferred from precipitation or any other
+condition text, only an explicit `"Roof Closed"` string. For closed/indoor games, raw external
+weather is preserved but `effective_temperature_c`/`effective_relative_humidity_pct`/
+`effective_pressure_hpa`/`air_density_kg_m3` are left null (no reviewed indoor-climate assumption
+exists in this repository); only `effective_wind_speed_mps=0.0` is set, since a closed roof
+genuinely blocking outdoor wind is a physical certainty, not a guess.
+
+**Observation-time matching**: each game is matched to the nearest ASOS observation at or before
+its scheduled UTC start time (falling back to shortly after only if none qualifies before), with
+the exact offset preserved and a game NEVER matched to an observation farther than 3 hours away
+-- real data: **coverage 98.6% "good" (<=60 min), 1.1% "fair" (<=180 min\), the remainder
+unmatched**.
+
+**Air density** (`mlb_luck_score.data.weather_physics.moist_air_density_kg_m3`) uses the ideal
+gas law applied separately to dry-air and water-vapor partial pressures (Arden Buck vapor
+-pressure equation for the humidity term) -- a documented moist-air formula, not a
+temperature-only proxy. Station sea-level pressure is converted to venue-elevation pressure via
+the hypsometric equation. Verified against textbook values: standard sea-level conditions
+(15C/1013.25 hPa/0% RH) give exactly the ICAO ISA reference density (1.225 kg/m^3, used as the
+fixed comparison reference throughout); Coors Field's estimated conditions come out roughly
+15-20% less dense, matching the well-known real-world figure.
+
+**Per-play join** (`mlb_luck_score.data.join_weather_features`) computes following/head/crosswind
+relative to EACH PLAY's own spray direction (not just the park's center-field axis) by rotating
+the game-level wind vector -- real coverage: **99.36% of rows have some weather data, 81.26%
+have full EFFECTIVE (actionable) conditions** (443,785 -> the remainder is mostly indoor/closed
+-roof games, where effective conditions are correctly left unavailable, not fabricated).
+
+**Four-way model comparison** (`mlb_luck_score.models.compare_weather_aware`) trains
+`selected_production_baseline`, `weather_basic_v05_candidate` (temperature/humidity/air
+density/roof status), `weather_vector_v05_candidate` (adds air-density deviation from reference
+and following/head/crosswind), and `geometry_plus_weather_v05_candidate` (weather-vector +
+Version 0.4 geometry) on IDENTICAL 2021-2023 rows, evaluated on the SAME untouched 2024
+validation rows (n=122,132; real results):
+
+| variant | log loss | ECE | home-run ECE | accuracy (secondary) |
+|---|---|---|---|---|
+| `selected_production_baseline` | 0.670321 | 0.014413 | 0.002706 | 0.7515 |
+| `weather_basic_v05_candidate` | 0.670015 | 0.014500 | 0.003401 | 0.7518 |
+| `weather_vector_v05_candidate` | 0.670038 | 0.014391 | 0.003409 | 0.7516 |
+| `geometry_plus_weather_v05_candidate` | 0.562149 | 0.016042 | 0.001047 | 0.7784 |
+
+`geometry_plus_weather_v05_candidate`'s large log-loss improvement is almost entirely the
+already-documented Version 0.4 geometry effect (see "Park geometry (Version 0.4)" above), not a
+new weather finding -- and it inherits geometry's material venue regressions (loanDepot park,
+**newly also Truist Park**, and the Mexico City neutral-site venue), so it fails the adoption
+rule for the same reason `geometry_only_v04_candidate` did.
+
+The two pure-weather candidates' log-loss improvement is REAL but **tiny**: paired game_pk-level
+bootstrap (500 replicates, seed 42) gives `weather_basic_v05_candidate` a delta of -0.000307
+(95% CI **[-0.000525, -0.000109]**, entirely below zero) and `weather_vector_v05_candidate`
+-0.000283 (95% CI **[-0.000504, -0.000076]**) -- statistically distinguishable from zero at
+n=122,132 rows, but a ~0.045% relative change, not a practically large effect. Home-run ECE gets
+slightly WORSE for both (+0.00069 / +0.00070, roughly +26% relative) -- below the material
+-regression threshold (0.01 absolute / 50% relative) but a real, honestly-reported tradeoff, not
+nothing. No reliably-sampled venue and no roof/weather-quality/wind/air-density subgroup
+triggers a material regression for either pure-weather candidate; weather coverage (80.4% of
+2024 validation rows) is sufficient and transparently reported; complete-case vs. all-row ECE
+shows no evident selection bias.
+
+**`recommend_adopt_any_v05_candidate: True`, best candidate `weather_basic_v05_candidate`** --
+both pure-weather candidates pass every one of the 8 AUTOMATABLE adoption criteria.
+
+**However, this repository's adoption rule explicitly reserves criterion 9 -- "the model is
+learning physically plausible effects" -- for human judgment, never automation, and that check
+does NOT support adoption here.** Two real implementation bugs were caught specifically by
+attempting this qualitative check (see "Real bugs found and fixed" in the notebook and this
+file's history) and, after fixing them, the corrected per-play weather attribution
+(`mlb_luck_score.scoring.weather_attribution`) shows only a WEAK and partly WRONG-SIGNED
+relationship between actual weather and its predicted effect: the correlation between
+`weather_run_value_effect` and `air_density_kg_m3` across 2024 validation rows is **+0.026**
+(expected clearly negative -- thinner air should favor the batter) and with `following_wind_mps`
+is **-0.086** (expected clearly positive -- a tailwind should favor the batter). Coors Field's
+mean attributed effect is slightly NEGATIVE, the opposite of the well-documented real-world
+thin-air effect. The most likely explanation is multicollinearity: `temperature_c`, `pressure_
+hpa`, `humidity_pct`, and `air_density_kg_m3` are numerically near-redundant (density is a
+deterministic function of the other three) as inputs to a linear model, which is well known to
+produce unstable, sometimes sign-flipped individual coefficients even when the model's aggregate
+calibration is fine -- consistent with the tiny-but-real aggregate log-loss improvement above
+coexisting with an unreliable per-play decomposition.
+
+**Adoption rule: neither weather candidate has been adopted as the default.** `baseline_v02`
+remains the production model. This is a deliberate exercise of the "never a substitute for
+judgment" principle already established for Version 0.3/0.4 -- the automated criteria are a
+starting point, and here they would have recommended adopting a model whose per-play weather
+attribution does not hold up under direct physical inspection. The weather pipeline
+(download/build/join/compare/attribution) is retained as evaluated, tested infrastructure.
+
+```bash
+make download-weather-data     # 2021-2024 only, refuses 2025, resumable
+make build-game-weather        # game_pk-keyed table, time/station matching, roof handling
+make join-weather-features     # per-play join, following/head/crosswind by spray direction
+make compare-weather-aware     # 4-way comparison, see above
+```
+
+**Limitations**: venue-environment coordinates are approximate and agent-sourced pending human
+review; humidity/pressure come from a station up to 25 km away, not an on-site sensor; indoor
+-climate conditions are never fabricated (left unavailable) for closed-roof/domed games (~18% of
+plays); true stadium field orientation was never independently sourced -- this repository relies
+entirely on MLB's own pre-rotated wind text; the standardized-environment counterfactual is a
+fixed ISA reference, not a claim about "typical" game weather; and -- per the finding above --
+the weather-feature set as currently specified (four numerically collinear atmospheric variables)
+produces a per-play attribution too unstable to trust, a concrete, actionable target for future
+work (e.g. dropping `air_density_kg_m3` in favor of its three components, or vice versa, or
+regularizing the model). Contact Luck v0.5 remains a contact-only research prototype -- it does
+not yet include exact defensive positioning, defensive execution, batter-runner advancement, or
+full multi-factor Shapley attribution. See notebook `07_weather_air_density_analysis.ipynb` for
+the full breakdown.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
@@ -621,14 +928,30 @@ genuinely out-of-sample 2024 example play. Venue metadata (Version 0.3) has been
 downloaded and joined for real 2021-2024 data (99.98% match rate); the park-aware model
 comparison has been run for real -- see "Park-aware model comparison (Version 0.3)" above
 for the exact results. `park_aware_v03_candidate` is a documented candidate, not adopted
-as the default.
+as the default. Park geometry (Version 0.4) has been researched, built, joined, and
+evaluated for real 2021-2024 data -- see "Park geometry (Version 0.4)" above for the exact
+results, including a large, bootstrap-confirmed near-wall calibration improvement and the
+material venue regressions that keep neither `geometry_only_v04_candidate` nor
+`venue_plus_geometry_v04_candidate` adopted as the default. Weather and air density (Version
+0.5) have been researched, downloaded (real 2021-2024 MLB schedule weather + Iowa Environmental
+Mesonet station data), joined, and evaluated for real data -- see "Weather and air density
+(Version 0.5)" above for the exact results. Both pure-weather candidates pass all 8 automatable
+adoption criteria with a real but tiny log-loss improvement, but a direct physical-plausibility
+check (required by the adoption rule, never automated) found the per-play weather attribution to
+be weak and partly wrong-signed after fixing two real bugs caught by that very check -- neither
+candidate has been adopted as the default.
 
 ## Future work
 
-- Published park factors (altitude, wall height/distance, prevailing wind) -- Version 0.3
-  uses only the venue's bare categorical identity, not park-specific physical factors
-- Weather normalization and air-density modeling
-- Park geometry effects
+- Reduce collinearity in the Version 0.5 weather feature set (temperature/pressure/humidity/air
+  density are numerically near-redundant as linear-model inputs) and re-run the physical
+  -plausibility check -- see "Weather and air density (Version 0.5)"
+- Human review of the Version 0.4 park-geometry AND Version 0.5 venue-environment reference
+  tables (currently `agent_sourced_pending_human_review` for every record)
+- Published park factors (altitude, prevailing wind) beyond static wall geometry and per-game
+  weather already implemented in Versions 0.4-0.5
+- Finer-grained wall geometry (more than 5 points per park-era; true wall curvature;
+  localized irregularities like Citizens Bank Park's "Monty's Angle")
 - Exact defender positioning, reaction, and route modeling
 - Fielding and throwing execution modeling
 - Batter-runner decision-quality modeling

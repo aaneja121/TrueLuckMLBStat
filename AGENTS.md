@@ -96,15 +96,30 @@ explicitly.
 
 `park_aware_v03_candidate` (`mlb_luck_score.models.compare_park_aware`, adds `venue_id` to
 the Version 0.2 `baseline_v02` features) is a documented CANDIDATE, not the default --
-`train_model`'s default feature set does not include `venue_id`. This pattern generalizes:
-any future comparison variant (park factors, weather, defensive positioning, etc.) stays a
-candidate, reported with its exact metrics via `recommend_*`-style rule-based logic, until
-a maintainer explicitly decides to adopt it. A rule-based recommendation is a starting
-point for judgment (read the full by-venue/by-subgroup table yourself -- a real,
-noteworthy regression can exist below a conservative automated threshold), never a
-substitute for it. If a candidate is adopted, give it a distinct `scoring_version` in its
-`ReferenceScoreArtifact` (see `mlb_luck_score.models.build_reference_score`) rather than
-overwriting an earlier version's artifact file.
+`train_model`'s default feature set does not include `venue_id`. The same is true of the
+Version 0.4 park-geometry candidates (`geometry_only_v04_candidate` and
+`venue_plus_geometry_v04_candidate`, `mlb_luck_score.models.compare_geometry_aware`):
+despite a large, bootstrap-confirmed log-loss and near-wall-calibration improvement on real
+2021-2024 data, `recommend_geometry_adoption` reports `recommend_adopt_any_v04_candidate:
+False` because a reliably-sampled venue (loanDepot park) shows a material calibration
+regression -- see "Park geometry (Version 0.4)" in README.md for the full numbers. The
+Version 0.5 weather candidates (`weather_basic_v05_candidate` and `weather_vector_v05_
+candidate`, `mlb_luck_score.models.compare_weather_aware`) are an even sharper illustration of
+why: they pass ALL 8 automatable adoption criteria (`recommend_adopt_any_v05_candidate: True`)
+with a real, bootstrap-confirmed (if tiny) log-loss improvement, but a direct physical
+-plausibility check -- the one criterion the rule deliberately never automates -- found the
+per-play weather attribution weak and partly wrong-signed (see "Weather and air density
+(Version 0.5)" in README.md), so neither has been adopted either. `baseline_v02` remains the
+default. This pattern generalizes: any future comparison variant (more park factors, defensive
+positioning, etc.) stays a candidate, reported with
+its exact metrics via `recommend_*`-style rule-based logic, until a maintainer explicitly
+decides to adopt it. A rule-based recommendation is a starting point for judgment (read the
+full by-venue/by-subgroup table yourself -- a real, noteworthy regression can exist below a
+conservative automated threshold, and criteria that are inherently a judgment call, like
+"is the model learning physically plausible effects", are deliberately NOT automated at
+all), never a substitute for it. If a candidate is adopted, give it a distinct
+`scoring_version` in its `ReferenceScoreArtifact` (see `mlb_luck_score.models.
+build_reference_score`) rather than overwriting an earlier version's artifact file.
 
 ## Never commit datasets, secrets, virtual environments, or model artifacts
 
@@ -113,10 +128,79 @@ overwriting an earlier version's artifact file.
 `.gitkeep` placeholders). Before committing, run `git status` and double-check nothing
 under those paths, and nothing that looks like an API key or credential, is staged.
 `mlb_luck_score/data/game_metadata_overrides.py` (like `mlb_luck_score/scoring/
-run_values.py`) is a deliberate exception: it is small, hand-reviewed reference data
-written as source code, not a downloaded dataset, so it IS tracked in git. Every entry
-in it must cite a documented, verifiable `source_note` -- never add or edit an entry
-without one.
+run_values.py` and `mlb_luck_score/data/park_geometry.py`) is a deliberate exception: it is
+small, hand-reviewed reference data written as source code, not a downloaded dataset, so it
+IS tracked in git. Every entry in it must cite a documented, verifiable `source_note` --
+never add or edit an entry without one.
+
+## Park-geometry reference data must document provenance and review status
+
+Every record in `mlb_luck_score.data.park_geometry.PARK_GEOMETRY_POINTS` must have a
+non-empty `source_name`/`source_reference`/`source_accessed_date` (enforced at import time
+by `validate_geometry_points`) and an honest `review_status`. Every record added so far by
+an AI coding agent uses `REVIEW_STATUS_AGENT_SOURCED` ("agent_sourced_pending_human_
+review") -- do not upgrade a record's `review_status` to imply human review has happened
+unless a human maintainer actually did it. Never fabricate a wall distance, height, or
+configuration date -- if a source is ambiguous or conflicting (e.g. a park's exact pre-
+renovation dimensions can't be pinned down), document the ambiguity in `notes` and either
+use the best-supported figure with a caveat or leave the venue/era without geometry
+(`geometry_status` will correctly report it as unavailable downstream -- see
+`mlb_luck_score.data.join_park_geometry`) rather than guessing. Never add geometry for a
+venue in `TEMPORARY_OR_SPECIAL_VENUE_IDS` (temporary/neutral-site venues, including the
+Field of Dreams sentinel `venue_id=-1`) without the same level of verified, cited evidence
+required for any other venue -- the current default is to leave them without geometry, and
+that is a deliberate choice, not a gap to casually fill in.
+
+## Never fabricate weather, roof status, or indoor climate conditions
+
+`mlb_luck_score.data.venue_environment.VENUE_ENVIRONMENTS` (station/elevation/timezone
+reference data) follows the same provenance rules as park geometry above -- every record
+needs a `source_note`, and weather-station coordinates/elevation must be independently
+verified against the actual data source (see that module's docstring), not guessed.
+Historical weather itself (`mlb_luck_score.data.download_historical_weather`) comes from
+exactly two sources -- the MLB Stats API's own per-game `weather` field and the public Iowa
+Environmental Mesonet ASOS archive -- and nothing else; never substitute current/live
+weather for a historical game, and never invent an hourly observation to fill a gap.
+`mlb_luck_score.data.build_game_weather.classify_roof_status` never infers a closed roof
+from precipitation or any other condition text -- only an explicit `"Roof Closed"` string
+does that; everything else defaults to `roof_status_unknown` rather than a guess. For
+`retractable_roof_closed`/`fixed_indoor`/`roof_status_unknown` games, `effective_
+temperature_c`/`effective_relative_humidity_pct`/`effective_pressure_hpa`/
+`air_density_kg_m3` MUST stay null (no reviewed indoor-climate assumption exists in this
+repository) -- only `effective_wind_speed_mps=0.0` is set, because a closed roof physically
+blocking outdoor wind is a certainty, not an assumption. Do not add an indoor-climate
+default (e.g. "72F, 50% humidity") without first adding genuinely reviewed, cited
+per-venue indoor climate-control data -- until then, leave it unavailable.
+
+## Weather attribution must stay separate from raw contact luck
+
+`mlb_luck_score.scoring.weather_attribution.compute_weather_attribution`
+(`weather_run_value_effect = expected_run_value_actual_environment -
+expected_run_value_standard_environment`) is a DIFFERENT quantity from `mlb_luck_score.
+scoring.contact_luck.compute_raw_contact_luck_runs` (`raw_contact_luck_runs = actual_run_
+value - expected_run_value`, using the selected baseline model's own prediction). Never add
+them together -- see `weather_attribution`'s module docstring for exactly why that would
+double-count weather. Building and testing the weather-attribution module does not itself
+constitute using it for real scores; per the task's "only after a weather-aware candidate
+passes validation" rule, treat its output as informational infrastructure, not a validated
+headline number, until a maintainer has actually adopted a weather-aware candidate.
+
+## When generating counterfactual/standardized feature rows, only use categories the model has seen
+
+`mlb_luck_score.features.build_contact_features.generate_standardized_environment_rows` was
+verified to produce physically backwards predictions (Coors Field's thin actual air scoring
+WORSE than a denser standardized reference) when an earlier version set
+`weather_match_quality` to a synthetic `"standardized"` label the model never saw in
+training -- `OneHotEncoder(handle_unknown="ignore")` silently encodes any unseen category as
+all zeros, a pattern the fitted model never learned to interpret, rather than raising an
+error. Any function that builds a counterfactual/synthetic feature row for prediction must
+only assign categorical values that genuinely occur in real training data (see that
+function's fix and `tests/test_compare_weather_aware.py::
+test_standardized_environment_categorical_overrides_are_realistic_categories` for the
+regression test). This class of bug is easy to miss because it fails silently -- no
+exception, no NaN, just a quietly wrong prediction -- so treat any new synthetic/
+counterfactual row generator with the same suspicion and verify its categorical overrides
+against real data before trusting its output.
 
 ## Confidence must never dampen the score
 

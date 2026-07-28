@@ -1,7 +1,10 @@
 .PHONY: setup format lint typecheck test check download-sample clean-data \
 	download-development-data clean-development-data train compare-models \
 	build-reference-score download-game-metadata join-venue-metadata \
-	compare-park-aware demo notebook
+	compare-park-aware demo notebook build-park-geometry validate-park-geometry \
+	join-park-geometry compare-geometry-aware notebook-park-geometry \
+	download-weather-data build-game-weather join-weather-features \
+	compare-weather-aware notebook-weather
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -127,3 +130,82 @@ demo:
 
 notebook:
 	$(PY) -m jupyter notebook notebooks
+
+# Validates the reviewed park-geometry reference table (mlb_luck_score.data.
+# park_geometry) and prints a coverage summary. There is no separate
+# "build from raw source" step for this table -- it is small, hand-curated
+# reference data edited directly in source code (like game_metadata_
+# overrides.py), not downloaded, so this target and validate-park-geometry
+# run the exact same command. See "Park geometry (Version 0.4)" in README.md.
+build-park-geometry:
+	$(PY) -m mlb_luck_score.data.park_geometry
+
+validate-park-geometry:
+	$(PY) -m mlb_luck_score.data.park_geometry
+
+# Joins the reviewed park-geometry table onto the venue-joined cleaned
+# development dataset (by venue_id + game_date + spray_angle_approx) and
+# reports coverage. Requires `make join-venue-metadata` to have been run
+# first. See "Park geometry (Version 0.4)" in README.md.
+join-park-geometry:
+	$(PY) -m mlb_luck_score.data.join_park_geometry \
+		--input data/processed/cleaned_development_data_with_venue.parquet \
+		--output data/processed/cleaned_development_data_with_geometry.parquet
+
+# Four-way controlled comparison: baseline_v02 vs venue_only_v03_candidate
+# vs geometry_only_v04_candidate vs venue_plus_geometry_v04_candidate on
+# untouched 2024 validation data, including a paired game_pk-level
+# bootstrap. Does NOT automatically adopt any v0.4 candidate -- see
+# README.md.
+compare-geometry-aware:
+	$(PY) -m mlb_luck_score.models.compare_geometry_aware \
+		--input data/processed/cleaned_development_data_with_geometry.parquet \
+		--output-dir outputs/tables --figures-dir outputs/figures/geometry_aware
+
+notebook-park-geometry:
+	$(PY) -m jupyter notebook notebooks/06_park_geometry_analysis.ipynb
+
+# Downloads historical weather for 2021-2024 ONLY (refuses 2025): per-game
+# MLB schedule weather (temperature/wind/roof condition, hydrated from the
+# same /schedule endpoint as download-game-metadata) plus per-station
+# historical ASOS/METAR observations (humidity/pressure, from the public
+# Iowa Environmental Mesonet archive -- see mlb_luck_score.data.
+# venue_environment for the 30 assigned stations). Resumable: existing
+# per-season/per-station-season cache files are skipped unless --overwrite.
+download-weather-data:
+	$(PY) -m mlb_luck_score.data.download_historical_weather \
+		--seasons 2021 2022 2023 2024 --output-dir data/raw
+
+# Combines the schedule-weather + ASOS raw caches with mlb_luck_score.data.
+# venue_environment and each game's roof_type into one row per game_pk,
+# matching each game to the nearest ASOS observation at/before local start
+# time (see mlb_luck_score.data.build_game_weather for the exact matching
+# and roof-handling rules).
+build-game-weather:
+	$(PY) -m mlb_luck_score.data.build_game_weather \
+		--seasons 2021 2022 2023 2024 --raw-dir data/raw \
+		--output data/processed/game_weather.parquet
+
+# Joins the game-weather table onto the venue+geometry-joined cleaned
+# dataset by game_pk, computing per-play following/head/crosswind relative
+# to each play's own spray direction. Requires make join-park-geometry (or
+# join-venue-metadata) to have been run first.
+join-weather-features:
+	$(PY) -m mlb_luck_score.data.join_weather_features \
+		--input data/processed/cleaned_development_data_with_geometry.parquet \
+		--game-weather data/processed/game_weather.parquet \
+		--output data/processed/cleaned_development_data_with_weather.parquet
+
+# Controlled comparison: selected_production_baseline vs
+# weather_basic_v05_candidate vs weather_vector_v05_candidate vs (if
+# geometry columns are present) geometry_plus_weather_v05_candidate on
+# untouched 2024 validation data, including a paired game_pk-level
+# bootstrap. Does NOT automatically adopt any v0.5 candidate -- see
+# README.md.
+compare-weather-aware:
+	$(PY) -m mlb_luck_score.models.compare_weather_aware \
+		--input data/processed/cleaned_development_data_with_weather.parquet \
+		--output-dir outputs/tables --figures-dir outputs/figures/weather_aware
+
+notebook-weather:
+	$(PY) -m jupyter notebook notebooks/07_weather_air_density_analysis.ipynb
