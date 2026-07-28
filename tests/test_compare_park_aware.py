@@ -149,41 +149,80 @@ def test_home_run_and_subgroup_calibration_present(joined_multi_venue_df: pd.Dat
         assert summary["high_distance_subgroup"]["sample_count"] > 0
 
 
-def test_find_material_venue_regressions_flags_only_bad_and_reliable_venues():
-    baseline = [
-        {
-            "venue_id": "A",
-            "sample_count": 500,
-            "ece_overall": 0.05,
-            "ece_home_run": 0.05,
-            "reliable": True,
-        },
-        {
-            "venue_id": "B",
-            "sample_count": 5,
-            "ece_overall": 0.05,
-            "ece_home_run": 0.05,
-            "reliable": False,
-        },
-    ]
+def _venue_row(venue_id: str, sample_count: int, ece_overall: float, *, reliable: bool) -> dict:
+    return {
+        "venue_id": venue_id,
+        "sample_count": sample_count,
+        "ece_overall": ece_overall,
+        "ece_home_run": ece_overall,
+        "reliable": reliable,
+    }
+
+
+def test_find_material_venue_regressions_flags_large_absolute_and_reliable_venues():
+    # delta=0.20 (>0.01 absolute), relative=400% (also >50%) -- flagged either way.
+    baseline = [_venue_row("A", 500, 0.05, reliable=True), _venue_row("B", 5, 0.05, reliable=False)]
     candidate = [
-        {
-            "venue_id": "A",
-            "sample_count": 500,
-            "ece_overall": 0.25,
-            "ece_home_run": 0.25,
-            "reliable": True,
-        },
-        {
-            "venue_id": "B",
-            "sample_count": 5,
-            "ece_overall": 0.30,
-            "ece_home_run": 0.30,
-            "reliable": False,
-        },
+        _venue_row("A", 500, 0.25, reliable=True),
+        _venue_row("B", 5, 0.30, reliable=False),
     ]
     flagged = find_material_venue_regressions(baseline, candidate)
-    assert flagged == ["A"]  # B is not reliable in baseline, so never flagged
+    assert flagged == ["A"]  # B is not reliable in baseline, so never flagged regardless of delta
+
+
+def test_find_material_venue_regressions_absolute_only_trigger():
+    # delta=0.015 (>0.01 absolute margin), relative=30% (<50% relative margin) -- must
+    # still be flagged: this is exactly the failure mode a relative-only rule would miss.
+    baseline = [_venue_row("C", 200, 0.050, reliable=True)]
+    candidate = [_venue_row("C", 200, 0.065, reliable=True)]
+    assert find_material_venue_regressions(baseline, candidate) == ["C"]
+
+
+def test_find_material_venue_regressions_relative_only_trigger():
+    # Real Fenway Park numbers: 0.016032 -> 0.025384. delta=0.009352 (<0.01 absolute
+    # margin) but relative=58.3% (>50% relative margin) -- must still be flagged: this
+    # is exactly the failure mode a purely-absolute (e.g. 0.15) threshold missed.
+    baseline = [_venue_row("Fenway", 4103, 0.016032, reliable=True)]
+    candidate = [_venue_row("Fenway", 4103, 0.025384, reliable=True)]
+    assert find_material_venue_regressions(baseline, candidate) == ["Fenway"]
+
+
+def test_find_material_venue_regressions_small_change_not_flagged():
+    # delta=0.005 (<0.01 absolute), relative=10% (<50% relative) -- neither margin
+    # crossed, must not be flagged.
+    baseline = [_venue_row("D", 300, 0.050, reliable=True)]
+    candidate = [_venue_row("D", 300, 0.055, reliable=True)]
+    assert find_material_venue_regressions(baseline, candidate) == []
+
+
+def test_find_material_venue_regressions_requires_minimum_sample_size():
+    # Same large regression as the absolute-only case, but not reliable (too few
+    # baseline samples) -- must never be flagged regardless of how large the delta is.
+    baseline = [_venue_row("E", 10, 0.050, reliable=False)]
+    candidate = [_venue_row("E", 10, 0.500, reliable=False)]
+    assert find_material_venue_regressions(baseline, candidate) == []
+
+
+def test_find_material_venue_regressions_handles_zero_baseline_ece_safely():
+    # baseline ECE of exactly 0.0 must not raise (division by zero) and must fall back
+    # to the absolute margin alone.
+    baseline_small_delta = [_venue_row("F", 200, 0.0, reliable=True)]
+    candidate_small_delta = [_venue_row("F", 200, 0.005, reliable=True)]
+    assert find_material_venue_regressions(baseline_small_delta, candidate_small_delta) == []
+
+    baseline_big_delta = [_venue_row("G", 200, 0.0, reliable=True)]
+    candidate_big_delta = [_venue_row("G", 200, 0.02, reliable=True)]
+    assert find_material_venue_regressions(baseline_big_delta, candidate_big_delta) == ["G"]
+
+
+def test_find_material_venue_regressions_custom_margins():
+    # delta=0.008 (<0.01 default absolute margin), relative=8% (<50% default relative
+    # margin) -- not flagged with defaults, but flagged once either margin is tightened.
+    baseline = [_venue_row("H", 200, 0.10, reliable=True)]
+    candidate = [_venue_row("H", 200, 0.108, reliable=True)]
+    assert find_material_venue_regressions(baseline, candidate) == []
+    assert find_material_venue_regressions(baseline, candidate, absolute_margin=0.005) == ["H"]
+    assert find_material_venue_regressions(baseline, candidate, relative_margin=0.05) == ["H"]
 
 
 def test_recommend_park_aware_adoption_structure(joined_multi_venue_df: pd.DataFrame):

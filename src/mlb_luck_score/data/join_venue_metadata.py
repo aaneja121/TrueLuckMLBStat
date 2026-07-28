@@ -8,13 +8,15 @@ Usage:
         --output data/processed/cleaned_development_data_with_venue.parquet
 
 Loads the per-season `game_metadata_<season>.parquet` files produced by
-`mlb_luck_score.data.download_game_metadata`, validates that no `game_pk`
-maps to more than one venue, and left-joins `venue_id`, `venue_name`,
-`roof_type`, `surface_type`, and `is_neutral_site` onto the cleaned
-batted-ball table by `game_pk`. Rows whose game has no venue metadata (a
-real, rare case -- see `download_game_metadata` module docstring on the MLB
-Field of Dreams games) are KEPT, not dropped, with `has_venue_metadata`
-explicitly `False` and the venue columns null.
+`mlb_luck_score.data.download_game_metadata`, applies a small set of
+hand-reviewed corrections (see `mlb_luck_score.data.
+game_metadata_overrides` -- the raw per-season cache files themselves are
+NEVER modified), validates that no `game_pk` maps to more than one venue,
+and left-joins `venue_id`, `venue_name`, `roof_type`, `surface_type`, and
+`is_neutral_site` onto the cleaned batted-ball table by `game_pk`. Rows
+whose game has no venue metadata even after overrides are KEPT, not
+dropped, with `has_venue_metadata` explicitly `False` and the venue columns
+null.
 
 This module never downloads anything and never touches the network.
 """
@@ -36,6 +38,7 @@ from mlb_luck_score.config import (
     RAW_DATA_DIR,
     game_metadata_path,
 )
+from mlb_luck_score.data.game_metadata_overrides import GAME_METADATA_OVERRIDES
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,42 @@ def load_game_metadata(raw_dir: Path, seasons: Sequence[int]) -> pd.DataFrame:
         logger.info(
             "Dropped %d duplicate game_pk row(s) across season metadata files.", n_duplicates
         )
-    return combined
+    return apply_metadata_overrides(combined)
+
+
+def apply_metadata_overrides(metadata_df: pd.DataFrame) -> pd.DataFrame:
+    """Apply the small, hand-reviewed corrections in `game_metadata_overrides`.
+
+    The raw per-season cache files on disk are never touched by this --
+    overrides are applied fresh to an in-memory copy every time metadata is
+    loaded, so re-running `make download-game-metadata` always produces the
+    same untouched raw API response, and reviewing/updating an override only
+    requires editing `game_metadata_overrides.py`.
+    """
+    if not GAME_METADATA_OVERRIDES:
+        return metadata_df
+
+    out = metadata_df.copy()
+    applied_game_pks: list[int] = []
+    for game_pk, override in GAME_METADATA_OVERRIDES.items():
+        mask = out["game_pk"] == game_pk
+        if not mask.any():
+            continue
+        out.loc[mask, "venue_id"] = override.venue_id
+        out.loc[mask, "venue_name"] = override.venue_name
+        out.loc[mask, "roof_type"] = override.roof_type
+        out.loc[mask, "surface_type"] = override.surface_type
+        out.loc[mask, "is_neutral_site"] = override.is_neutral_site
+        applied_game_pks.append(game_pk)
+
+    if applied_game_pks:
+        logger.info(
+            "Applied %d hand-reviewed game-metadata override(s) for game_pk(s) %s "
+            "(see mlb_luck_score.data.game_metadata_overrides).",
+            len(applied_game_pks),
+            applied_game_pks,
+        )
+    return out
 
 
 def validate_no_conflicting_venues(metadata_df: pd.DataFrame) -> None:

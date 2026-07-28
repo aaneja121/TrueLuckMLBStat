@@ -111,6 +111,11 @@ overwriting an earlier version's artifact file.
 `data/processed/*`, `artifacts/*`, and `outputs/{figures,tables}/*` (keeping only
 `.gitkeep` placeholders). Before committing, run `git status` and double-check nothing
 under those paths, and nothing that looks like an API key or credential, is staged.
+`mlb_luck_score/data/game_metadata_overrides.py` (like `mlb_luck_score/scoring/
+run_values.py`) is a deliberate exception: it is small, hand-reviewed reference data
+written as source code, not a downloaded dataset, so it IS tracked in git. Every entry
+in it must cite a documented, verifiable `source_note` -- never add or edit an entry
+without one.
 
 ## Confidence must never dampen the score
 

@@ -10,8 +10,15 @@ import pytest
 
 from mlb_luck_score.config import ProtectedSeasonError, game_metadata_path
 from mlb_luck_score.data import download_game_metadata as dgm
+from mlb_luck_score.data import join_venue_metadata as jvm
+from mlb_luck_score.data.game_metadata_overrides import (
+    FIELD_OF_DREAMS_VENUE_ID,
+    GAME_METADATA_OVERRIDES,
+    GameMetadataOverride,
+)
 from mlb_luck_score.data.join_venue_metadata import (
     JoinVenueMetadataError,
+    apply_metadata_overrides,
     build_venue_join_report,
     join_venue_metadata,
     load_game_metadata,
@@ -213,3 +220,98 @@ def test_venue_join_report_counts():
     assert report.unmatched_games == 1
     assert report.duplicate_mappings == 0
     assert report.counts_by_venue == {"Park A": 2, "Park B": 1}
+
+
+# -- game_metadata_overrides ---------------------------------------------------
+
+
+def _missing_venue_metadata_row(game_pk: int, season: int) -> dict:
+    row = _metadata_row(game_pk, None, None, season)
+    row["venue_id"] = None
+    row["venue_name"] = None
+    return row
+
+
+def test_override_requires_a_source_note():
+    with pytest.raises(ValueError, match="source_note"):
+        GameMetadataOverride(game_pk=1, venue_id=-99, venue_name="No source")
+
+
+def test_field_of_dreams_overrides_share_one_sentinel_venue_id():
+    venue_ids = {override.venue_id for override in GAME_METADATA_OVERRIDES.values()}
+    assert venue_ids == {FIELD_OF_DREAMS_VENUE_ID}
+    assert FIELD_OF_DREAMS_VENUE_ID < 0  # can never collide with a real MLB venue id
+    assert {632924, 663023} <= set(GAME_METADATA_OVERRIDES.keys())
+
+
+def test_apply_metadata_overrides_does_not_mutate_its_input(monkeypatch: pytest.MonkeyPatch):
+    test_overrides = {
+        999: GameMetadataOverride(
+            game_pk=999, venue_id=-1, venue_name="Test Neutral Site", source_note="unit test"
+        )
+    }
+    monkeypatch.setattr(jvm, "GAME_METADATA_OVERRIDES", test_overrides)
+
+    raw_metadata = pd.DataFrame([_missing_venue_metadata_row(999, 2024)])
+    original_copy = raw_metadata.copy()
+
+    result = apply_metadata_overrides(raw_metadata)
+
+    assert result.loc[result["game_pk"] == 999, "venue_id"].iloc[0] == -1
+    assert result.loc[result["game_pk"] == 999, "venue_name"].iloc[0] == "Test Neutral Site"
+    pd.testing.assert_frame_equal(raw_metadata, original_copy)  # input frame untouched
+
+
+def test_apply_metadata_overrides_is_a_noop_for_unrelated_games(monkeypatch: pytest.MonkeyPatch):
+    test_overrides = {
+        999: GameMetadataOverride(
+            game_pk=999, venue_id=-1, venue_name="Test Neutral Site", source_note="unit test"
+        )
+    }
+    monkeypatch.setattr(jvm, "GAME_METADATA_OVERRIDES", test_overrides)
+
+    metadata = pd.DataFrame([_metadata_row(1, 10, "Park A", 2024)])
+    result = apply_metadata_overrides(metadata)
+    pd.testing.assert_frame_equal(result, metadata)
+
+
+def test_load_game_metadata_applies_overrides_without_touching_the_raw_cache_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    test_overrides = {
+        999: GameMetadataOverride(
+            game_pk=999, venue_id=-1, venue_name="Test Neutral Site", source_note="unit test"
+        )
+    }
+    monkeypatch.setattr(jvm, "GAME_METADATA_OVERRIDES", test_overrides)
+
+    raw_df = pd.DataFrame(
+        [_missing_venue_metadata_row(999, 2024), _metadata_row(1, 10, "Park A", 2024)]
+    )
+    path = game_metadata_path(tmp_path, 2024)
+    raw_df.to_parquet(path, index=False)
+
+    loaded = load_game_metadata(tmp_path, [2024])
+    overridden_row = loaded[loaded["game_pk"] == 999]
+    assert overridden_row["venue_id"].iloc[0] == -1
+    assert overridden_row["venue_name"].iloc[0] == "Test Neutral Site"
+
+    # The raw per-season cache file on disk must remain an exact, untouched copy.
+    reread_raw = pd.read_parquet(path)
+    assert pd.isna(reread_raw.loc[reread_raw["game_pk"] == 999, "venue_id"].iloc[0])
+
+
+def test_join_with_overrides_resolves_previously_unmatched_games(monkeypatch: pytest.MonkeyPatch):
+    test_overrides = {
+        999: GameMetadataOverride(
+            game_pk=999, venue_id=-1, venue_name="Test Neutral Site", source_note="unit test"
+        )
+    }
+    monkeypatch.setattr(jvm, "GAME_METADATA_OVERRIDES", test_overrides)
+
+    cleaned = pd.DataFrame({"game_pk": [999], "season": [2024], "outcome_class": ["home_run"]})
+    metadata = apply_metadata_overrides(pd.DataFrame([_missing_venue_metadata_row(999, 2024)]))
+
+    joined = join_venue_metadata(cleaned, metadata)
+    assert bool(joined["has_venue_metadata"].iloc[0]) is True
+    assert joined["venue_name"].iloc[0] == "Test Neutral Site"

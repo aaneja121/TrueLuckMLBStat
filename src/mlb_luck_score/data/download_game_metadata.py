@@ -23,8 +23,14 @@ endpoint (`gameType=R` restricts to regular season), then enriched with
 (season, home team), the most common venue across that team's home games
 that season is treated as its "true" home park; any game at a different
 venue is flagged neutral. A small number of real games (e.g. the MLB Field
-of Dreams games) have no venue at all in the API response -- these rows are
-kept with all venue fields null rather than dropped or guessed.
+of Dreams games) have no venue at all in the API response -- this module
+keeps those rows with all venue fields null rather than dropping or
+guessing, exactly preserving what the API returned. A small, separately
+maintained, hand-reviewed override table for those specific known games
+(`mlb_luck_score.data.game_metadata_overrides`) is applied later, at load
+time, by `mlb_luck_score.data.join_venue_metadata.load_game_metadata` --
+never here, so these raw per-season cache files always remain an exact,
+re-fetchable copy of the API response.
 
 Resumable: if a season's output file already exists, that season is
 SKIPPED unless `--overwrite` is passed. A failure downloading one season

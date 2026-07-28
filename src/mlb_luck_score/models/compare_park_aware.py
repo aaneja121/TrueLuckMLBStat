@@ -29,9 +29,11 @@ any feature derived from the 2024 outcomes, and never touches 2025.
 ADOPTION RULE: do NOT automatically prefer `park_aware_v03_candidate`.
 `recommend_park_aware_adoption` implements one transparent, documented
 rule (log loss AND ECE both improve, AND no venue shows a "material"
-calibration regression) -- inspect the full by-venue table yourself before
-deciding; a rule-based recommendation is a starting point, not a
-substitute for judgment.
+calibration regression -- flagged if a reliably-sampled venue's ECE
+worsens by more than an absolute margin OR a relative-to-baseline margin,
+see `find_material_venue_regressions`) -- inspect the full by-venue table
+yourself before deciding; a rule-based recommendation is a starting point,
+not a substitute for judgment.
 
 Usage:
 
@@ -74,8 +76,21 @@ VARIANT_PARK_AWARE_V03_CANDIDATE = "park_aware_v03_candidate"
 
 DEFAULT_MIN_VENUE_SAMPLES = 100
 DEFAULT_HIGH_DISTANCE_QUANTILE = 0.75
-DEFAULT_MATERIAL_ECE_ABS_THRESHOLD = 0.15
-DEFAULT_MATERIAL_ECE_MARGIN = 0.05
+#: Scale-sensitive "material venue regression" thresholds. A fixed absolute
+#: threshold alone is not appropriate here: real per-venue ECE values in
+#: this dataset run roughly 0.01-0.07, so a single large absolute cutoff
+#: (e.g. 0.15) would never fire in practice and would miss real, meaningful
+#: regressions (verified: Fenway Park's per-venue ECE moved 0.016 -> 0.025,
+#: a real +58% relative increase, which a purely-absolute high threshold
+#: did not catch). A venue is flagged if it worsens by MORE THAN
+#: `DEFAULT_MATERIAL_ECE_ABSOLUTE_MARGIN` in absolute ECE, OR by more than
+#: `DEFAULT_MATERIAL_ECE_RELATIVE_MARGIN` (a fraction, e.g. 0.50 = 50%)
+#: relative to its own baseline ECE -- whichever is more sensitive at that
+#: venue's scale. Only venues with at least `DEFAULT_MIN_VENUE_SAMPLES`
+#: baseline rows (see `reliable` in `compute_calibration_by_venue`) are
+#: eligible to be flagged at all.
+DEFAULT_MATERIAL_ECE_ABSOLUTE_MARGIN = 0.01
+DEFAULT_MATERIAL_ECE_RELATIVE_MARGIN = 0.50
 _MISSING_VENUE_LABEL = "__missing_venue__"
 
 
@@ -316,17 +331,29 @@ def find_material_venue_regressions(
     baseline_by_venue: list[dict[str, Any]] | pd.DataFrame,
     candidate_by_venue: list[dict[str, Any]] | pd.DataFrame,
     *,
-    absolute_ece_threshold: float = DEFAULT_MATERIAL_ECE_ABS_THRESHOLD,
-    regression_margin: float = DEFAULT_MATERIAL_ECE_MARGIN,
+    absolute_margin: float = DEFAULT_MATERIAL_ECE_ABSOLUTE_MARGIN,
+    relative_margin: float = DEFAULT_MATERIAL_ECE_RELATIVE_MARGIN,
 ) -> list[str]:
-    """Venues where the candidate is both absolutely bad AND worse than baseline.
+    """Venues where the candidate's calibration worsens materially vs. baseline.
 
-    "Material" is deliberately conservative and defined here explicitly: a
-    venue is flagged only if (a) it has reliable sample counts in the
-    baseline table, (b) the candidate's overall ECE for that venue exceeds
-    `absolute_ece_threshold`, AND (c) the candidate's ECE is worse than the
-    baseline's by more than `regression_margin`. This is a starting point
-    for judgment, not a substitute for reading the full table.
+    Scale-sensitive by design (see module-level constants): a venue with at
+    least `DEFAULT_MIN_VENUE_SAMPLES` baseline rows (`reliable_baseline`) is
+    flagged if EITHER:
+
+      - its overall ECE increases by more than `absolute_margin` (in
+        absolute ECE units), OR
+      - its overall ECE increases by more than `relative_margin` relative
+        to its own baseline ECE (e.g. 0.50 = a 50% relative increase).
+
+    Using only an absolute threshold is inappropriate here: real per-venue
+    ECE values are typically small (roughly 0.01-0.07 in this dataset), so
+    a single large absolute cutoff would rarely fire and would miss real
+    regressions that are small in absolute terms but large relative to that
+    venue's own baseline. Using only a relative threshold has the opposite
+    problem for venues whose baseline ECE is already tiny (a jump from
+    0.001 to 0.003 is a 200% relative increase but negligible in practice)
+    -- the OR combination catches both failure modes. This is a starting
+    point for judgment, not a substitute for reading the full table.
     """
     baseline_df = pd.DataFrame(baseline_by_venue)
     candidate_df = pd.DataFrame(candidate_by_venue)
@@ -336,23 +363,36 @@ def find_material_venue_regressions(
     merged = baseline_df.merge(
         candidate_df, on="venue_id", suffixes=("_baseline", "_candidate"), how="inner"
     )
-    reliable = merged[merged["reliable_baseline"]]
-    flagged = reliable[
-        (reliable["ece_overall_candidate"] > absolute_ece_threshold)
-        & (
-            (reliable["ece_overall_candidate"] - reliable["ece_overall_baseline"])
-            > regression_margin
-        )
-    ]
-    return [str(v) for v in flagged["venue_id"].tolist()]
+    reliable = merged[merged["reliable_baseline"]].copy()
+    if reliable.empty:
+        return []
+
+    baseline_ece = reliable["ece_overall_baseline"]
+    candidate_ece = reliable["ece_overall_candidate"]
+    absolute_delta = candidate_ece - baseline_ece
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        relative_delta = absolute_delta / baseline_ece
+    relative_delta = relative_delta.replace([np.inf, -np.inf], np.nan)
+
+    flagged_mask = (absolute_delta > absolute_margin) | (
+        relative_delta.fillna(-np.inf) > relative_margin
+    )
+    return [str(v) for v in reliable.loc[flagged_mask, "venue_id"].tolist()]
 
 
-def recommend_park_aware_adoption(comparison: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def recommend_park_aware_adoption(
+    comparison: dict[str, dict[str, Any]],
+    *,
+    absolute_margin: float = DEFAULT_MATERIAL_ECE_ABSOLUTE_MARGIN,
+    relative_margin: float = DEFAULT_MATERIAL_ECE_RELATIVE_MARGIN,
+) -> dict[str, Any]:
     """Apply one transparent, documented adoption rule (not a final decision).
 
     Recommends `park_aware_v03_candidate` only if BOTH multiclass log loss
     and overall ECE improve on 2024 validation data AND no venue shows a
-    "material" calibration regression (see `find_material_venue_regressions`).
+    "material" calibration regression (see `find_material_venue_regressions`
+    for the scale-sensitive absolute-OR-relative rule).
     """
     baseline = comparison[VARIANT_BASELINE_V02]
     candidate = comparison[VARIANT_PARK_AWARE_V03_CANDIDATE]
@@ -360,7 +400,10 @@ def recommend_park_aware_adoption(comparison: dict[str, dict[str, Any]]) -> dict
     improves_log_loss = candidate["multiclass_log_loss"] < baseline["multiclass_log_loss"]
     improves_ece = candidate["expected_calibration_error"] < baseline["expected_calibration_error"]
     material_regressions = find_material_venue_regressions(
-        baseline["calibration_by_venue"], candidate["calibration_by_venue"]
+        baseline["calibration_by_venue"],
+        candidate["calibration_by_venue"],
+        absolute_margin=absolute_margin,
+        relative_margin=relative_margin,
     )
 
     adopt = improves_log_loss and improves_ece and not material_regressions
@@ -389,6 +432,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--high-distance-quantile", type=float, default=DEFAULT_HIGH_DISTANCE_QUANTILE
     )
+    parser.add_argument(
+        "--material-absolute-margin",
+        type=float,
+        default=DEFAULT_MATERIAL_ECE_ABSOLUTE_MARGIN,
+        help="Flag a reliably-sampled venue if its ECE worsens by more than this (absolute).",
+    )
+    parser.add_argument(
+        "--material-relative-margin",
+        type=float,
+        default=DEFAULT_MATERIAL_ECE_RELATIVE_MARGIN,
+        help="Flag a reliably-sampled venue if its ECE worsens by more than this fraction "
+        "relative to its own baseline ECE (e.g. 0.50 = 50%%).",
+    )
     return parser
 
 
@@ -410,7 +466,11 @@ def main(argv: list[str] | None = None) -> int:
         logger.error(str(exc))
         return 2
 
-    recommendation = recommend_park_aware_adoption(comparison)
+    recommendation = recommend_park_aware_adoption(
+        comparison,
+        absolute_margin=args.material_absolute_margin,
+        relative_margin=args.material_relative_margin,
+    )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     detail_path = args.output_dir / "park_aware_comparison_detail.json"

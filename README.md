@@ -479,42 +479,64 @@ make compare-park-aware       # baseline_v02 vs park_aware_v03_candidate, see be
 common home park that season), not a raw API field -- verified against real 2021-2024 data,
 it correctly identifies every known neutral-site game (the London Series, Mexico City
 Series, Little League Classic, and the Rickwood Field tribute game). A small number of
-real games (the MLB Field of Dreams games) have no venue at all in the API response; these
-rows are kept with venue fields null and `has_venue_metadata=False`, never dropped.
+real games (the two MLB "Field of Dreams" games, 2021 and 2022) have no venue at all in the
+raw API response; the raw per-season cache always preserves that gap exactly as returned
+(re-fetchable, never guessed at), but a small, hand-reviewed override table
+(`mlb_luck_score.data.game_metadata_overrides`, git-tracked, not git-ignored -- this is
+curated reference data, not downloaded data) is applied on top at load time
+(`join_venue_metadata.apply_metadata_overrides`), giving both games a shared sentinel
+`venue_id` (`-1`, guaranteed never to collide with a real MLB venue id) and the name "MLB
+Field of Dreams (Dyersville, Iowa)". Real park geometry and GPS coordinates for that venue
+are explicitly NOT populated yet -- documented fields on the override reserved for future
+work. With the override applied, real 2021-2024 venue match rate is **100%** (up from
+99.98% before the override), 0 conflicting mappings.
 
 **`park_aware_v03_candidate`** is the exact same unweighted model and features as
 `baseline_v02`, plus one additional categorical feature, `venue_id`
-(`mlb_luck_score.models.compare_park_aware`). Real 2021-2024 results (99.98% venue match
-rate, 0 conflicting mappings):
+(`mlb_luck_score.models.compare_park_aware`). Real 2021-2024 results:
 
 | variant | log loss | ECE | home-run ECE | accuracy (secondary) |
 |---|---|---|---|---|
 | `baseline_v02` | 0.670321 | 0.014413 | 0.002706 | 0.7515 |
 | `park_aware_v03_candidate` | 0.668930 | 0.014167 | 0.002977 | 0.7509 |
 
-Both overall log loss and overall ECE improve slightly, and the automated rule (see
-`recommend_park_aware_adoption`) recommends adoption with no venues crossing its
-"material regression" threshold. **The improvement is real but small** -- and the
-per-class/per-venue picture is mixed, not uniformly better (e.g. home-run ECE is slightly
-*worse*, and Fenway Park's per-venue ECE increases from 0.016 to 0.025, the largest
-movement of any reliably-sampled park, without crossing the automated threshold). Treat
-this as a genuine but modest positive signal, not a decisive one.
+Both overall log loss and overall ECE improve slightly. However, the automated
+"material regression" rule (`find_material_venue_regressions`) uses a **scale-sensitive**
+threshold, not a single large absolute cutoff: a reliably-sampled venue (at least
+`min_venue_samples`, default 100, baseline rows) is flagged if its ECE worsens by more
+than 0.01 in absolute terms, OR by more than 50% relative to its own baseline ECE --
+whichever is more sensitive at that venue's scale. A single large absolute threshold
+(e.g. 0.15) is inappropriate here: real per-venue ECE values run roughly 0.01-0.07, so
+such a threshold would almost never fire and would miss real regressions that are small
+in absolute terms but large relative to that venue's own baseline.
 
-Qualitatively, `venue_id` is learning something real, not just noise: the five 2024
+Applying that rule to the real data: **`Fenway Park` is flagged** -- its per-venue ECE
+increases from 0.016032 to 0.025384 (+0.0094 absolute, **+58% relative**, on a reliable
+4,103-row sample), crossing the relative margin even though it falls just under the
+absolute one. Home-run ECE also gets slightly worse overall (0.002706 -> 0.002977). **The
+automated recommendation is therefore `recommend_adopt_park_aware_v03: False`.** The
+improvement is real but small, and it does not come for free -- it costs a material
+calibration regression at one specific, well-sampled park.
+
+Qualitatively, `venue_id` is still learning something real, not just noise: the five 2024
 validation rows whose predicted distribution changed the most after adding venue are all
 Coors Field plays, where the park-aware model shifts probability mass *away* from
 home run and *toward* triple/double/out for hard-hit fly balls -- consistent with Coors
 Field's famously oversized outfield (built deep specifically to counteract altitude-driven
 carry), which is well known to convert would-be home runs elsewhere into extra-base hits.
+The net effect is a genuine but mixed signal: real park-specific information, at the cost
+of a real park-specific calibration regression elsewhere.
 
-**Adoption rule: `park_aware_v03_candidate` has NOT been adopted as the default.** Per the
-task's adoption rule, a park-aware model is only ever a candidate; switching the default
-requires an explicit, deliberate decision informed by (not dictated by) the numbers above.
-See notebook `05_park_aware_analysis.ipynb` for the full breakdown, including calibration
-by park and fly-ball/high-projected-distance subgroup calibration. Published park factors
-(altitude, wall height/distance, prevailing wind) are explicitly NOT used yet -- only the
-venue's bare categorical identity. If `park_aware_v03_candidate` is ever adopted, build its
-reference artifact under a distinct version (never overwriting `reference_score_v0.2.0.json`):
+**Adoption rule: `park_aware_v03_candidate` has NOT been adopted as the default**, both per
+the task's adoption rule and because the tightened, scale-sensitive threshold now correctly
+flags a material regression. Per the task's adoption rule, a park-aware model is only ever
+a candidate; switching the default requires an explicit, deliberate decision informed by
+(not dictated by) the numbers above. See notebook `05_park_aware_analysis.ipynb` for the
+full breakdown, including calibration by park and fly-ball/high-projected-distance subgroup
+calibration. Published park factors (altitude, wall height/distance, prevailing wind) are
+explicitly NOT used yet -- only the venue's bare categorical identity. If
+`park_aware_v03_candidate` is ever adopted, build its reference artifact under a distinct
+version (never overwriting `reference_score_v0.2.0.json`):
 
 ```bash
 python -m mlb_luck_score.models.build_reference_score \
