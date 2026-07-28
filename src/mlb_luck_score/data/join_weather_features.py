@@ -17,6 +17,11 @@ crosswind depends on which direction THIS specific ball was hit.
 Every input row is PRESERVED -- rows without usable weather get explicit
 status columns (never dropped, never silently filled with a guessed
 value). This module never touches the network.
+
+Also provides the Version 0.5.1 per-venue air-density anomaly (`compute_
+venue_air_density_baseline` / `add_venue_air_density_anomaly`), used by
+`mlb_luck_score.models.compare_weather_variants`'s `density_anomaly`
+candidate -- see those functions' docstrings.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -156,6 +162,74 @@ def join_weather_features(df: pd.DataFrame, game_weather_df: pd.DataFrame) -> pd
 
     out["weather_uncertain"] = out["has_weather_data"] & ~out["has_effective_weather"]
 
+    return out
+
+
+#: Minimum training-season effective-weather rows a venue needs before its
+#: air-density baseline is considered reliable enough to use. Below this,
+#: the venue's `air_density_venue_anomaly_kg_m3` is left null rather than
+#: computed from a handful of samples. Documented Version 0.5.1 research
+#: placeholder, not a validated threshold.
+MIN_VENUE_BASELINE_SAMPLES = 30
+
+
+def compute_venue_air_density_baseline(
+    df: pd.DataFrame, train_seasons: Sequence[int], *, min_samples: int = MIN_VENUE_BASELINE_SAMPLES
+) -> dict[int, float]:
+    """Per-venue mean air density from TRAINING-season effective-weather rows only.
+
+    This is a "fit on train" statistic, exactly like a `StandardScaler` --
+    it must be computed ONCE from `train_seasons` rows and then applied
+    (via `add_venue_air_density_anomaly`) to BOTH training and validation
+    rows, never recomputed on validation data (that would leak validation
+    -season weather into the venue's own "normal conditions" baseline and
+    make the anomaly circular). See module docstring "Version 0.5.1".
+
+    Args:
+        df: Weather-joined data with `venue_id`, `season`,
+            `has_effective_weather`, and `air_density_kg_m3` columns.
+        train_seasons: Seasons to compute the baseline from (e.g.
+            `mlb_luck_score.config.TRAIN_SEASONS`).
+        min_samples: Minimum effective-weather training rows required for a
+            venue's baseline to be included -- venues below this are
+            omitted entirely (not given an unreliable baseline from a
+            handful of samples).
+
+    Returns:
+        `{venue_id: mean_air_density_kg_m3}` for every venue with at least
+        `min_samples` qualifying rows.
+    """
+    eligible = df[df["season"].isin(train_seasons) & df["has_effective_weather"].astype(bool)]
+    counts = eligible.groupby("venue_id")["air_density_kg_m3"].count()
+    reliable_venues = counts[counts >= min_samples].index
+    means = eligible.groupby("venue_id")["air_density_kg_m3"].mean()
+    return {int(v): float(means[v]) for v in reliable_venues}
+
+
+def add_venue_air_density_anomaly(
+    df: pd.DataFrame, venue_baseline: dict[int, float]
+) -> pd.DataFrame:
+    """Add `air_density_venue_anomaly_kg_m3` = actual density - that venue's own normal density.
+
+    Isolates a specific game's unusual weather from the venue's persistent
+    climate/altitude signature (e.g. Coors Field's `air_density_kg_m3` is
+    almost always low -- the RAW value mostly just encodes "this is Coors",
+    not "was today unusually thin/dense air for Coors"). Rows whose venue
+    has no reliable baseline (see `compute_venue_air_density_baseline`) or
+    whose own `air_density_kg_m3` is missing get `NaN`, never a guessed
+    value.
+
+    Args:
+        df: Weather-joined data with `venue_id` and `air_density_kg_m3`.
+        venue_baseline: Output of `compute_venue_air_density_baseline`.
+
+    Returns:
+        A copy of `df` with `air_density_venue_anomaly_kg_m3` added.
+    """
+    out = df.copy()
+    venue_ids = pd.to_numeric(out["venue_id"], errors="coerce")
+    baseline_series = venue_ids.map(lambda v: venue_baseline.get(int(v)) if pd.notna(v) else None)
+    out["air_density_venue_anomaly_kg_m3"] = out["air_density_kg_m3"] - baseline_series
     return out
 
 

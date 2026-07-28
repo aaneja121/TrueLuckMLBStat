@@ -851,6 +851,90 @@ not yet include exact defensive positioning, defensive execution, batter-runner 
 full multi-factor Shapley attribution. See notebook `07_weather_air_density_analysis.ipynb` for
 the full breakdown.
 
+## Weather correction (Version 0.5.1)
+
+Version 0.5's `weather_vector_v05_candidate` combined `air_density_kg_m3` with the raw
+`temperature_c`/`humidity_pct`/`pressure_hpa` used to derive it -- since density is a
+near-deterministic function of those three variables, this created severe multicollinearity.
+The Version 0.5 physical-plausibility check caught exactly this: a real, tiny, bootstrap
+-confirmed log-loss improvement paired with a per-play weather attribution that correlated the
+WRONG direction with both air density and following wind.
+
+Version 0.5.1 tests three INDEPENDENT (not cumulative) corrected feature sets
+(`mlb_luck_score.models.compare_weather_variants`), each using only ONE representation of the
+temperature/humidity/pressure/density family:
+
+- **`density_only_v051_candidate`**: `air_density_kg_m3` + wind components + roof status. NO
+  temperature/humidity/pressure.
+- **`components_only_v051_candidate`**: temperature + humidity + pressure + wind components +
+  roof status. NO derived air density.
+- **`density_anomaly_v051_candidate`**: each venue's air-density ANOMALY -- actual density minus
+  that venue's own **training-season-only** normal density (`mlb_luck_score.data.
+  join_weather_features.compute_venue_air_density_baseline` / `add_venue_air_density_anomaly`,
+  a "fit on train, apply to all" statistic, exactly like a scaler, so validation-season weather
+  never leaks into a venue's own baseline) -- + wind components + roof status. NO raw density.
+  Meant to separate "was today unusual weather for this park" from "this park is persistently
+  high/low altitude" (Coors Field's raw density is almost always low, so it mostly just encodes
+  venue identity, not day-specific weather).
+
+**Adoption rule -- a candidate is never recommended on a log-loss improvement alone, however
+small or statistically significant** (`mlb_luck_score.models.compare_weather_variants.
+recommend_variant_adoption`). Beyond the usual log-loss/bootstrap/ECE/venue-regression/coverage
+checks, every candidate must ALSO pass **controlled-perturbation directional checks**
+(`mlb_luck_score.models.weather_perturbation`): override real validation rows to controlled
+low/high density (or anomaly) and strong-following/strong-headwind scenarios (holding
+everything else, including roof status, fixed), predict with the candidate's own trained model,
+and check whether the AGGREGATE mean predicted home-run probability moves in the physically
+expected direction -- plus, for the two density-based candidates, a Coors Field-specific check
+(real Coors rows' actual thin-air prediction vs. a hypothetical denser-air counterfactual for
+the SAME rows). These checks are combined with the rest via AND, not OR.
+
+**Real 2024 validation results** (n=122,132; 500-replicate paired game_pk-level bootstrap, seed
+42):
+
+| variant | log loss | log-loss delta | 95% CI | bootstrap-supported |
+|---|---|---|---|---|
+| `selected_production_baseline` | 0.670321 | -- | -- | -- |
+| `density_only_v051_candidate` | 0.670192 | -0.000130 | [-0.000313, +0.000048] | No (crosses zero) |
+| `components_only_v051_candidate` | 0.670032 | -0.000290 | [-0.000512, -0.000077] | Yes |
+| `density_anomaly_v051_candidate` | 0.670306 | -0.000015 | [-0.000106, +0.000086] | No (crosses zero) |
+
+**Controlled-perturbation results** -- mean predicted P(home run) under each scenario:
+
+| candidate | density direction (low density -> should be HIGHER) | wind direction (following -> should be HIGHER than headwind) | Coors: actual (thin) vs. hypothetical dense |
+|---|---|---|---|
+| `density_only` | **BACKWARDS**: 0.038 (thin) vs 0.054 (dense) | backwards (tiny): 0.0456 vs 0.0444 | **BACKWARDS**: 0.050 (actual) vs 0.073 (hypothetical dense) |
+| `components_only` | backwards (tiny): 0.0461 (hot/thin-implied) vs 0.0470 (cold/dense-implied) | backwards (tiny): 0.0460 vs 0.0444 | n/a (no single density column) |
+| `density_anomaly` | **CORRECT**: 0.047 (low anomaly) vs 0.042 (high anomaly) | ~zero, wrong sign: 0.0449 vs 0.0449 | **CORRECT**: 0.062 (actual) vs 0.059 (hypothetical denser) |
+
+The venue-anomaly formulation **does fix the backwards density signal** that both raw-density
+-based candidates show (validating the hypothesis that raw `air_density_kg_m3` mostly just
+encodes venue identity, e.g. "is this Coors", rather than day-specific weather) -- a genuine,
+interpretable, non-buggy finding, not noise (`n=122,132`, consistent sign, consistent with the
+known real-world Coors Field effect). Wind, however, shows no reliably-signed effect in ANY of
+the three candidates (deltas are tiny and sign-inconsistent) -- most likely reflecting genuinely
+weak marginal wind signal once launch-condition features are already in the model, though a
+regularized default `LogisticRegression` (this repository's baseline throughout) shrinking a
+weak feature toward zero is a plausible contributing factor worth a future check.
+
+**`recommend_adopt_any_v051_candidate: False`.** `components_only_v051_candidate` is the only
+candidate whose log-loss improvement clears the bootstrap-significance bar, but it fails the
+perturbation checks (backwards density and wind direction). `density_only` and `density_anomaly`
+don't even clear bootstrap significance. **No candidate is adopted; `baseline_v02` remains the
+production model.** Per the task's explicit fallback, weather is retained as evaluated,
+tested infrastructure and marked **unresolved** rather than forced into adoption.
+
+```bash
+make compare-weather-variants   # 3-way corrected comparison, see above
+```
+
+**Next steps**: `density_anomaly_v051_candidate`'s correctly-signed density/Coors effects are
+the most promising lead in this line of work -- a follow-up could try combining it with a wind
+feature engineered/verified independently (or dropping wind entirely and re-testing density
+-anomaly alone, since wind's failure is currently blocking an otherwise-plausible candidate),
+and/or trying an unregularized or explicitly-tuned model to rule out coefficient shrinkage as
+the cause of wind's null signal.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
@@ -939,13 +1023,21 @@ Mesonet station data), joined, and evaluated for real data -- see "Weather and a
 adoption criteria with a real but tiny log-loss improvement, but a direct physical-plausibility
 check (required by the adoption rule, never automated) found the per-play weather attribution to
 be weak and partly wrong-signed after fixing two real bugs caught by that very check -- neither
-candidate has been adopted as the default.
+candidate has been adopted as the default. Version 0.5.1 corrected this by testing three
+INDEPENDENT feature sets that each avoid mixing air density with the raw variables used to
+derive it, plus automated controlled-perturbation directional checks -- see "Weather correction
+(Version 0.5.1)" above for the exact real results. The venue-anomaly formulation fixes the
+backwards density signal (a genuine, non-buggy finding), but no candidate clears BOTH the
+bootstrap-significance bar AND the perturbation checks together; `recommend_adopt_any_v051_
+candidate: False`. `baseline_v02` remains the production model; weather is retained as
+evaluated, tested infrastructure and marked unresolved rather than forced into adoption.
 
 ## Future work
 
-- Reduce collinearity in the Version 0.5 weather feature set (temperature/pressure/humidity/air
-  density are numerically near-redundant as linear-model inputs) and re-run the physical
-  -plausibility check -- see "Weather and air density (Version 0.5)"
+- Re-test `density_anomaly_v051_candidate` without wind (or with an independently verified wind
+  feature) now that its density/Coors direction is confirmed correct -- see "Weather correction
+  (Version 0.5.1)"; also try an unregularized/tuned model to rule out coefficient shrinkage as
+  the cause of wind's null signal in all three Version 0.5.1 candidates
 - Human review of the Version 0.4 park-geometry AND Version 0.5 venue-environment reference
   tables (currently `agent_sourced_pending_human_review` for every record)
 - Published park factors (altitude, prevailing wind) beyond static wall geometry and per-game

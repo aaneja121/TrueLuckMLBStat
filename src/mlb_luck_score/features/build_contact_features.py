@@ -187,6 +187,62 @@ WEATHER_VECTOR_CATEGORICAL_FEATURES: tuple[str, ...] = (
     "weather_uncertain",
 )
 
+#: Version 0.5.1 CORRECTION candidates -- see `mlb_luck_score.models.
+#: compare_weather_variants` module docstring for why `weather_vector_v05_
+#: candidate` above (which includes BOTH the raw components AND the derived
+#: `air_density_kg_m3`/`air_density_deviation_from_reference`) is a flawed
+#: feature set: `air_density_kg_m3` is a near-deterministic function of
+#: `temperature_c`/`pressure_hpa`/`humidity_pct`, and including a derived
+#: quantity alongside every variable used to derive it creates severe
+#: multicollinearity -- individual coefficients (and therefore per-play
+#: attribution) become unstable and can flip sign even when the model's
+#: aggregate calibration looks fine. Each candidate below is deliberately
+#: INDEPENDENT (not cumulative) so the two hypotheses -- "density alone
+#: captures what matters" vs. "the individual components matter" -- can be
+#: tested separately, each with only one representation of the
+#: temperature/humidity/pressure/density family, never both.
+
+#: `density_only_v051_candidate`: air density + wind components + roof
+#: status. NO temperature/humidity/pressure -- if air density really is a
+#: sufficient physical summary, this alone should carry the signal.
+WEATHER_DENSITY_ONLY_NUMERIC_FEATURES: tuple[str, ...] = (
+    "air_density_kg_m3",
+    "following_wind_mps",
+    "headwind_mps",
+    "crosswind_mps",
+)
+WEATHER_DENSITY_ONLY_CATEGORICAL_FEATURES: tuple[str, ...] = WEATHER_BASIC_CATEGORICAL_FEATURES
+
+#: `components_only_v051_candidate`: the three raw atmospheric measurements
+#: + wind components + roof status. NO derived air density -- lets the
+#: model find its own (possibly nonlinear-via-interaction) combination of
+#: the raw variables instead of being handed a fixed, collinear derived one.
+WEATHER_COMPONENTS_ONLY_NUMERIC_FEATURES: tuple[str, ...] = (
+    "temperature_c",
+    "humidity_pct",
+    "pressure_hpa",
+    "following_wind_mps",
+    "headwind_mps",
+    "crosswind_mps",
+)
+WEATHER_COMPONENTS_ONLY_CATEGORICAL_FEATURES: tuple[str, ...] = WEATHER_BASIC_CATEGORICAL_FEATURES
+
+#: `density_anomaly_v051_candidate`: each venue's air-density ANOMALY (see
+#: `mlb_luck_score.data.join_weather_features.add_venue_air_density_anomaly`
+#: -- actual density minus that venue's own training-season-only normal
+#: density) + wind components + roof status. NO raw `air_density_kg_m3` --
+#: this is meant to separate "was today unusual weather for THIS park" from
+#: "this park is persistently high/low altitude", which the raw density
+#: value conflates (Coors Field's raw density is almost always low, so it
+#: mostly just encodes venue identity, not day-specific weather).
+WEATHER_DENSITY_ANOMALY_NUMERIC_FEATURES: tuple[str, ...] = (
+    "air_density_venue_anomaly_kg_m3",
+    "following_wind_mps",
+    "headwind_mps",
+    "crosswind_mps",
+)
+WEATHER_DENSITY_ANOMALY_CATEGORICAL_FEATURES: tuple[str, ...] = WEATHER_BASIC_CATEGORICAL_FEATURES
+
 
 def add_weather_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     """Cast Version 0.5 weather boolean/categorical flags for the model pipeline.
@@ -299,6 +355,12 @@ def generate_standardized_environment_rows(df: pd.DataFrame) -> pd.DataFrame:
         "pressure_hpa": STANDARD_ENVIRONMENT_PRESSURE_HPA,
         "air_density_kg_m3": DEFAULT_REFERENCE_AIR_DENSITY_KG_M3,
         "air_density_deviation_from_reference": 0.0,
+        # "Standardized" for the venue-anomaly candidate means "normal for
+        # that venue" (zero anomaly), NOT the fixed ISA reference -- this
+        # candidate's whole point is to model deviations from each venue's
+        # own baseline, so its counterfactual must hold that baseline fixed
+        # rather than substituting an unrelated global constant.
+        "air_density_venue_anomaly_kg_m3": 0.0,
         "wind_speed_mps": 0.0,
         "following_wind_mps": 0.0,
         "headwind_mps": 0.0,

@@ -4,7 +4,7 @@
 	compare-park-aware demo notebook build-park-geometry validate-park-geometry \
 	join-park-geometry compare-geometry-aware notebook-park-geometry \
 	download-weather-data build-game-weather join-weather-features \
-	compare-weather-aware notebook-weather
+	compare-weather-aware notebook-weather compare-weather-variants
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -209,3 +209,17 @@ compare-weather-aware:
 
 notebook-weather:
 	$(PY) -m jupyter notebook notebooks/07_weather_air_density_analysis.ipynb
+
+# Version 0.5.1 CORRECTED weather comparison: three INDEPENDENT candidates
+# (density_only, components_only, density_anomaly) that each avoid mixing a
+# derived quantity (air density) with the raw variables used to compute it
+# -- see mlb_luck_score.models.compare_weather_variants module docstring for
+# why Version 0.5's weather_vector_v05_candidate was flawed. Adds controlled
+# -perturbation directional checks (air-density/anomaly low-vs-high, strong
+# following-vs-headwind, Coors Field) on top of the usual log-loss/ECE/
+# bootstrap/regression checks -- a candidate is never recommended on a
+# log-loss improvement alone. Does NOT automatically adopt any candidate.
+compare-weather-variants:
+	$(PY) -m mlb_luck_score.models.compare_weather_variants \
+		--input data/processed/cleaned_development_data_with_weather.parquet \
+		--output-dir outputs/tables

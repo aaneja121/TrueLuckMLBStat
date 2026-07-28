@@ -108,9 +108,16 @@ why: they pass ALL 8 automatable adoption criteria (`recommend_adopt_any_v05_can
 with a real, bootstrap-confirmed (if tiny) log-loss improvement, but a direct physical
 -plausibility check -- the one criterion the rule deliberately never automates -- found the
 per-play weather attribution weak and partly wrong-signed (see "Weather and air density
-(Version 0.5)" in README.md), so neither has been adopted either. `baseline_v02` remains the
-default. This pattern generalizes: any future comparison variant (more park factors, defensive
-positioning, etc.) stays a candidate, reported with
+(Version 0.5)" in README.md), so neither has been adopted either. Version 0.5.1
+(`mlb_luck_score.models.compare_weather_variants`) went further and made the physical
+-plausibility check itself a checkable, automated gate (controlled-perturbation directional
+checks, see `mlb_luck_score.models.weather_perturbation`) combined via AND with the usual
+statistical criteria -- `density_only_v051_candidate` and `density_anomaly_v051_candidate`
+don't even clear bootstrap significance on real 2024 data, and `components_only_v051_candidate`
+does but fails the perturbation checks (backwards density AND wind direction) -- see "Weather
+correction (Version 0.5.1)" in README.md. `recommend_adopt_any_v051_candidate: False`;
+`baseline_v02` remains the default. This pattern generalizes: any future comparison variant
+(more park factors, defensive positioning, etc.) stays a candidate, reported with
 its exact metrics via `recommend_*`-style rule-based logic, until a maintainer explicitly
 decides to adopt it. A rule-based recommendation is a starting point for judgment (read the
 full by-venue/by-subgroup table yourself -- a real, noteworthy regression can exist below a
@@ -200,6 +207,33 @@ regression test). This class of bug is easy to miss because it fails silently --
 exception, no NaN, just a quietly wrong prediction -- so treat any new synthetic/
 counterfactual row generator with the same suspicion and verify its categorical overrides
 against real data before trusting its output.
+
+## Never adopt a model on a statistically significant log-loss delta alone
+
+`mlb_luck_score.models.compare_weather_variants.recommend_variant_adoption` (Version 0.5.1)
+requires every candidate to pass CONTROLLED-PERTURBATION directional checks
+(`mlb_luck_score.models.weather_perturbation`) in addition to the usual log-loss/bootstrap/ECE/
+venue-regression checks, combined with AND. This exists because Version 0.5 found a real,
+bootstrap-significant log-loss improvement whose per-play attribution was physically backwards
+-- large real-world sample sizes (n=122,132 here) make it easy for a tiny, physically-meaningless
+effect to clear a bootstrap-significance bar. When adding a new model candidate/adoption rule,
+do not treat "the confidence interval excludes zero" as sufficient justification by itself --
+prefer an explicit, checkable physical/behavioral test (a monotonicity check, a known-effect
+sanity check like Coors Field, a controlled perturbation) alongside the statistical one, exactly
+as `weather_perturbation.check_directional_effect` does.
+
+## Any "fit on train, apply to all" statistic must never see validation data
+
+`mlb_luck_score.data.join_weather_features.compute_venue_air_density_baseline` (each venue's
+"normal" air density, used by `density_anomaly_v051_candidate`) is computed ONLY from
+`TRAIN_SEASONS` rows, then applied unchanged to both training and validation rows -- exactly
+like fitting a `StandardScaler` on train and transforming both splits with it. Recomputing this
+kind of per-group baseline from the full dataset (including validation seasons) would leak
+validation-season information into the "baseline" itself, silently making the validation
+evaluation optimistic. Any future per-venue/per-group reference statistic (a mean, a baseline,
+a normalization constant) must follow this same pattern -- fit once on `TRAIN_SEASONS` only, and
+say so explicitly in its docstring (see `compute_venue_air_density_baseline`'s docstring and
+`tests/test_join_weather_features.py::test_venue_baseline_computed_from_training_seasons_only`).
 
 ## Confidence must never dampen the score
 

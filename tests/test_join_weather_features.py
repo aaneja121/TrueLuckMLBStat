@@ -11,7 +11,9 @@ import pytest
 
 from mlb_luck_score.data.join_weather_features import (
     JoinWeatherFeaturesError,
+    add_venue_air_density_anomaly,
     build_weather_join_report,
+    compute_venue_air_density_baseline,
     join_weather_features,
 )
 
@@ -164,3 +166,109 @@ def test_coverage_report(play_df, game_weather_df):
     assert report.rows_with_effective_weather == 3
     assert report.effective_coverage_rate == pytest.approx(3 / 5)
     assert sum(report.counts_by_status.values()) == 5
+
+
+# ---------------------------------------------------------------------------
+# Version 0.5.1: per-venue air-density baseline / anomaly
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def multi_season_density_df() -> pd.DataFrame:
+    rows = []
+    # Venue 1: consistently low density (Coors-like) across training seasons.
+    for season in (2021, 2022, 2023):
+        for i in range(40):
+            rows.append(
+                {
+                    "venue_id": 1,
+                    "season": season,
+                    "has_effective_weather": True,
+                    "air_density_kg_m3": 0.98 + 0.01 * (i % 5 - 2) / 5,
+                }
+            )
+    # Venue 2: consistently high density.
+    for season in (2021, 2022, 2023):
+        for i in range(40):
+            rows.append(
+                {
+                    "venue_id": 2,
+                    "season": season,
+                    "has_effective_weather": True,
+                    "air_density_kg_m3": 1.20 + 0.01 * (i % 5 - 2) / 5,
+                }
+            )
+    # Venue 3: too few training samples to be reliable.
+    for _i in range(5):
+        rows.append(
+            {
+                "venue_id": 3,
+                "season": 2021,
+                "has_effective_weather": True,
+                "air_density_kg_m3": 1.10,
+            }
+        )
+    # Validation-season rows for venue 1 -- must NOT influence the baseline.
+    for _i in range(10):
+        rows.append(
+            {
+                "venue_id": 1,
+                "season": 2024,
+                "has_effective_weather": True,
+                "air_density_kg_m3": 0.50,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def test_venue_baseline_computed_from_training_seasons_only(multi_season_density_df):
+    baseline = compute_venue_air_density_baseline(multi_season_density_df, (2021, 2022, 2023))
+    # If 2024's density=0.50 rows leaked in, venue 1's mean would be pulled
+    # far below ~0.98 -- confirms the baseline is train-only.
+    assert baseline[1] == pytest.approx(0.98, abs=0.01)
+    assert baseline[2] == pytest.approx(1.20, abs=0.01)
+
+
+def test_venue_baseline_excludes_low_sample_venues(multi_season_density_df):
+    baseline = compute_venue_air_density_baseline(
+        multi_season_density_df, (2021, 2022, 2023), min_samples=30
+    )
+    assert 3 not in baseline
+
+
+def test_venue_baseline_includes_venue_with_enough_samples(multi_season_density_df):
+    baseline = compute_venue_air_density_baseline(
+        multi_season_density_df, (2021, 2022, 2023), min_samples=30
+    )
+    assert 1 in baseline
+    assert 2 in baseline
+
+
+def test_venue_anomaly_is_zero_at_the_baseline():
+    df = pd.DataFrame({"venue_id": [1, 1], "air_density_kg_m3": [0.98, 1.20]})
+    out = add_venue_air_density_anomaly(df, {1: 0.98})
+    assert out["air_density_venue_anomaly_kg_m3"].iloc[0] == pytest.approx(0.0)
+    assert out["air_density_venue_anomaly_kg_m3"].iloc[1] == pytest.approx(0.22)
+
+
+def test_venue_anomaly_is_nan_for_venue_without_baseline():
+    df = pd.DataFrame({"venue_id": [1, 2], "air_density_kg_m3": [0.98, 1.20]})
+    out = add_venue_air_density_anomaly(df, {1: 0.98})  # venue 2 not in baseline
+    assert pd.isna(out["air_density_venue_anomaly_kg_m3"].iloc[1])
+
+
+def test_venue_anomaly_is_nan_when_density_missing():
+    df = pd.DataFrame({"venue_id": [1], "air_density_kg_m3": [np.nan]})
+    out = add_venue_air_density_anomaly(df, {1: 0.98})
+    assert pd.isna(out["air_density_venue_anomaly_kg_m3"].iloc[0])
+
+
+def test_venue_anomaly_isolates_day_specific_weather_from_altitude(multi_season_density_df):
+    # End-to-end check of the design intent: venue 1's raw density is always
+    # low (~0.98, persistent altitude signature); its ANOMALY should be
+    # small/centered (day-specific variation), not itself persistently low.
+    baseline = compute_venue_air_density_baseline(multi_season_density_df, (2021, 2022, 2023))
+    out = add_venue_air_density_anomaly(multi_season_density_df, baseline)
+    venue_1_train = out[(out["venue_id"] == 1) & (out["season"] != 2024)]
+    assert venue_1_train["air_density_venue_anomaly_kg_m3"].abs().max() < 0.05
+    assert venue_1_train["air_density_kg_m3"].mean() < 1.0  # raw density stays persistently low
