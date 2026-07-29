@@ -298,6 +298,49 @@ earlier versions -- when a future phase (e.g. infield pickup/throwing models) in
 another model with no prior baseline, use the SAME absolute-quality-bar pattern instead of
 inventing a placeholder baseline to diff against.
 
+## Any override of a raw feature must recompute every feature DERIVED from it
+
+This exact bug class has now been caught THREE times in this repository, in three
+different modules, which is why it gets its own rule rather than staying a per-module
+docstring note. `mlb_luck_score.features.build_contact_features.
+generate_standardized_environment_rows` (Version 0.5) and `generate_typical_alignment_rows`
+(Version 0.6) both document it; Version 0.7C's near-wall controlled-perturbation checks
+(`mlb_luck_score.models.compare_near_wall_models`) hit it a third time, in a NEW form:
+overriding `wall_distance_in_spray_direction` without recomputing `projected_distance_to_
+wall_margin`/`absolute_distance_to_wall` (both DERIVED from it via `mlb_luck_score.data.
+join_park_geometry`'s `margin = hit_distance_sc - wall_distance_in_spray_direction`)
+produced a spurious backwards-signed perturbation result -- the model was correctly reading
+a genuinely self-contradictory row (raw wall distance said "close," the stale derived
+margin still said "far"), not learning something wrong. The same issue applies to
+`estimated_hang_time_s`, which is itself DERIVED from `launch_speed`/`launch_angle` via
+`mlb_luck_score.data.outfield_physics.estimate_hang_time_seconds` -- overriding hang time
+directly (rather than overriding the genuinely independent launch angle and recomputing
+hang time from it) would repeat the same mistake one feature removed. Before writing ANY
+new counterfactual/perturbation/override logic, explicitly enumerate every feature DERIVED
+from the one being overridden (grep for where it's computed) and recompute all of them in
+the same override step -- do not assume a single `override_columns`-style column-by-column
+substitution is safe just because it worked for a case with no derived dependents.
+
+## Subgroup ECE against a fixed absolute threshold does not transfer across population sizes
+
+Verified in Version 0.7C (`mlb_luck_score.models.compare_near_wall_models`, real 2024
+data): the SAME `MATERIAL_ECE_ABSOLUTE_THRESHOLD` (0.05) that works well for open-field
+-scale subgroups (tens of thousands of rows) flags 28 of 30 reliably-sampled venues in the
+near-wall-specific final comparison, where each venue subgroup is only ~200-330 rows --
+ECE estimated from a sample that small has enough sampling variance that many venues could
+cross 0.05 even under a genuinely well-calibrated model, not because they are actually
+worse. Separately, restricting `open_field_v07`'s ALREADY-VALIDATED predictions (Version
+0.7A, blended ECE 0.017771) to just its own open-field-gated subset gave ECE 0.063025 for
+the EXACT SAME model -- independently confirmed NOT a bug: aggregate ECE across a mixed
+population is not a simple weighted decomposition of subgroup ECEs, and restricting to (or
+mixing) subpopulations can shift the aggregate figure in either direction purely from bin
+-composition effects, unrelated to genuine miscalibration. When applying an existing
+absolute-quality threshold to a NEW, smaller subgroup population, report the result
+honestly (do not hide or silently pass a real-looking failure) but also do not treat it as
+equivalent evidence to the same threshold applied at the original population's scale --
+note the sample-size caveat explicitly, as `compare_near_wall_models` does, rather than
+either recalibrating the threshold ad hoc or treating every crossing as a confirmed defect.
+
 ## Confidence must never dampen the score
 
 The Version 0.1 confidence report (`mlb_luck_score.scoring.confidence`) is descriptive

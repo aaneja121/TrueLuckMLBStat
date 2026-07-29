@@ -12,6 +12,8 @@ import pytest
 
 from mlb_luck_score.config import ProtectedSeasonError, assert_seasons_allowed
 from mlb_luck_score.models.train_opportunity_model import (
+    MODEL_TYPE_HGB,
+    MODEL_TYPE_LOGISTIC,
     VARIANT_CLASS_BALANCED,
     VARIANT_UNWEIGHTED,
     evaluate_opportunity_model,
@@ -127,6 +129,34 @@ def test_custom_feature_list_is_respected(opportunity_df: pd.DataFrame):
     )
     assert trained.numeric_features == ["launch_speed", "estimated_hang_time_s"]
     assert trained.categorical_features == ["bb_type"]
+
+
+def test_hgb_model_type_produces_valid_probabilities(opportunity_df: pd.DataFrame):
+    trained = train_opportunity_model(opportunity_df, class_weight=None, model_type=MODEL_TYPE_HGB)
+    assert trained.model_type == MODEL_TYPE_HGB
+    feature_cols = trained.numeric_features + trained.categorical_features
+    p_out = predict_opportunity_proba(trained, opportunity_df[feature_cols].head(10))
+    validate_opportunity_probabilities(p_out)
+
+
+def test_default_model_type_is_logistic(opportunity_df: pd.DataFrame):
+    trained = train_opportunity_model(opportunity_df)
+    assert trained.model_type == MODEL_TYPE_LOGISTIC
+
+
+def test_unknown_model_type_rejected(opportunity_df: pd.DataFrame):
+    with pytest.raises(ValueError, match="model_type"):
+        train_opportunity_model(opportunity_df, model_type="random_forest")
+
+
+def test_hgb_learns_the_real_relationship(opportunity_df: pd.DataFrame):
+    trained = train_opportunity_model(opportunity_df, class_weight=None, model_type=MODEL_TYPE_HGB)
+    feature_cols = trained.numeric_features + trained.categorical_features
+    deep_row = opportunity_df[opportunity_df["converted_to_out"] == 0].iloc[[0]]
+    shallow_row = opportunity_df[opportunity_df["converted_to_out"] == 1].iloc[[0]]
+    p_deep = predict_opportunity_proba(trained, deep_row[feature_cols]).iloc[0]
+    p_shallow = predict_opportunity_proba(trained, shallow_row[feature_cols]).iloc[0]
+    assert p_deep < p_shallow
 
 
 def test_training_rejects_protected_2025_season_without_explicit_flag():

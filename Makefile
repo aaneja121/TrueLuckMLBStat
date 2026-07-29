@@ -6,7 +6,8 @@
 	download-weather-data build-game-weather join-weather-features \
 	compare-weather-aware notebook-weather compare-weather-variants \
 	compare-alignment-aware notebook-alignment \
-	compare-opportunity-models notebook-outfield-opportunity
+	compare-opportunity-models notebook-outfield-opportunity \
+	compare-near-wall-models
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -257,3 +258,16 @@ compare-opportunity-models:
 
 notebook-outfield-opportunity:
 	$(PY) -m jupyter notebook notebooks/09_outfield_opportunity_execution_analysis.ipynb
+
+# Version 0.7C near-wall opportunity specialist: fits logistic + HGB
+# candidates on 2021-2022, selects the winner on 2023 (log loss/ECE within
+# wall bands), and runs the final comparison (winner vs open_field_v07) on
+# 2024, restricted to near-wall (within 20ft of the wall) rows. Reports
+# wall-band/wall-height/venue/spray-sector/opportunity-time calibration, a
+# game-level paired bootstrap, an architectural no-open-field-regression
+# check, and controlled-perturbation directional checks. Does NOT
+# automatically mark the specialist "calibrated" -- see module docstring.
+compare-near-wall-models:
+	$(PY) -m mlb_luck_score.models.compare_near_wall_models \
+		--input data/processed/cleaned_development_data_with_geometry.parquet \
+		--output-dir outputs/tables

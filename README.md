@@ -401,15 +401,20 @@ make notebook        # launches Jupyter in notebooks/
   stability, the `positioning_effect` distribution, the adoption recommendation, and
   explicit limitations. See "Alignment-aware positioning (Version 0.6)" above for the
   real-data results.
-- `09_outfield_opportunity_execution_analysis.ipynb` -- **Version 0.7A/0.7B**:
+- `09_outfield_opportunity_execution_analysis.ipynb` -- **Version 0.7A/0.7B/0.7C**:
   outfield-opportunity eligibility coverage, estimated-hang-time/landing-location feature
   examples, `measured_contact_only_v07` training/evaluation, required-subgroup/per-venue
   /per-defender calibration, a game-level bootstrap CI, the validation summary (including
   why `typical_position_proxy_v07` was not built), defensive-execution examples, the
   four-component per-play report (contact expectation, opportunity difficulty, execution,
-  residual contact luck -- explicitly not combined), and explicit limitations. See
-  "Outfield opportunity and execution (Version 0.7A / 0.7B)" above for the real-data
-  results.
+  residual contact luck -- explicitly not combined); then the Version 0.7C near-wall
+  specialist: gate distribution, model selection (2023) and final comparison (2024),
+  required wall-band/wall-height/spray-sector/opportunity-time/venue subgroup calibration,
+  the paired bootstrap, controlled-perturbation checks (with the launch-angle finding
+  interpreted), the no-open-field-regression check, the validation summary, and the gated
+  report's `execution_availability_status` breakdown; and explicit limitations for all
+  three sub-versions. See "Outfield opportunity and execution (Version 0.7A / 0.7B)" and
+  "Near-wall opportunity correction (Version 0.7C)" above for the real-data results.
 
 All nine notebooks detect missing data/artifacts and print clear instructions instead of
 crashing; `04` additionally falls back to a small synthetic example so it is always
@@ -1224,9 +1229,134 @@ weather_attribution`).
 - Estimated hang time and landing coordinates have no public ground truth to validate
   against.
 - Calibration is materially worse for near-wall and mid-opportunity-time plays -- treat
-  Version 0.7B execution values for those specific plays with extra caution.
+  Version 0.7B execution values for those specific plays with extra caution. **See "Near
+  -wall opportunity correction (Version 0.7C)" below -- this limitation now has a
+  specialist model addressing it, though not yet fully validated.**
 - Infield pickup/throwing models and batter-runner advancement are explicitly deferred to
   future phases per the task.
+
+## Near-wall opportunity correction (Version 0.7C)
+
+Addresses Version 0.7A's real, honestly-reported near-wall calibration weakness (ECE
+0.180-0.254 in the 5/10/20-ft wall bands vs. an overall 0.018) with a GATED architecture
+(`mlb_luck_score.models.outfield_gating`) that leaves open-field scoring completely
+untouched:
+
+- **`open_field_v07`**: the EXISTING `measured_contact_only_v07` model, unchanged, for
+  plays NOT within 20 ft of the wall.
+- **`near_wall_v07c_candidate`**: a specialist trained ONLY on wall-adjacent plays
+  (`mlb_luck_score.models.compare_near_wall_models`), comparing a logistic baseline against
+  an unweighted `HistGradientBoostingClassifier` -- can find nonlinear interactions among
+  hang time/launch angle/wall distance/wall height/spray direction automatically, with the
+  IDENTICAL feature set as the logistic candidate (no hand-engineered interaction terms
+  favoring either model class).
+- **Contact-only fallback**: rows where park geometry itself is unreliable (missing,
+  flagged `geometry_uncertain`, or missing wall distance) get NO opportunity/execution
+  score at all -- only the existing Version 0.2 contact expectation/residual luck.
+
+**Season split** (per the task's explicit instruction): fit on 2021-2022, select the
+winning candidate on 2023, final comparison on 2024 -- reusing `mlb_luck_score.config.
+CALIBRATION_BASE_TRAIN_SEASONS`/`CALIBRATION_FIT_SEASONS`/`CALIBRATION_EVAL_SEASONS`
+(already built for post-hoc calibration) rather than inventing new constants. 2025 remains
+untouched. `open_field_v07` is evaluated exactly as already trained in Version 0.7A (on the
+standard `TRAIN_SEASONS`, 2021-2023) -- not retrained on the smaller near-wall-specific
+split.
+
+**Model selection (2023, n=8,194)**: `near_wall_logistic_v07c` log loss 0.406239, ECE
+0.016695; `near_wall_hgb_v07c` log loss 0.369277, ECE 0.017665. **HGB selected** (lower log
+loss).
+
+**Final comparison (2024 near-wall rows, n=7,853)**:
+
+| variant | log loss | ECE |
+|---|---|---|
+| `open_field_v07` (applied to these same wall-adjacent plays) | 0.670934 | 0.180439 |
+| `near_wall_v07c_candidate` (HGB) | 0.394988 | 0.027564 |
+
+A large, real, **bootstrap-confirmed** improvement (500 game-level reps): log-loss delta
+-0.275946, 95% CI [-0.292007, -0.259978]; ECE delta -0.152875, 95% CI [-0.166817,
+-0.135739].
+
+**Required checks**:
+
+- **Wall bands**: all three pass cleanly -- near_wall_5ft ECE 0.039060 (n=1,947),
+  near_wall_10ft 0.030853 (n=3,983), near_wall_20ft 0.027564 (n=7,853).
+- **Opportunity-time buckets**: all four pass -- 0.043402 / 0.031433 / 0.030886 / 0.024130
+  (shortest to longest quartile).
+- **Wall height** (short/medium/tall terciles): 0.052954 (n=366) / 0.074802 (n=330) /
+  0.113173 (n=348) -- all nominally exceed the 0.05 bar, but coverage is sparse (only
+  ~12.3% of geometry-available rows have a reviewed wall height -- a pre-existing Version
+  0.4 data limitation, not new to this phase) and sample sizes are small; the degradation
+  with taller/rarer wall configs is plausible but not conclusively distinguishable from
+  sampling noise at this size.
+- **Spray sector**: left 0.051353 (n=1,388) and left_center 0.057079 (n=1,612) nominally
+  exceed the bar; center 0.024389, right_center 0.027043, right 0.028325 all pass cleanly
+  -- a real, if modest, pull-side/oppo-side asymmetry worth further investigation.
+- **Venue**: 28 of 30 reliably-sampled venues nominally exceed the SAME fixed 0.05 ECE
+  threshold used for the much larger open-field population -- most per-venue near-wall
+  samples here are only ~200-330 rows, and ECE estimated from a sample this size has
+  substantial sampling variance; this is very plausibly a scale-mismatched-threshold
+  artifact rather than genuine per-venue miscalibration, but is reported honestly as-is
+  rather than adjusting the threshold specifically to make this pass.
+- **Architectural no-open-field-regression check**: `predictions_identical_via_gate:
+  True` -- confirmed bit-identical whether an open-field row is scored via the gate or
+  directly; gating only routes rows, it never alters the model or its inputs. (A
+  descriptive-only side note: `open_field_v07`'s ECE restricted to just its own
+  gated subset is 0.063025, numerically worse than the blended whole-population figure of
+  0.017771 from Version 0.7A -- independently verified NOT to be a bug: aggregate ECE
+  across a mixed population is not a simple decomposition of subgroup ECEs, and mixing
+  subpopulations can shift the aggregate figure in either direction for purely
+  compositional reasons. This is reported for context, not treated as a pass/fail
+  criterion.)
+- **Controlled perturbations**: the wall-distance check passes cleanly and with a large,
+  sensible effect (close wall mean P(out) 0.255731 vs. far wall 0.586909, delta +0.331178
+  -- a farther wall makes the SAME batted ball comparatively more catchable, as physically
+  expected). The launch-angle/hang-time check (low angle/short hang time: 0.270407 vs. high
+  angle/long hang time: 0.663381, delta +0.392974) is BACKWARDS from the open-field
+  intuition -- but this may be a real, different physical relationship specific to the
+  near-wall CONDITIONAL population, not a bug: among plays that all travel roughly the same
+  (long) distance to reach the wall by construction of the gate, achieving that distance
+  via a LOW launch angle requires much higher exit velocity (a flat, hard-hit line-drive
+  double/triple giving the fielder little time to react) than achieving it via a HIGH
+  launch angle (a softer, higher-arcing, more trackable fly ball) -- the reverse of the
+  open-field-wide correlation, where distance varies freely. Per CLAUDE.md's
+  confounding-by-indication guidance, this is reported as an unresolved finding requiring
+  further investigation, not "fixed" by relaxing the check.
+
+  A real bug WAS caught and fixed during this work: an earlier version of both perturbation
+  checks overrode a raw feature (`wall_distance_in_spray_direction`, `estimated_hang_time_
+  s`) without recomputing its DEPENDENT derived features (`projected_distance_to_wall_
+  margin`/`absolute_distance_to_wall`, which are computed FROM wall distance; hang time
+  itself is computed FROM launch angle/speed) -- feeding the model an internally
+  -inconsistent row and producing a spurious backwards wall-distance result. Fixed by
+  recomputing dependents on every override (`_override_wall_distance_and_recompute`/
+  `_override_launch_angle_and_recompute_hang_time`).
+
+**`near_wall_specialist_calibrated: False`.** Despite the large, real, bootstrap-confirmed
+aggregate improvement and clean wall-band results, the specialist does not yet clear every
+required check (the launch-angle perturbation finding above, plus the wall-height/spray
+-sector/venue subgroup issues). Per the task's reporting rule:
+
+> Outfield execution score available for calibrated open-field opportunities; provisional
+> or unavailable for wall-adjacent opportunities.
+
+`mlb_luck_score.scoring.gated_outfield_report.build_gated_outfield_report` implements this
+exactly: open-field rows get `available_open_field`; near-wall rows are STILL SCORED (never
+silently blanked) but labeled `provisional_near_wall`, not `available_near_wall_calibrated`,
+until the open findings above are resolved; contact-only-fallback rows (geometry
+unreliable, 3,116 of 57,598 real 2024 validation rows) get `unavailable_geometry_fallback`
+with `p_out_opportunity`/`defensive_execution` left `NaN`.
+
+```bash
+make compare-near-wall-models   # model selection + final comparison, see above
+```
+
+**Next steps**: investigate the launch-angle/hang-time perturbation finding directly (does
+exit velocity really trade off against launch angle at fixed near-wall distance in this
+data, confirming the hypothesis above); re-examine whether the wall-height/spray-sector
+subgroup issues persist with a larger or differently-thresholded sample; once resolved,
+`near_wall_specialist_calibrated` should flip to `True` and near-wall rows will
+automatically report `available_near_wall_calibrated`.
 
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
@@ -1345,6 +1475,20 @@ mid-range opportunity-time buckets -- reported honestly as a real, documented li
 `typical_position_proxy_v07` was investigated and not built (only stale 2015-2016 sources
 found); `defensive_execution` (Version 0.7B) and the four-component per-play report are
 implemented and exercised against real data, explicitly NOT combined into one score.
+Version 0.7C's near-wall specialist has been built and evaluated for real 2021-2024 data
+-- see "Near-wall opportunity correction (Version 0.7C)" above for the exact results. A
+gated architecture (`open_field_v07`/`near_wall_v07c_candidate`/contact-only fallback)
+routes wall-adjacent plays to an `HistGradientBoostingClassifier` specialist selected over
+a logistic baseline (fit 2021-2022, selected 2023, final-compared 2024); it shows a large,
+real, bootstrap-confirmed improvement over applying `open_field_v07` to those same plays
+(log loss 0.671 -> 0.395, ECE 0.180 -> 0.028) and passes all wall-band checks, but
+`near_wall_specialist_calibrated: False` -- an unresolved, honestly-reported backwards
+-signed launch-angle perturbation-check finding (plausibly a genuine, different physical
+relationship at near-fixed near-wall distance, not yet confirmed) plus several
+subgroup/venue ECE issues (plausibly small-sample noise) keep it short of full validation.
+Per the task's reporting rule, `mlb_luck_score.scoring.gated_outfield_report` labels
+near-wall execution scores `provisional_near_wall` (still computed, never blanked) rather
+than `available_near_wall_calibrated`.
 
 ## Future work
 
@@ -1367,13 +1511,14 @@ implemented and exercised against real data, explicitly NOT combined into one sc
   (none was found as of Version 0.6) or `typical_position_proxy_v07` (none was found as of
   Version 0.7A) -- exact defender positioning, reaction, and route modeling remain out of
   scope for any publicly-sourced dataset
-- Improve `measured_contact_only_v07`'s near-wall and mid-range-opportunity-time
-  calibration (ECE 0.18-0.25 vs. an overall 0.018) -- see "Outfield opportunity and
-  execution (Version 0.7A / 0.7B)"; a non-linear model or explicit near-wall interaction
-  terms are plausible next steps
+- Investigate Version 0.7C's unresolved launch-angle/hang-time perturbation-check finding
+  directly (does exit velocity really trade off against launch angle at near-fixed
+  near-wall distance in this data); re-examine the wall-height/spray-sector/venue subgroup
+  ECE issues with a larger sample or a size-aware threshold before revisiting `near_wall_
+  specialist_calibrated` -- see "Near-wall opportunity correction (Version 0.7C)"
 - Per the task's stated roadmap: infield pickup/throwing execution modeling next, then
-  batter-runner advancement, once outfield opportunity/execution (Version 0.7A/0.7B) is
-  considered validated
+  batter-runner advancement, once outfield opportunity/execution (Versions 0.7A/0.7B/0.7C)
+  is considered validated
 - Batter-runner decision-quality modeling
 - Batter-runner execution modeling
 - Park and bounce effects

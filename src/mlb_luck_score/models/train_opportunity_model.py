@@ -44,6 +44,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import sklearn
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss
 from sklearn.pipeline import Pipeline
@@ -69,6 +70,22 @@ VARIANT_UNWEIGHTED = "unweighted_opportunity_baseline"
 #: comparison model, never used to produce the opportunity probability.
 VARIANT_CLASS_BALANCED = "class_balanced_opportunity_comparison_only"
 
+MODEL_TYPE_LOGISTIC = "logistic"
+#: Version 0.7C: an UNWEIGHTED nonlinear alternative for the near-wall
+#: specialist comparison (`mlb_luck_score.models.compare_near_wall_models`).
+#: `HistGradientBoostingClassifier` can find nonlinear interactions among
+#: hang time/launch angle/wall distance/wall height/spray direction
+#: automatically, unlike `LogisticRegression` -- see that module's docstring
+#: for why both candidates use the IDENTICAL feature set rather than giving
+#: the nonlinear model an unfair advantage via hand-engineered interactions.
+#: Fed through the SAME preprocessing pipeline (numeric scaling + one-hot
+#: categorical encoding) as the logistic candidate for a fair, apples
+#: -to-apples feature representation -- trees split on the resulting 0/1
+#: dummy columns just fine, at some efficiency cost vs. HGB's native
+#: categorical support, which is irrelevant here since fairness of
+#: comparison matters more than raw efficiency.
+MODEL_TYPE_HGB = "hgb"
+
 
 @dataclass
 class TrainedOpportunityModel:
@@ -78,6 +95,7 @@ class TrainedOpportunityModel:
     class_weight: str | None = None
     variant: str = VARIANT_UNWEIGHTED
     feature_set_label: str = "measured_contact_only_v07"
+    model_type: str = MODEL_TYPE_LOGISTIC
 
 
 def _prepare_xy(
@@ -96,14 +114,17 @@ def train_opportunity_model(
     feature_set_label: str = "measured_contact_only_v07",
     numeric_features: Sequence[str] | None = None,
     categorical_features: Sequence[str] | None = None,
+    model_type: str = MODEL_TYPE_LOGISTIC,
 ) -> TrainedOpportunityModel:
-    """Fit the binary opportunity-difficulty logistic-regression pipeline.
+    """Fit the binary opportunity-difficulty model pipeline.
 
     Args:
         train_df: Rows already filtered to `outfield_opportunity_eligible`
             and the desired training seasons.
-        class_weight: Passed straight through to `LogisticRegression`.
-            Defaults to `None` -- see module docstring.
+        class_weight: Passed straight through to the underlying classifier
+            (`LogisticRegression` or `HistGradientBoostingClassifier`, both
+            of which support this argument). Defaults to `None` -- see
+            module docstring.
         feature_set_label: A human-readable label for which candidate's
             feature set this is (e.g. `"measured_contact_only_v07"`),
             recorded on the returned `TrainedOpportunityModel` for reporting
@@ -113,9 +134,11 @@ def train_opportunity_model(
             missingness/leakage checks as `select_opportunity_features`).
             If omitted, defaults to `select_opportunity_features(train_df)`
             -- i.e. the Version 0.7A `measured_contact_only_v07` set. This
-            indirection exists so a future candidate (e.g. a revisited
-            position-proxy variant) can reuse this trainer with its own
+            indirection exists so a future candidate (e.g. Version 0.7C's
+            near-wall specialist) can reuse this trainer with its own
             feature list without duplicating the training/evaluation logic.
+        model_type: `MODEL_TYPE_LOGISTIC` (default) or `MODEL_TYPE_HGB` --
+            see that constant's docstring.
     """
     if numeric_features is None or categorical_features is None:
         selected_numeric, selected_categorical = select_opportunity_features(train_df)
@@ -128,6 +151,9 @@ def train_opportunity_model(
 
     logger.info("Opportunity numeric features: %s", selected_numeric)
     logger.info("Opportunity categorical features: %s", selected_categorical)
+
+    if model_type not in (MODEL_TYPE_LOGISTIC, MODEL_TYPE_HGB):
+        raise ValueError(f"Unknown model_type: {model_type!r}")
 
     if class_weight == "balanced":
         logger.warning(
@@ -142,11 +168,18 @@ def train_opportunity_model(
         variant = f"custom_class_weight[{class_weight}]"
 
     preprocessor = build_preprocessing_pipeline(selected_numeric, selected_categorical)
-    classifier = LogisticRegression(
-        max_iter=2000,
-        class_weight=class_weight,
-        random_state=RANDOM_SEED,
-    )
+    classifier: LogisticRegression | HistGradientBoostingClassifier
+    if model_type == MODEL_TYPE_HGB:
+        classifier = HistGradientBoostingClassifier(
+            class_weight=class_weight,
+            random_state=RANDOM_SEED,
+        )
+    else:
+        classifier = LogisticRegression(
+            max_iter=2000,
+            class_weight=class_weight,
+            random_state=RANDOM_SEED,
+        )
     pipeline = Pipeline(steps=[("preprocess", preprocessor), ("classify", classifier)])
 
     x_train, y_train = _prepare_xy(train_df, selected_numeric, selected_categorical)
@@ -164,6 +197,7 @@ def train_opportunity_model(
         class_weight=class_weight,
         variant=variant,
         feature_set_label=feature_set_label,
+        model_type=model_type,
     )
 
 

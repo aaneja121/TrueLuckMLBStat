@@ -4,6 +4,8 @@ import pandas as pd
 import pytest
 
 from mlb_luck_score.features.build_contact_features import (
+    NEAR_WALL_CATEGORICAL_FEATURES,
+    NEAR_WALL_NUMERIC_FEATURES,
     OPPORTUNITY_CATEGORICAL_FEATURES,
     OPPORTUNITY_NUMERIC_FEATURES,
     OPPORTUNITY_TARGET_COLUMN,
@@ -156,6 +158,17 @@ def test_select_opportunity_features_drops_missing_and_sparse_columns():
     assert "landing_x_ft" not in numeric  # absent entirely
     assert "bb_type" in categorical
     assert "of_fielding_alignment" not in categorical  # absent entirely
+
+
+def test_near_wall_features_extend_opportunity_features_with_wall_geometry():
+    assert set(OPPORTUNITY_NUMERIC_FEATURES) <= set(NEAR_WALL_NUMERIC_FEATURES)
+    assert set(OPPORTUNITY_CATEGORICAL_FEATURES) <= set(NEAR_WALL_CATEGORICAL_FEATURES)
+    assert "wall_height_in_spray_direction" in NEAR_WALL_NUMERIC_FEATURES
+    assert "wall_segment_label" in NEAR_WALL_CATEGORICAL_FEATURES
+
+
+def test_near_wall_features_are_not_leakage_columns():
+    assert_no_leakage(list(NEAR_WALL_NUMERIC_FEATURES) + list(NEAR_WALL_CATEGORICAL_FEATURES))
 
 
 def test_select_opportunity_features_never_include_leakage_columns():

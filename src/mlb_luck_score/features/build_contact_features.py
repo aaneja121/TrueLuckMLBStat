@@ -624,6 +624,28 @@ OPPORTUNITY_CATEGORICAL_FEATURES: tuple[str, ...] = (
     "assigned_outfield_position",
 )
 
+#: Version 0.7C near-wall specialist feature set -- `OPPORTUNITY_NUMERIC_
+#: FEATURES`/`OPPORTUNITY_CATEGORICAL_FEATURES` plus the remaining Version
+#: 0.4 wall-geometry columns (`wall_height_in_spray_direction`,
+#: `projected_distance_to_wall_margin`, `wall_segment_label`) that
+#: `measured_contact_only_v07` does not use. See `mlb_luck_score.models.
+#: compare_near_wall_models` module docstring: the SAME feature set is used
+#: for both the logistic and HistGradientBoostingClassifier candidates --
+#: the comparison is about MODEL CLASS (can a nonlinear model find
+#: interactions among hang time/launch angle/wall distance/wall height/spray
+#: direction that a linear model can't), not about giving one candidate
+#: hand-engineered interaction terms the other lacks. None of these are
+#: computed from the play's outcome, so none are target-leakage columns.
+NEAR_WALL_NUMERIC_FEATURES: tuple[str, ...] = (
+    *OPPORTUNITY_NUMERIC_FEATURES,
+    "wall_height_in_spray_direction",
+    "projected_distance_to_wall_margin",
+)
+NEAR_WALL_CATEGORICAL_FEATURES: tuple[str, ...] = (
+    *OPPORTUNITY_CATEGORICAL_FEATURES,
+    "wall_segment_label",
+)
+
 
 def add_opportunity_target(df: pd.DataFrame) -> pd.DataFrame:
     """Add the Version 0.7A binary target column from the existing `outcome_class`.
