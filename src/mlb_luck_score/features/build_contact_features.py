@@ -18,6 +18,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from mlb_luck_score.config import LEAKAGE_COLUMNS
+from mlb_luck_score.data.outfield_physics import (
+    estimate_hang_time_seconds,
+    estimate_landing_coordinates_ft,
+)
 from mlb_luck_score.data.weather_physics import DEFAULT_REFERENCE_AIR_DENSITY_KG_M3
 
 logger = logging.getLogger(__name__)
@@ -575,9 +579,172 @@ def generate_typical_alignment_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 
 #: Minimum fraction of non-null values a feature column must have to be
-#: included automatically. Below this, `select_available_features` drops the
-#: column and logs why, rather than silently modeling on a mostly-empty field.
+#: included automatically. Below this, `select_available_features` /
+#: `select_opportunity_features` drop the column and log why, rather than
+#: silently modeling on a mostly-empty field.
 MIN_NON_NULL_FRACTION = 0.5
+
+#: The Version 0.7A opportunity model's binary target: did the batter-runner
+#: get put out on this play? Reuses the EXISTING `outcome_class` column
+#: (`mlb_luck_score.eligibility`) rather than reimplementing out/not-out
+#: logic -- `outcome_class == "out"` already covers every batter-out result
+#: (field outs, sac flies, double plays where the batter is out, etc.; see
+#: `mlb_luck_score.eligibility._UNAMBIGUOUS_OUT_EVENTS`).
+OPPORTUNITY_TARGET_COLUMN = "converted_to_out"
+
+#: Version 0.7A `measured_contact_only_v07` feature set -- see
+#: `mlb_luck_score.models.compare_opportunity_models` module docstring for
+#: the full public-data audit and why a second, position-proxy-based
+#: candidate (`typical_position_proxy_v07`) was NOT built. Every numeric
+#: feature here is either directly measured (`launch_speed`, `launch_angle`,
+#: `hit_distance_sc`, and the Version 0.4 wall-proximity columns from
+#: `mlb_luck_score.data.join_park_geometry`) or physics-ESTIMATED
+#: (`estimated_hang_time_s`, `landing_x_ft`, `landing_y_ft` -- see
+#: `mlb_luck_score.data.outfield_physics`, which documents why these have no
+#: public ground truth to validate against). NO assumed defender starting
+#: position or distance-needed feature is included. None of these are
+#: computed from the play's outcome, so none are target-leakage columns.
+OPPORTUNITY_NUMERIC_FEATURES: tuple[str, ...] = (
+    "launch_speed",
+    "launch_angle",
+    "hit_distance_sc",
+    "estimated_hang_time_s",
+    "landing_x_ft",
+    "landing_y_ft",
+    "wall_distance_in_spray_direction",
+    "absolute_distance_to_wall",
+)
+#: `assigned_outfield_position` (7/8/9, see `mlb_luck_score.eligibility.
+#: add_outfield_opportunity_eligibility`) is treated as CATEGORICAL, not
+#: numeric -- the position codes are labels for LF/CF/RF, not an ordinal
+#: quantity where 8 is meaningfully "between" 7 and 9 for a linear model.
+OPPORTUNITY_CATEGORICAL_FEATURES: tuple[str, ...] = (
+    "bb_type",
+    "of_fielding_alignment",
+    "assigned_outfield_position",
+)
+
+
+def add_opportunity_target(df: pd.DataFrame) -> pd.DataFrame:
+    """Add the Version 0.7A binary target column from the existing `outcome_class`.
+
+    `converted_to_out = 1` if `outcome_class == "out"`, else `0`. Rows with a
+    null `outcome_class` (should not occur for `outfield_opportunity_
+    eligible` rows, which are a subset of `eligible_for_training`) get a
+    null target rather than a guessed value.
+    """
+    out = df.copy()
+    out[OPPORTUNITY_TARGET_COLUMN] = (out["outcome_class"] == "out").astype("Int64")
+    out.loc[out["outcome_class"].isna(), OPPORTUNITY_TARGET_COLUMN] = pd.NA
+    return out
+
+
+def add_outfield_opportunity_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute Version 0.7A opportunity-difficulty features and the binary target.
+
+    A no-op (returns `df` unchanged) if `df` has no `launch_speed`/
+    `launch_angle`/`hit_distance_sc`/`spray_angle_approx` columns. Must be
+    called AFTER `mlb_luck_score.eligibility.add_outfield_opportunity_
+    eligibility` (uses `assigned_outfield_position`) and, for wall
+    -proximity features to be available, after `mlb_luck_score.data.
+    join_park_geometry.join_park_geometry` (a no-op for the wall columns,
+    not an error, if geometry hasn't been joined -- they simply won't be in
+    `df` and `select_opportunity_features` will drop them for insufficient
+    non-null coverage like any other feature).
+
+    Adds:
+        - `estimated_hang_time_s`, `landing_x_ft`, `landing_y_ft`: see
+          `mlb_luck_score.data.outfield_physics`.
+        - `converted_to_out`: see `add_opportunity_target`.
+        - `assigned_outfield_position` is cast to plain `object` dtype with
+          `None` for missing (same `SimpleImputer`-compatibility fix as
+          `add_geometry_interaction_features`/`add_weather_interaction_
+          features` -- pandas' nullable `Int64`/`pd.NA` raises inside
+          `SimpleImputer`).
+    """
+    required = ("launch_speed", "launch_angle", "hit_distance_sc", "spray_angle_approx")
+    if not all(col in df.columns for col in required):
+        return df
+
+    out = df.copy()
+    hang_times = []
+    landing_xs = []
+    landing_ys = []
+    # .astype(float) turns pandas nullable-dtype pd.NA into plain np.nan --
+    # estimate_hang_time_seconds/estimate_landing_coordinates_ft use
+    # math.isnan and stay pandas-independent, so the conversion happens here.
+    launch_speed = out["launch_speed"].astype(float)
+    launch_angle = out["launch_angle"].astype(float)
+    hit_distance = out["hit_distance_sc"].astype(float)
+    spray_angle = out["spray_angle_approx"].astype(float)
+    for speed, angle, distance, spray in zip(
+        launch_speed, launch_angle, hit_distance, spray_angle, strict=True
+    ):
+        hang_times.append(estimate_hang_time_seconds(speed, angle))
+        x, y = estimate_landing_coordinates_ft(distance, spray)
+        landing_xs.append(x)
+        landing_ys.append(y)
+    out["estimated_hang_time_s"] = hang_times
+    out["landing_x_ft"] = landing_xs
+    out["landing_y_ft"] = landing_ys
+
+    if "outcome_class" in out.columns:
+        out = add_opportunity_target(out)
+
+    if "assigned_outfield_position" in out.columns:
+        out["assigned_outfield_position"] = (
+            out["assigned_outfield_position"].apply(lambda v: None if pd.isna(v) else str(int(v)))
+        ).astype(object)
+
+    return out
+
+
+def select_opportunity_features(
+    df: pd.DataFrame,
+    *,
+    min_non_null_fraction: float = MIN_NON_NULL_FRACTION,
+) -> tuple[list[str], list[str]]:
+    """Choose Version 0.7A `measured_contact_only_v07` features actually usable in `df`.
+
+    A dedicated selector (NOT `select_available_features`, which always
+    forces in the Version 0.1 baseline set) -- the opportunity model has its
+    own, independent feature list (`OPPORTUNITY_NUMERIC_FEATURES`/
+    `OPPORTUNITY_CATEGORICAL_FEATURES`), not the 5-class contact model's.
+    Same drop-if-missing-or-too-sparse logic as `select_available_features`.
+
+    Deliberately excludes `responsible_outfielder_id`: the opportunity
+    model's whole definition is "probability an AVERAGE MLB outfielder
+    converts this," so training on the specific fielder's identity would
+    make the model encode THAT fielder's actual skill rather than physical
+    difficulty -- exactly the opportunity/execution conflation `mlb_luck_
+    score.models.compare_opportunity_models` is designed to avoid. Fielder
+    identity is used only for evaluation subgroups and Version 0.7B's
+    per-defender execution aggregation, never as a training feature.
+
+    Returns:
+        (numeric_features, categorical_features) actually usable.
+    """
+
+    def _keep(col: str) -> bool:
+        if col not in df.columns:
+            logger.info("Opportunity feature '%s' not present in data; excluding.", col)
+            return False
+        non_null_fraction = df[col].notna().mean() if len(df) else 0.0
+        if non_null_fraction < min_non_null_fraction:
+            logger.info(
+                "Opportunity feature '%s' is only %.1f%% non-null (< %.0f%% threshold); excluding.",
+                col,
+                non_null_fraction * 100,
+                min_non_null_fraction * 100,
+            )
+            return False
+        return True
+
+    numeric_features = [c for c in OPPORTUNITY_NUMERIC_FEATURES if _keep(c)]
+    categorical_features = [c for c in OPPORTUNITY_CATEGORICAL_FEATURES if _keep(c)]
+
+    assert_no_leakage(numeric_features + categorical_features)
+    return numeric_features, categorical_features
 
 
 class LeakageError(ValueError):

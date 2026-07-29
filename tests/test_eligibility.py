@@ -4,10 +4,16 @@ import pandas as pd
 
 from mlb_luck_score.eligibility import (
     ELIGIBLE_EVENTS_V0_1,
+    POSITION_SOURCE_HIT_LOCATION,
+    POSITION_SOURCE_SPRAY_SECTOR_PROXY,
     REASON_AMBIGUOUS_FIELD_ERROR,
     REASON_AMBIGUOUS_FIELDERS_CHOICE,
+    REASON_BASE_TRAINING_INELIGIBLE,
+    REASON_INFIELD_CREDITED_HIT_LOCATION,
     REASON_MISSING_CONTACT_DATA,
     REASON_NOT_ELIGIBLE_EVENT,
+    REASON_NOT_OUTFIELD_AIR_BALL,
+    add_outfield_opportunity_eligibility,
     compute_eligibility,
     map_outcome_class,
 )
@@ -97,3 +103,94 @@ def test_compute_eligibility_is_eligible_matches_event_set():
     df = pd.DataFrame({"events": list(ELIGIBLE_EVENTS_V0_1) + ["strikeout", "walk"]})
     out = compute_eligibility(df)
     assert out["is_eligible"].tolist() == [True] * len(ELIGIBLE_EVENTS_V0_1) + [False, False]
+
+
+# ---------------------------------------------------------------------------
+# Version 0.7A: outfield-opportunity eligibility
+# ---------------------------------------------------------------------------
+
+
+def _opportunity_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "bb_type": ["fly_ball", "line_drive", "ground_ball", "fly_ball", "fly_ball", "popup"],
+            "eligible_for_training": [True, True, True, True, False, True],
+            "hit_location": [8, 3, 6, None, 8, 2],
+            "spray_sector": ["center", "center", "center", "right", "center", "center"],
+            "fielder_7": [111, 111, 111, 111, 111, 111],
+            "fielder_8": [222, 222, 222, 222, 222, 222],
+            "fielder_9": [333, 333, 333, 333, 333, 333],
+        }
+    )
+
+
+def test_outfield_hit_location_makes_row_eligible_with_real_position():
+    out = add_outfield_opportunity_eligibility(_opportunity_df())
+    row = out.iloc[0]  # fly_ball, hit_location=8 (CF), eligible_for_training=True
+    assert row["outfield_opportunity_eligible"] is True or bool(
+        row["outfield_opportunity_eligible"]
+    )
+    assert row["outfield_opportunity_exclusion_reason"] is None
+    assert row["assigned_outfield_position"] == 8
+    assert row["assigned_outfield_position_source"] == POSITION_SOURCE_HIT_LOCATION
+    assert row["responsible_outfielder_id"] == 222
+
+
+def test_infield_credited_hit_location_excluded():
+    out = add_outfield_opportunity_eligibility(_opportunity_df())
+    row = out.iloc[1]  # line_drive, hit_location=3 (1B)
+    assert not bool(row["outfield_opportunity_eligible"])
+    assert row["outfield_opportunity_exclusion_reason"] == REASON_INFIELD_CREDITED_HIT_LOCATION
+    assert pd.isna(row["assigned_outfield_position"])
+
+
+def test_ground_ball_excluded_as_not_outfield_air_ball():
+    out = add_outfield_opportunity_eligibility(_opportunity_df())
+    row = out.iloc[2]
+    assert not bool(row["outfield_opportunity_eligible"])
+    assert row["outfield_opportunity_exclusion_reason"] == REASON_NOT_OUTFIELD_AIR_BALL
+
+
+def test_popup_excluded_as_not_outfield_air_ball():
+    out = add_outfield_opportunity_eligibility(_opportunity_df())
+    row = out.iloc[5]
+    assert not bool(row["outfield_opportunity_eligible"])
+    assert row["outfield_opportunity_exclusion_reason"] == REASON_NOT_OUTFIELD_AIR_BALL
+
+
+def test_missing_hit_location_falls_back_to_spray_sector_proxy():
+    out = add_outfield_opportunity_eligibility(_opportunity_df())
+    row = out.iloc[3]  # fly_ball, hit_location missing, spray_sector="right"
+    assert bool(row["outfield_opportunity_eligible"])
+    assert row["assigned_outfield_position"] == 9  # right -> RF
+    assert row["assigned_outfield_position_source"] == POSITION_SOURCE_SPRAY_SECTOR_PROXY
+    assert row["responsible_outfielder_id"] == 333
+
+
+def test_base_training_ineligible_row_excluded():
+    out = add_outfield_opportunity_eligibility(_opportunity_df())
+    row = out.iloc[4]  # eligible_for_training=False
+    assert not bool(row["outfield_opportunity_eligible"])
+    assert row["outfield_opportunity_exclusion_reason"] == REASON_BASE_TRAINING_INELIGIBLE
+
+
+def test_add_outfield_opportunity_eligibility_requires_columns():
+    import pytest
+
+    with pytest.raises(ValueError, match="bb_type"):
+        add_outfield_opportunity_eligibility(pd.DataFrame({"eligible_for_training": [True]}))
+    with pytest.raises(ValueError, match="eligible_for_training"):
+        add_outfield_opportunity_eligibility(pd.DataFrame({"bb_type": ["fly_ball"]}))
+
+
+def test_missing_fielder_columns_degrade_gracefully():
+    df = pd.DataFrame(
+        {
+            "bb_type": ["fly_ball"],
+            "eligible_for_training": [True],
+            "hit_location": [8],
+        }
+    )
+    out = add_outfield_opportunity_eligibility(df)
+    assert bool(out.iloc[0]["outfield_opportunity_eligible"])
+    assert pd.isna(out.iloc[0]["responsible_outfielder_id"])

@@ -262,6 +262,42 @@ similar decisions are not), treat a backwards-signed controlled-perturbation res
 likely confounding signal first, not immediately as a bug to "fix" by relaxing the check --
 see "Alignment-aware positioning (Version 0.6)" in README.md for the full real-data writeup.
 
+## pandas' `pd.NA` sentinel breaks more than `SimpleImputer` -- audit raw comparisons too
+
+The nullable-dtype `pd.NA` footgun documented elsewhere in this file (`SimpleImputer`
+raising `TypeError: boolean value of NA is ambiguous`) is not sklearn-specific. Version
+0.7A's `mlb_luck_score.models.compare_opportunity_models.
+compute_defender_subgroup_calibration` hit the SAME error from a completely different code
+path: a raw numpy `fielder_arr == fielder_id` equality comparison on an object-dtype array
+that still contained `pd.NA` elements (`pd.NA == x` returns `pd.NA`, not `False`, and numpy
+cannot coerce that to a boolean mask). The fix was the same pattern used elsewhere for
+stringified booleans (`compare_geometry_aware._bool_mask`): normalize `pd.NA` to plain
+Python `None` (via `series.where(series.notna(), None)`) BEFORE any raw `==`/`bool()`
+operation, since `None == x` returns an ordinary `False` with no ambiguity. When writing
+ANY code that does raw equality comparisons, boolean masking, or truthiness checks on a
+pandas Series/array that may contain nulls -- not just when feeding a column into
+`SimpleImputer` -- check whether nulls are `pd.NA` (nullable dtype) or plain `np.nan`
+(float dtype); only the former raises this class of error, and only a real audit of the
+specific dtype in play catches it, not just following the `SimpleImputer` pattern by rote.
+
+## A model with no prior baseline needs an ABSOLUTE quality bar, not a relative one
+
+Every comparison module through Version 0.6 (`compare_park_aware`, `compare_geometry_
+aware`, `compare_weather_aware`, `compare_weather_variants`, `compare_alignment_aware`)
+evaluates a CANDIDATE against `baseline_v02` or `selected_production_baseline` -- a prior
+production model that already exists. Version 0.7A's `measured_contact_only_v07`
+(`mlb_luck_score.models.compare_opportunity_models`) has no such baseline: it is a
+genuinely NEW binary opportunity-difficulty model, not a replacement for anything already
+in production. `summarize_opportunity_validation` therefore checks calibration against a
+FIXED absolute ECE threshold (`MATERIAL_ECE_ABSOLUTE_THRESHOLD`), not a delta relative to
+a baseline's own calibration -- there is nothing to take a delta against. This is why that
+module reports `passes_basic_validation`, not `recommend_adopt`: "adopt" implies replacing
+something, and there is nothing here to replace. Do not force a genuinely new model
+category through the relative-comparison adoption-rule pattern just for consistency with
+earlier versions -- when a future phase (e.g. infield pickup/throwing models) introduces
+another model with no prior baseline, use the SAME absolute-quality-bar pattern instead of
+inventing a placeholder baseline to diff against.
+
 ## Confidence must never dampen the score
 
 The Version 0.1 confidence report (`mlb_luck_score.scoring.confidence`) is descriptive

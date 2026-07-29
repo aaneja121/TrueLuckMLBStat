@@ -104,8 +104,15 @@ defense's coarse, pre-pitch STARTING alignment (never execution -- reaction, rou
 pickup, transfer, throw remain entirely unmodeled, public data cannot observe them at
 all) improves the model; see "Alignment-aware positioning (Version 0.6)" below. Neither
 candidate was adopted, so the production model's blind spot described above is currently
-unchanged. Separating skill-driven defensive EXECUTION from luck remains future work even
-if a Version 0.6 candidate is eventually adopted.
+unchanged.
+
+Version 0.7A/0.7B (`mlb_luck_score.models.compare_opportunity_models`/`mlb_luck_score.
+scoring.defensive_execution`) is the first phase to actually separate opportunity
+difficulty from execution, but ONLY for outfield air balls and ONLY at the
+"was the opportunity converted" level -- reaction time, route efficiency, and throwing
+accuracy remain entirely unmodeled (unavailable in public data; see "Outfield opportunity
+and execution (Version 0.7A / 0.7B)" below for the full audit). Infield pickup/throwing
+execution and batter-runner advancement are explicitly deferred to future phases.
 
 ## Public-data limitations
 
@@ -394,8 +401,17 @@ make notebook        # launches Jupyter in notebooks/
   stability, the `positioning_effect` distribution, the adoption recommendation, and
   explicit limitations. See "Alignment-aware positioning (Version 0.6)" above for the
   real-data results.
+- `09_outfield_opportunity_execution_analysis.ipynb` -- **Version 0.7A/0.7B**:
+  outfield-opportunity eligibility coverage, estimated-hang-time/landing-location feature
+  examples, `measured_contact_only_v07` training/evaluation, required-subgroup/per-venue
+  /per-defender calibration, a game-level bootstrap CI, the validation summary (including
+  why `typical_position_proxy_v07` was not built), defensive-execution examples, the
+  four-component per-play report (contact expectation, opportunity difficulty, execution,
+  residual contact luck -- explicitly not combined), and explicit limitations. See
+  "Outfield opportunity and execution (Version 0.7A / 0.7B)" above for the real-data
+  results.
 
-All eight notebooks detect missing data/artifacts and print clear instructions instead of
+All nine notebooks detect missing data/artifacts and print clear instructions instead of
 crashing; `04` additionally falls back to a small synthetic example so it is always
 runnable immediately after bootstrap.
 
@@ -1059,6 +1075,159 @@ plays/batters where alignment changed within-season) before re-testing; re-exami
 whether `of_shift_x_hit_distance` is the specific interaction term driving the ground
 -ball subgroup regression despite targeting a different batted-ball type.
 
+## Outfield opportunity and execution (Version 0.7A / 0.7B)
+
+Estimates how difficult an outfield fielding opportunity was (Version 0.7A) and compares
+the actual result against that difficulty (Version 0.7B) -- for outfield AIR BALLS only
+(infield plays are explicitly out of scope; see "After outfield opportunity and execution
+are validated, proceed to infield pickup/throwing models" in the task). Public tracking is
+far stronger for airborne balls than infield plays, which is why this phase is split this
+way.
+
+### Public-data audit (required checkpoint, done BEFORE any model code)
+
+Before writing any model code, the full 119-column raw Statcast schema already downloaded
+for this project (2021-2024) and every fielding-related function in the installed
+`pybaseball` package (`statcast_outfield_catch_prob`, `statcast_outfield_directional_oaa`,
+`statcast_outfielder_jump`, `statcast_outs_above_average`, `statcast_fielding`) were
+audited for six specific fields:
+
+| Field | Availability |
+|---|---|
+| Defender starting location | **Not available** -- no column, no pybaseball function |
+| Defender endpoint | **Not available**, same reason |
+| Opportunity time (hang time) | **Not available as a measured field** -- estimated via physics instead (see below) |
+| Distance needed | **Not available** (requires a real starting location) |
+| Catch-probability inputs | **Not available per-play** -- every pybaseball catch-probability/OAA/jump function returns a SEASON-LEVEL AGGREGATE leaderboard (players binned into 1-5 "star" difficulty categories), never a per-play value -- and per the task's modeling rule these are outcome-derived anyway, so they could only ever be validation/comparison metrics, never model inputs, regardless of granularity |
+| Responsible fielder | **Available** -- `hit_location` (91.75% coverage among real 2024 air balls; ~100% for outs/singles/triples/sac-flies, ~0.1% for home runs since nobody fields one) plus `fielder_7`/`fielder_8`/`fielder_9` (100% coverage, the specific player ID at each outfield position for that exact play) together give a real individual-defender identity |
+
+**Conclusion**: exact defender coordinates, movement, and distance-needed cannot be
+measured from public data. Per the task's explicit fallback, Version 0.7A implements only
+the conservative, measured/estimated-only candidate, `measured_contact_only_v07`:
+landing-location estimate, estimated hang time (physics), wall proximity (reused from
+Version 0.4 park geometry), exit velocity/launch angle, batted-ball type, and coarse
+outfield-alignment label. **No assumed defender starting coordinates.**
+
+A second candidate, `typical_position_proxy_v07` (an assumed average starting depth/angle
+per outfield position), was investigated but is **NOT implemented**: the only citable
+public figures found (MLB.com/Statcast-sourced 2015-2016 league averages -- 316 ft average
+CF depth, 294 ft average RF depth) are 5-9 years stale relative to this project's
+2021-2024 training window, and multiple independent sources describe a sustained,
+directional trend toward deeper outfield positioning since then (one cited example: the
+Astros moved their center fielders back 16 feet specifically during 2021-2022), meaning
+the stale figures would introduce a known, systematic bias, not just noise. Per CLAUDE.md's
+park-geometry provenance rule ("use the best-supported figure with a caveat or leave it
+without... rather than guessing"), no defensible source exists for this project's era.
+
+**"Forward/lateral/backward defender movement" (a required evaluation subgroup) is also
+NOT computed**, for the identical reason -- it requires a real starting position that does
+not exist in public data. This is a documented gap, reported explicitly wherever subgroup
+results are shown, not a silently-dropped requirement.
+
+### Eligibility
+
+`mlb_luck_score.eligibility.add_outfield_opportunity_eligibility`: `bb_type` in
+(`fly_ball`, `line_drive`) AND `hit_location` is either an outfield code (7/8/9) or
+missing (the home-run/deep-double case). `popup` is excluded from the primary eligible
+population -- verified against real 2024 data, popups are assigned an INFIELD
+`hit_location` 99.5% of the time (8,756 of 8,803), overwhelmingly an infield play type in
+this dataset, not an outfield one. Real 2021-2024 result: 227,334 of 494,173
+`eligible_for_training` rows are outfield-opportunity-eligible.
+
+### Version 0.7A: opportunity-difficulty model
+
+`mlb_luck_score.models.compare_opportunity_models` / `mlb_luck_score.models.
+train_opportunity_model`: a SEPARATE binary logistic regression (`class_weight=None`,
+same probability-calibration reasoning as the 5-class model) predicting `P(an average MLB
+outfielder converts this into an out)`, trained on 2021-2023, evaluated on 2024 (2025
+untouched). Estimated hang time uses the vacuum (no-drag) projectile formula `t = 2 * v0 *
+sin(theta) / g`; estimated landing coordinates use `hit_distance_sc` + `spray_angle_approx`
+in the same polar convention as park geometry/weather. **Both are documented
+approximations with no public ground truth to validate against** -- Baseball Savant's own
+Catch Probability methodology presumably uses real tracked hang time/landing location, but
+that is not publicly exposed per-play.
+
+**Real 2024 validation results** (n=57,598; 169,736 training rows from 2021-2023):
+
+| metric | value |
+|---|---|
+| Binary log loss | 0.385044 (95% bootstrap CI [0.380225, 0.389777], 500 game-level reps) |
+| Expected calibration error | 0.017771 (95% CI [0.015367, 0.020986]) |
+| Brier score | 0.122296 |
+| Actual out rate / mean predicted P(out) | 0.5462 / 0.5386 |
+
+Overall calibration clears the 0.05 absolute-ECE quality bar (there is no prior production
+model to compare against, so this is an absolute bar, not a relative one -- see
+`compare_opportunity_models` module docstring). **Subgroup calibration reveals a real,
+honest weakness**: near-wall plays have MUCH worse calibration than the aggregate
+(near_wall_5ft ECE 0.254, near_wall_10ft 0.234, near_wall_20ft 0.180 -- roughly 10-15x the
+overall figure), and the two middle opportunity-time quartiles are also worse (0.074 and
+0.065 vs. 0.047/0.034 for the shortest/longest quartiles). The model is least reliable
+exactly where judging defense is hardest: ambiguous warning-track plays and borderline
+-difficulty opportunities. `bb_type_fly_ball`/`bb_type_line_drive`, LF/CF/RF, and all 30
+reliably-sampled venues clear the quality bar. 164 individual defenders have >=100 sampled
+plays each, enabling real per-defender calibration.
+
+`recommend`-style automated summary: `passes_basic_validation: False` for
+`measured_contact_only_v07` (driven entirely by the near-wall/mid-opportunity-time
+subgroup issues above) -- reported honestly as a real, documented model limitation, not
+hidden. `typical_position_proxy_v07_built: False` (see audit above).
+
+```bash
+make join-park-geometry          # if not already run for Version 0.4
+make compare-opportunity-models  # trains + evaluates measured_contact_only_v07
+make notebook-outfield-opportunity
+```
+
+### Version 0.7B: defensive execution
+
+`mlb_luck_score.scoring.defensive_execution.compute_defensive_execution`:
+
+```
+defensive_execution = actual_out_indicator - p_out_opportunity
+```
+
+Positive = an out was made on a LOW-probability opportunity (strong positive defensive
+execution -- unfavorable circumstance for the batter); negative = a HIGH-probability
+opportunity was NOT converted (poor defensive execution -- favorable circumstance for the
+batter); near zero = a routine play went as expected. `batter_favorable_defensive_
+circumstance = -defensive_execution` is provided explicitly for the batter's-perspective
+sign flip the task calls for. On real 2024 data (n=57,598): `defensive_execution` mean
+0.0076, std 0.350, ranging the full [-1, 1] span (a play with `p_out_opportunity` near 0
+that was converted scores near +1; a near-certain opportunity that was missed scores near
+-1).
+
+This is a BINARY, opportunity-relative execution measure -- it says nothing about reaction
+time, route efficiency, or throwing accuracy specifically (none of which are in public
+data). A spectacular diving catch and a workmanlike catch of the same difficulty register
+identically.
+
+### Four separate components, not combined
+
+`mlb_luck_score.scoring.air_ball_components.build_air_ball_component_report` assembles,
+per play: `expected_run_value_contact_model`/`residual_contact_luck_runs` (the EXISTING
+Version 0.2 contact model and formula), `p_out_opportunity` (Version 0.7A),
+`defensive_execution`/`batter_favorable_defensive_circumstance` (Version 0.7B). **Per the
+task's explicit instruction, these are reported side by side and NOT summed into one
+score** -- `residual_contact_luck_runs` comes from a contact model that does not currently
+include opportunity/execution features, so its relationship to `defensive_execution` is
+not yet a clean decomposition (same double-counting caution as `mlb_luck_score.scoring.
+weather_attribution`).
+
+### Limitations
+
+- Alignment-aware POSITIONING only for opportunity difficulty -- no exact defender
+  coordinates, pre-contact movement, reaction time, or route efficiency anywhere in this
+  phase.
+- `typical_position_proxy_v07` and the forward/lateral/backward movement subgroup are both
+  documented gaps, not silent omissions -- see the audit above.
+- Estimated hang time and landing coordinates have no public ground truth to validate
+  against.
+- Calibration is materially worse for near-wall and mid-opportunity-time plays -- treat
+  Version 0.7B execution values for those specific plays with extra caution.
+- Infield pickup/throwing models and batter-runner advancement are explicitly deferred to
+  future phases per the task.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
@@ -1165,6 +1334,17 @@ clear bootstrap significance. `position_depth_v06` was investigated and found to
 reliable public data source. `recommend_adopt_any_v06_candidate: False`; `baseline_v02`
 remains the production model; alignment-aware positioning is retained as evaluated,
 tested infrastructure and marked unresolved rather than forced into adoption.
+Outfield opportunity and execution (Version 0.7A/0.7B) have been built and evaluated for
+real 2021-2024 data -- see "Outfield opportunity and execution (Version 0.7A / 0.7B)"
+above for the exact results and the public-data audit that shaped scope (defender
+starting/ending location, distance needed, and per-play catch-probability inputs are all
+NOT available publicly; only `measured_contact_only_v07` was built, with no assumed
+defender coordinates). `measured_contact_only_v07` clears the overall calibration quality
+bar (log loss 0.385, ECE 0.018) but fails it on near-wall plays (ECE 0.18-0.25) and
+mid-range opportunity-time buckets -- reported honestly as a real, documented limitation.
+`typical_position_proxy_v07` was investigated and not built (only stale 2015-2016 sources
+found); `defensive_execution` (Version 0.7B) and the four-component per-play report are
+implemented and exercised against real data, explicitly NOT combined into one score.
 
 ## Future work
 
@@ -1184,9 +1364,16 @@ tested infrastructure and marked unresolved rather than forced into adoption.
   its `bb_type_ground_ball` subgroup regression -- see "Alignment-aware positioning
   (Version 0.6)"
 - A reliable public per-fielder positioning/depth data source for `position_depth_v06`
-  (none was found as of Version 0.6) -- exact defender positioning, reaction, and route
-  modeling remain out of scope for any publicly-sourced dataset
-- Fielding and throwing execution modeling
+  (none was found as of Version 0.6) or `typical_position_proxy_v07` (none was found as of
+  Version 0.7A) -- exact defender positioning, reaction, and route modeling remain out of
+  scope for any publicly-sourced dataset
+- Improve `measured_contact_only_v07`'s near-wall and mid-range-opportunity-time
+  calibration (ECE 0.18-0.25 vs. an overall 0.018) -- see "Outfield opportunity and
+  execution (Version 0.7A / 0.7B)"; a non-linear model or explicit near-wall interaction
+  terms are plausible next steps
+- Per the task's stated roadmap: infield pickup/throwing execution modeling next, then
+  batter-runner advancement, once outfield opportunity/execution (Version 0.7A/0.7B) is
+  considered validated
 - Batter-runner decision-quality modeling
 - Batter-runner execution modeling
 - Park and bounce effects

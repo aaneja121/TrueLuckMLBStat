@@ -5,7 +5,8 @@
 	join-park-geometry compare-geometry-aware notebook-park-geometry \
 	download-weather-data build-game-weather join-weather-features \
 	compare-weather-aware notebook-weather compare-weather-variants \
-	compare-alignment-aware notebook-alignment
+	compare-alignment-aware notebook-alignment \
+	compare-opportunity-models notebook-outfield-opportunity
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -240,3 +241,19 @@ compare-alignment-aware:
 
 notebook-alignment:
 	$(PY) -m jupyter notebook notebooks/08_alignment_positioning_analysis.ipynb
+
+# Version 0.7A outfield-opportunity-difficulty evaluation: trains
+# measured_contact_only_v07 (binary P(out) model) and reports calibration
+# overall, by required subgroup (batted-ball type, LF/CF/RF, near-wall,
+# opportunity-time range), by venue, and by individual defender (reliably
+# -sampled only), plus a game_pk-level bootstrap CI. typical_position_
+# proxy_v07 is documented but NOT built -- see module docstring. Requires
+# venue metadata AND park geometry already joined (wall-proximity features
+# degrade gracefully, not an error, if geometry is absent).
+compare-opportunity-models:
+	$(PY) -m mlb_luck_score.models.compare_opportunity_models \
+		--input data/processed/cleaned_development_data_with_geometry.parquet \
+		--output-dir outputs/tables
+
+notebook-outfield-opportunity:
+	$(PY) -m jupyter notebook notebooks/09_outfield_opportunity_execution_analysis.ipynb
