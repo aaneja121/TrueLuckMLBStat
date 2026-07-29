@@ -383,6 +383,197 @@ def generate_standardized_environment_rows(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+#: Version 0.6 alignment-label feature set -- the SAME two raw Statcast
+#: columns as `OPTIONAL_CATEGORICAL_FEATURES`, given their own name/docstring
+#: for this version's comparison variants (see `mlb_luck_score.models.
+#: compare_alignment_aware`). This is the ONLY defensive-positioning signal
+#: public Statcast data exposes -- coarse, pre-pitch labels (`if_fielding_
+#: alignment`: "Standard"/"Strategic"/"Infield shift"/"Infield shade";
+#: `of_fielding_alignment`: "Standard"/"Strategic"/"4th outfielder"), never
+#: exact fielder coordinates, movement, or reaction. The alignment is set
+#: BEFORE the pitch is thrown, so neither column is a target-leakage column
+#: (see `mlb_luck_score.config.LEAKAGE_COLUMNS`). Real coverage (verified
+#: against 2021-2024 development data): ~99.6% non-null in every season.
+ALIGNMENT_LABELS_CATEGORICAL_FEATURES: tuple[str, ...] = (
+    "if_fielding_alignment",
+    "of_fielding_alignment",
+)
+
+#: `alignment_interactions_v06`'s feature set = `ALIGNMENT_LABELS_CATEGORICAL_
+#: FEATURES` (base labels) + these physically-motivated interaction terms.
+#: Chosen to mirror the task's stated priorities: infield alignment x batter
+#: handedness / spray direction (categorical x categorical -- combined into
+#: one joint category so a linear model can learn a distinct coefficient per
+#: combination, which additive one-hot encoding of the two columns
+#: separately cannot represent), outfield alignment x launch angle /
+#: projected distance (categorical x numeric, via a 0/1 shift indicator),
+#: and shift status x pull-side ground ball (boolean x boolean, as a 0/1
+#: product). None of these are computed from the play's outcome -- alignment,
+#: handedness, spray direction, launch angle, and batted-ball type are all
+#: pre-outcome or swing-mechanics values -- so none are target-leakage
+#: columns.
+ALIGNMENT_INTERACTION_NUMERIC_FEATURES: tuple[str, ...] = (
+    "if_alignment_shift_indicator",
+    "of_alignment_shift_indicator",
+    "of_shift_x_launch_angle",
+    "of_shift_x_hit_distance",
+    "if_shift_x_pull_groundball",
+)
+ALIGNMENT_INTERACTION_CATEGORICAL_FEATURES: tuple[str, ...] = (
+    *ALIGNMENT_LABELS_CATEGORICAL_FEATURES,
+    "if_alignment_x_stand",
+    "if_alignment_x_spray_sector",
+)
+
+#: The single most common value of BOTH `if_fielding_alignment` and
+#: `of_fielding_alignment` in real 2021-2024 data -- used as the "typical"
+#: reference alignment for the Version 0.6 positioning counterfactual (see
+#: `generate_typical_alignment_rows`). MUST be a category the model actually
+#: saw during training -- see that function's docstring for why (the same
+#: `OneHotEncoder(handle_unknown="ignore")` lesson documented at
+#: `STANDARD_ENVIRONMENT_MATCH_QUALITY` above).
+STANDARD_ALIGNMENT_LABEL = "Standard"
+
+
+def _alignment_shift_indicator(series: pd.Series) -> pd.Series:
+    """0.0 for `STANDARD_ALIGNMENT_LABEL`, 1.0 for any other non-null alignment, NaN if missing."""
+    return series.apply(
+        lambda v: float("nan") if pd.isna(v) else (0.0 if v == STANDARD_ALIGNMENT_LABEL else 1.0)
+    )
+
+
+def _combine_categorical(a: pd.Series, b: pd.Series) -> pd.Series:
+    """Join two categorical columns row-wise into one `"{a}_{b}"` category; `None` if either is null."""
+    combined = [None if pd.isna(x) or pd.isna(y) else f"{x}_{y}" for x, y in zip(a, b, strict=True)]
+    return pd.Series(combined, index=a.index, dtype=object)
+
+
+def add_alignment_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute Version 0.6 alignment interaction features from raw alignment labels.
+
+    A no-op (returns `df` unchanged) if `df` has neither alignment column --
+    ordinary (non-alignment) callers see no behavior change. Safe to call
+    more than once (e.g. after `generate_typical_alignment_rows` overrides
+    the raw labels) -- it always recomputes every derived column from
+    whatever `if_fielding_alignment`/`of_fielding_alignment` currently hold.
+
+    Adds:
+        - `if_alignment_shift_indicator` / `of_alignment_shift_indicator`:
+          0.0 if `STANDARD_ALIGNMENT_LABEL`, 1.0 if any other alignment, NaN
+          if missing.
+        - `of_shift_x_launch_angle`: `of_alignment_shift_indicator *
+          launch_angle`.
+        - `of_shift_x_hit_distance`: `of_alignment_shift_indicator *
+          hit_distance_sc`.
+        - `if_shift_x_pull_groundball`: `if_alignment_shift_indicator *
+          (is_pull AND bb_type == "ground_ball")` -- missing `is_pull`
+          (nullable boolean) is treated as "not pull", consistent with every
+          other subgroup mask in this codebase (see `mlb_luck_score.models.
+          compare_geometry_aware._bool_mask`'s docstring).
+        - `if_alignment_x_stand`: `if_fielding_alignment` joined with
+          `stand` (e.g. `"Infield shift_R"`).
+        - `if_alignment_x_spray_sector`: `if_fielding_alignment` joined with
+          `spray_sector`.
+
+    All numeric outputs propagate NaN when an input is missing, rather than
+    guessing a value -- the numeric preprocessing pipeline's median imputer
+    (see `build_preprocessing_pipeline`) handles the resulting missingness
+    like every other numeric feature.
+    """
+    if "if_fielding_alignment" not in df.columns and "of_fielding_alignment" not in df.columns:
+        return df
+
+    out = df.copy()
+    nan_series = pd.Series(float("nan"), index=out.index)
+
+    out["if_alignment_shift_indicator"] = (
+        _alignment_shift_indicator(out["if_fielding_alignment"])
+        if "if_fielding_alignment" in out.columns
+        else nan_series
+    )
+    out["of_alignment_shift_indicator"] = (
+        _alignment_shift_indicator(out["of_fielding_alignment"])
+        if "of_fielding_alignment" in out.columns
+        else nan_series
+    )
+
+    launch_angle = out["launch_angle"] if "launch_angle" in out.columns else nan_series
+    hit_distance = out["hit_distance_sc"] if "hit_distance_sc" in out.columns else nan_series
+    out["of_shift_x_launch_angle"] = out["of_alignment_shift_indicator"] * launch_angle
+    out["of_shift_x_hit_distance"] = out["of_alignment_shift_indicator"] * hit_distance
+
+    if "is_pull" in out.columns and "bb_type" in out.columns:
+        pull_groundball = (
+            out["is_pull"].fillna(False).astype(bool) & (out["bb_type"] == "ground_ball")
+        ).astype(float)
+    else:
+        pull_groundball = nan_series
+    out["if_shift_x_pull_groundball"] = out["if_alignment_shift_indicator"] * pull_groundball
+
+    out["if_alignment_x_stand"] = (
+        _combine_categorical(out["if_fielding_alignment"], out["stand"])
+        if "if_fielding_alignment" in out.columns and "stand" in out.columns
+        else None
+    )
+    out["if_alignment_x_spray_sector"] = (
+        _combine_categorical(out["if_fielding_alignment"], out["spray_sector"])
+        if "if_fielding_alignment" in out.columns and "spray_sector" in out.columns
+        else None
+    )
+
+    return out
+
+
+def generate_typical_alignment_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace every alignment feature in `df` with the Version 0.6 "typical" alignment.
+
+    Used to build the positioning counterfactual (see `mlb_luck_score.
+    scoring.positioning_attribution`): `positioning_effect = EV(actual
+    alignment) - EV(typical alignment)`, holding every other (non-alignment)
+    feature -- contact physics, venue, batter handedness, spray direction --
+    EXACTLY fixed. Only rows where alignment was actually observed are
+    overridden (a row with no real alignment data has no meaningful
+    actual-vs-typical comparison).
+
+    Both `if_fielding_alignment` and `of_fielding_alignment` are set to
+    `STANDARD_ALIGNMENT_LABEL` ("Standard" -- each column's single most
+    common real value, see that constant's docstring), and every alignment
+    interaction column is then RECOMPUTED from the overridden labels via
+    `add_alignment_interaction_features`, so `alignment_interactions_v06`'s
+    derived columns (`if_alignment_x_stand`, the shift indicators, etc.)
+    stay consistent with the overridden alignment rather than going stale.
+
+    IMPORTANT: `STANDARD_ALIGNMENT_LABEL` MUST be a category the model
+    actually saw during training -- the same `OneHotEncoder(handle_unknown=
+    "ignore")` lesson as `generate_standardized_environment_rows` (an unseen
+    category is silently one-hot-encoded as all zeros, a pattern the fitted
+    model never learned to interpret). "Standard" is real data's dominant
+    category for both columns, so this is both the technically-necessary
+    choice and the semantically correct one ("typical" alignment).
+
+    Returns:
+        A copy of `df` with alignment columns replaced by the typical
+        alignment and interaction columns recomputed. A no-op for rows/data
+        with no alignment columns present at all.
+    """
+    if "if_fielding_alignment" not in df.columns and "of_fielding_alignment" not in df.columns:
+        return df
+
+    out = df.copy()
+    if "if_fielding_alignment" in out.columns and "of_fielding_alignment" in out.columns:
+        mask = out["if_fielding_alignment"].notna() & out["of_fielding_alignment"].notna()
+    elif "if_fielding_alignment" in out.columns:
+        mask = out["if_fielding_alignment"].notna()
+    else:
+        mask = out["of_fielding_alignment"].notna()
+
+    for col in ("if_fielding_alignment", "of_fielding_alignment"):
+        if col in out.columns:
+            out.loc[mask, col] = STANDARD_ALIGNMENT_LABEL
+
+    return add_alignment_interaction_features(out)
+
+
 #: Minimum fraction of non-null values a feature column must have to be
 #: included automatically. Below this, `select_available_features` drops the
 #: column and logs why, rather than silently modeling on a mostly-empty field.

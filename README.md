@@ -92,12 +92,20 @@ behind them were very different. Decision-quality modeling is out of scope for v
 
 ## Contact luck vs. defensive execution
 
-The model's expected-outcome distribution is fit only on the contact event's own physical
-characteristics (exit velocity, launch angle, approximate spray direction, batted-ball
-type). It does not yet model exact fielder positioning, reaction time, route efficiency,
-or throwing execution. A ball that "should" be a double but becomes a single because of
-an excellent defensive play will look identical, in Version 0.1, to a double turned
-single by bad luck. Separating skill-driven defense from luck is future work.
+The **production** model's expected-outcome distribution (`baseline_v02`) is fit only on
+the contact event's own physical characteristics (exit velocity, launch angle,
+approximate spray direction, batted-ball type). It does not model exact fielder
+positioning, reaction time, route efficiency, or throwing execution. A ball that "should"
+be a double but becomes a single because of an excellent defensive play will look
+identical to a double turned single by bad luck.
+
+Version 0.6 (`mlb_luck_score.models.compare_alignment_aware`) evaluated whether adding the
+defense's coarse, pre-pitch STARTING alignment (never execution -- reaction, route,
+pickup, transfer, throw remain entirely unmodeled, public data cannot observe them at
+all) improves the model; see "Alignment-aware positioning (Version 0.6)" below. Neither
+candidate was adopted, so the production model's blind spot described above is currently
+unchanged. Separating skill-driven defensive EXECUTION from luck remains future work even
+if a Version 0.6 candidate is eventually adopted.
 
 ## Public-data limitations
 
@@ -378,8 +386,16 @@ make notebook        # launches Jupyter in notebooks/
   /environmental subgroup, paired-bootstrap intervals, actual-vs-standardized environment
   examples, and the adoption recommendation. See "Weather and air density (Version 0.5)" above
   for the real-data results.
+- `08_alignment_positioning_analysis.ipynb` -- **Version 0.6**: alignment-label coverage,
+  interaction-feature examples, the three-way `baseline_v02`/`alignment_labels_v06`/
+  `alignment_interactions_v06` comparison, required-subgroup and per-venue calibration,
+  plays whose probabilities changed most, controlled-perturbation directional checks (with
+  interpretation of the confounding-by-indication finding), positioning-counterfactual
+  stability, the `positioning_effect` distribution, the adoption recommendation, and
+  explicit limitations. See "Alignment-aware positioning (Version 0.6)" above for the
+  real-data results.
 
-All seven notebooks detect missing data/artifacts and print clear instructions instead of
+All eight notebooks detect missing data/artifacts and print clear instructions instead of
 crashing; `04` additionally falls back to a small synthetic example so it is always
 runnable immediately after bootstrap.
 
@@ -935,6 +951,114 @@ feature engineered/verified independently (or dropping wind entirely and re-test
 and/or trying an unregularized or explicitly-tuned model to rule out coefficient shrinkage as
 the cause of wind's null signal.
 
+## Alignment-aware positioning (Version 0.6)
+
+Estimates whether the defense's **starting alignment** (not execution) changed the
+expected outcome of a batted ball. Deliberately kept separate from defensive
+**execution** (reaction, route, pickup, transfer, throw) -- public data cannot observe
+execution at all. With only Statcast's `if_fielding_alignment`/`of_fielding_alignment`
+labels available, this is scoped as **alignment-aware positioning**, not exact defender
+positioning: coarse, pre-pitch category labels only (infield: `Standard`/`Strategic`/
+`Infield shift`/`Infield shade`; outfield: `Standard`/`Strategic`/`4th outfielder`) --
+never exact coordinates, pre-contact movement, reaction time, route efficiency, or a
+judgment of whether the chosen alignment was strategically appropriate. Real coverage is
+~99.6% non-null in every 2021-2024 season for both columns.
+
+Three controlled variants (`mlb_luck_score.models.compare_alignment_aware`), IDENTICAL
+2021-2023 training rows / 2024 validation rows, `class_weight=None` throughout:
+
+- **`baseline_v02`**: the currently-selected production model, unchanged.
+- **`alignment_labels_v06`**: `baseline_v02` + the two raw alignment labels.
+- **`alignment_interactions_v06`**: labels + physically-motivated interaction terms --
+  infield alignment x batter handedness, infield alignment x spray direction, outfield
+  alignment x launch angle, outfield alignment x projected distance, and infield-shift x
+  pull-side-ground-ball.
+
+**`position_depth_v06` (baseline + public per-fielder positioning coordinates/depths) was
+investigated and is NOT implemented**: no reliable, publicly downloadable per-play or
+per-fielder-position coordinate/depth dataset was found to exist -- Baseball Savant's
+public data exposes only the coarse alignment labels used above, not exact or average
+fielder (x, y) positions joinable to individual plays. This is exactly the public-data
+limitation this section's framing anticipated -- a scope gap, not a decision to exclude
+numeric depth data on purpose.
+
+**Adoption rule (7 criteria, all combined with AND)**: (1) 2024 log-loss improves; (2) a
+paired game_pk-level bootstrap (500 reps, seed 42) supports the improvement; (3) overall
+ECE does not materially worsen; (4) no major batted-ball-type/pull-oppo/shift-status/
+handedness/base-state subgroup materially regresses; (5) no reliably-sampled venue
+triggers the existing venue-regression rule; (6) controlled-perturbation directional
+checks (`mlb_luck_score.models.weather_perturbation`, reused as-is -- it is generic
+despite the module name) behave in the physically expected direction; (7) the positioning
+counterfactual is stable (well-formed predictions on genuinely re-derived "typical
+alignment" rows, AND `positioning_effect` is ~0 by construction for rows whose actual
+alignment already IS the typical one). Per the task's explicit constraint, **the model is
+never adopted merely because it predicts shifted ground balls more accurately** --
+criterion (4) checks every required subgroup, not just the shift-related ones.
+
+**Real 2024 validation results** (n=122,132):
+
+| variant | log loss | ECE | home-run ECE |
+|---|---|---|---|
+| `baseline_v02` | 0.670321 | 0.014413 | 0.002706 |
+| `alignment_labels_v06` | 0.670287 | 0.014974 | 0.002918 |
+| `alignment_interactions_v06` | 0.629065 | 0.013314 | 0.000912 |
+
+`alignment_labels_v06`'s log-loss "improvement" (-0.0000344) does not clear bootstrap
+significance (95% CI `[-0.000129, +0.000074]`, crosses zero). `alignment_interactions_v06`
+shows a real, bootstrap-confirmed improvement (-0.0413, 95% CI `[-0.0431, -0.0395]`) and
+better aggregate/home-run ECE -- but fails criterion (4): `bb_type_ground_ball` calibration
+gets MATERIALLY WORSE (ECE 0.00776 -> 0.01367, a +76% relative regression) even as the
+aggregate metrics improve, exactly the subgroup the shift-interaction feature was
+designed to help. Every other required subgroup improves or holds steady.
+
+**Controlled-perturbation results** -- mean predicted probability under each scenario
+(pull-side rows only):
+
+| candidate | infield: Standard vs Infield shift, P(single) (expect LOWER under shift) | outfield: Standard vs Strategic, P(double) (expect LOWER under Strategic) |
+|---|---|---|
+| `alignment_labels_v06` | correct: 0.229 -> 0.215 | **backwards**: 0.057 -> 0.061 |
+| `alignment_interactions_v06` | correct, large effect: 0.231 -> 0.151 | **backwards**: 0.060 -> 0.070 |
+
+The infield-shift check passes for both candidates with a real, sensible-sized effect.
+The outfield-strategic check fails for both -- "Strategic" outfield alignment predicts
+MORE doubles, not fewer. This is very plausibly **confounding by indication, not a code
+bug**: alignment is not randomly assigned -- outfielders are more likely to shade/shift
+against batters already known to be extra-base threats, so a model trained on
+observational alignment labels can learn "this alignment co-occurs with more doubles"
+(because of who gets shifted against) rather than "this alignment causes fewer doubles."
+The `bb_type_ground_ball` regression above points at the same root cause on the infield
+side of `alignment_interactions_v06`'s aggregate gain.
+
+**`recommend_adopt_any_v06_candidate: False`.** Neither candidate clears every adoption
+criterion. `alignment_labels_v06` fails on bootstrap significance and the outfield
+perturbation check; `alignment_interactions_v06` fails on the ground-ball subgroup
+regression and the same outfield perturbation check, despite a real aggregate log-loss
+and ECE improvement. **No candidate is adopted; `baseline_v02` remains the production
+model.** Per the task's explicit fallback, alignment-aware positioning is retained as
+evaluated, tested infrastructure and marked **unresolved** rather than forced into
+adoption.
+
+The positioning counterfactual (`mlb_luck_score.scoring.positioning_attribution`,
+`positioning_effect = EV(actual alignment) - EV(typical alignment)`, holding every other
+feature fixed; positive = actual alignment favored the batter more than a typical
+alignment would have) is implemented and exercised in notebook
+`08_alignment_positioning_analysis.ipynb`, but -- since no candidate passed adoption --
+its output is exploratory only, not a validated Contact Luck component, and it is
+explicitly an external-circumstance contribution, never raw residual luck and never a
+measure of defensive execution.
+
+```bash
+make join-venue-metadata        # if not already run for Version 0.3
+make compare-alignment-aware    # 3-way comparison, see above
+make notebook-alignment
+```
+
+**Next steps**: investigate whether the outfield-strategic confounding can be reduced
+(e.g. a batter-power control feature, or restricting the perturbation check to
+plays/batters where alignment changed within-season) before re-testing; re-examine
+whether `of_shift_x_hit_distance` is the specific interaction term driving the ground
+-ball subgroup regression despite targeting a different batted-ball type.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
@@ -1031,6 +1155,16 @@ backwards density signal (a genuine, non-buggy finding), but no candidate clears
 bootstrap-significance bar AND the perturbation checks together; `recommend_adopt_any_v051_
 candidate: False`. `baseline_v02` remains the production model; weather is retained as
 evaluated, tested infrastructure and marked unresolved rather than forced into adoption.
+Alignment-aware positioning (Version 0.6) has been evaluated for real 2021-2024 data --
+see "Alignment-aware positioning (Version 0.6)" above for the exact results.
+`alignment_interactions_v06` shows a real, bootstrap-confirmed aggregate log-loss and ECE
+improvement, but fails adoption on a material ground-ball subgroup regression and a
+backwards-signed outfield-alignment perturbation check (very plausibly confounding by
+indication -- alignment is not randomly assigned); `alignment_labels_v06` does not even
+clear bootstrap significance. `position_depth_v06` was investigated and found to have no
+reliable public data source. `recommend_adopt_any_v06_candidate: False`; `baseline_v02`
+remains the production model; alignment-aware positioning is retained as evaluated,
+tested infrastructure and marked unresolved rather than forced into adoption.
 
 ## Future work
 
@@ -1044,7 +1178,14 @@ evaluated, tested infrastructure and marked unresolved rather than forced into a
   weather already implemented in Versions 0.4-0.5
 - Finer-grained wall geometry (more than 5 points per park-era; true wall curvature;
   localized irregularities like Citizens Bank Park's "Monty's Angle")
-- Exact defender positioning, reaction, and route modeling
+- Investigate and reduce the confounding-by-indication problem in Version 0.6's
+  outfield-alignment perturbation check (e.g. a batter-power control feature) before
+  re-testing `alignment_interactions_v06`; identify which specific interaction term drives
+  its `bb_type_ground_ball` subgroup regression -- see "Alignment-aware positioning
+  (Version 0.6)"
+- A reliable public per-fielder positioning/depth data source for `position_depth_v06`
+  (none was found as of Version 0.6) -- exact defender positioning, reaction, and route
+  modeling remain out of scope for any publicly-sourced dataset
 - Fielding and throwing execution modeling
 - Batter-runner decision-quality modeling
 - Batter-runner execution modeling

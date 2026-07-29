@@ -117,10 +117,17 @@ statistical criteria -- `density_only_v051_candidate` and `density_anomaly_v051_
 don't even clear bootstrap significance on real 2024 data, and `components_only_v051_candidate`
 does but fails the perturbation checks (backwards density AND wind direction) -- see "Weather
 correction (Version 0.5.1)" in README.md. `recommend_adopt_any_v051_candidate: False`;
-`baseline_v02` remains the default. This pattern generalizes: any future comparison variant
-(more park factors, defensive positioning, etc.) stays a candidate, reported with
-its exact metrics via `recommend_*`-style rule-based logic, until a maintainer explicitly
-decides to adopt it. A rule-based recommendation is a starting point for judgment (read the
+`baseline_v02` remains the default. Version 0.6 (`mlb_luck_score.models.
+compare_alignment_aware`) confirms the same pattern for defensive alignment: `alignment_
+interactions_v06` shows a real, bootstrap-confirmed aggregate improvement, yet fails
+adoption on both a material `bb_type_ground_ball` subgroup regression and a
+backwards-signed controlled-perturbation check (see "Watch for confounding-by-indication"
+above and "Alignment-aware positioning (Version 0.6)" in README.md) --
+`recommend_adopt_any_v06_candidate: False`; `baseline_v02` remains the default. This
+pattern generalizes: any future comparison variant (more park factors, exact defender
+positioning/execution, etc.) stays a candidate, reported with its exact metrics via
+`recommend_*`-style rule-based logic, until a maintainer explicitly decides to adopt it. A
+rule-based recommendation is a starting point for judgment (read the
 full by-venue/by-subgroup table yourself -- a real, noteworthy regression can exist below a
 conservative automated threshold, and criteria that are inherently a judgment call, like
 "is the model learning physically plausible effects", are deliberately NOT automated at
@@ -235,6 +242,25 @@ evaluation optimistic. Any future per-venue/per-group reference statistic (a mea
 a normalization constant) must follow this same pattern -- fit once on `TRAIN_SEASONS` only, and
 say so explicitly in its docstring (see `compute_venue_air_density_baseline`'s docstring and
 `tests/test_join_weather_features.py::test_venue_baseline_computed_from_training_seasons_only`).
+
+## Watch for confounding-by-indication in any feature reflecting a human/strategic decision
+
+Version 0.6's `alignment_interactions_v06` (`mlb_luck_score.models.compare_alignment_aware`)
+found a real, bootstrap-confirmed aggregate log-loss and ECE improvement, yet its controlled
+-perturbation check showed "Strategic" outfield alignment predicting MORE pull-side doubles
+than "Standard" -- backwards from the physical expectation that a strategic shift exists to
+prevent exactly that. This is very plausibly not a code bug: alignment (like a shift, a pitch
+call, a defensive substitution, or any other in-game decision made by a human in response to
+the SAME conditions the model is trying to predict) is not randomly assigned -- teams shift
+more against batters already known to be extra-base threats, so a model trained on
+observational data can learn "this alignment co-occurs with this outcome" rather than "this
+alignment causes this outcome." A material subgroup regression can point at the same root
+cause from a different angle (see `bb_type_ground_ball`'s regression in the same candidate).
+When evaluating ANY future feature that reflects a strategic choice rather than a fixed
+physical fact (park geometry and weather are physical facts; alignment, positioning, and
+similar decisions are not), treat a backwards-signed controlled-perturbation result as a
+likely confounding signal first, not immediately as a bug to "fix" by relaxing the check --
+see "Alignment-aware positioning (Version 0.6)" in README.md for the full real-data writeup.
 
 ## Confidence must never dampen the score
 

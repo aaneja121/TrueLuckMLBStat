@@ -4,7 +4,8 @@
 	compare-park-aware demo notebook build-park-geometry validate-park-geometry \
 	join-park-geometry compare-geometry-aware notebook-park-geometry \
 	download-weather-data build-game-weather join-weather-features \
-	compare-weather-aware notebook-weather compare-weather-variants
+	compare-weather-aware notebook-weather compare-weather-variants \
+	compare-alignment-aware notebook-alignment
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -223,3 +224,19 @@ compare-weather-variants:
 	$(PY) -m mlb_luck_score.models.compare_weather_variants \
 		--input data/processed/cleaned_development_data_with_weather.parquet \
 		--output-dir outputs/tables
+
+# Version 0.6 alignment-aware positioning comparison: baseline_v02 vs
+# alignment_labels_v06 vs alignment_interactions_v06 on untouched 2024
+# validation data, including a paired game_pk-level bootstrap and
+# controlled-perturbation directional checks (does a shifted infield
+# actually predict fewer pull-side ground-ball singles). Does NOT
+# automatically adopt any candidate -- see README.md "Alignment-aware
+# positioning (Version 0.6)". Only needs the venue join (no geometry/weather
+# required) -- alignment labels come straight from cleaned Statcast columns.
+compare-alignment-aware:
+	$(PY) -m mlb_luck_score.models.compare_alignment_aware \
+		--input data/processed/cleaned_development_data_with_venue.parquet \
+		--output-dir outputs/tables --figures-dir outputs/figures/alignment_aware
+
+notebook-alignment:
+	$(PY) -m jupyter notebook notebooks/08_alignment_positioning_analysis.ipynb
