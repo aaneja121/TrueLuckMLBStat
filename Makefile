@@ -7,7 +7,7 @@
 	compare-weather-aware notebook-weather compare-weather-variants \
 	compare-alignment-aware notebook-alignment \
 	compare-opportunity-models notebook-outfield-opportunity \
-	compare-near-wall-models
+	compare-near-wall-models compare-near-wall-calibration-gate
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -271,3 +271,15 @@ compare-near-wall-models:
 	$(PY) -m mlb_luck_score.models.compare_near_wall_models \
 		--input data/processed/cleaned_development_data_with_geometry.parquet \
 		--output-dir outputs/tables
+
+# Version 0.7D calibration-gate correction: replaces the near-wall subgroup/
+# venue fixed-ECE-threshold pass/fail rule with sample-size-aware, game_pk
+# -clustered bootstrap confidence intervals and a three-way calibrated/
+# not_calibrated/insufficient_evidence status. Does NOT retrain or change the
+# near-wall model, open_field_v07, or the contact-only fallback -- see module
+# docstring. Version 0.7 is frozen after this; see CLAUDE.md/AGENTS.md.
+compare-near-wall-calibration-gate:
+	$(PY) -m mlb_luck_score.models.compare_near_wall_calibration_gate \
+		--input data/processed/cleaned_development_data_with_geometry.parquet \
+		--output-dir outputs/tables \
+		--figures-dir outputs/figures/near_wall_calibration_gate

@@ -340,6 +340,71 @@ equivalent evidence to the same threshold applied at the original population's s
 note the sample-size caveat explicitly, as `compare_near_wall_models` does, rather than
 either recalibrating the threshold ad hoc or treating every crossing as a confirmed defect.
 
+## Measured miscalibration vs. insufficient evidence are DIFFERENT findings -- never conflate them
+
+Version 0.7D (`mlb_luck_score.models.compare_near_wall_calibration_gate`) replaces the rule
+above's fixed-ECE-threshold pass/fail with a game_pk-clustered bootstrap confidence interval
+per subgroup/venue, and a three-way status instead of a boolean:
+
+  - `calibrated`: adequate outcome support (plays/games/minority-class count all above a
+    documented minimum) AND the ECE confidence interval sits entirely at or below the
+    material threshold, with no credible paired regression against `open_field_v07` on the
+    same rows.
+  - `not_calibrated`: CREDIBLE evidence of a problem -- an ENTIRE confidence interval on the
+    wrong side of a line (either the ECE CI entirely above threshold, or the paired
+    specialist-vs-baseline log-loss delta CI entirely above zero), never a bare point
+    estimate.
+  - `insufficient_evidence`: EITHER raw support is below the documented minimum, OR support
+    is nominally adequate but the confidence interval straddles the threshold -- the data
+    genuinely cannot tell "calibrated" from "not calibrated" yet.
+
+This resolved the previous rule's own documented weakness with a REAL, unexpectedly sharp
+result on real 2024 data: applying this to the near-wall specialist showed 6 subgroups/
+venues genuinely `calibrated`, but 19 (mostly individual venues, ~250-330 rows each, plus
+`wall_height_medium`/`wall_height_tall`) are CREDIBLY `not_calibrated` -- their ECE
+confidence intervals hold up entirely above 0.05 under bootstrap resampling, even though
+the SAME rows show the specialist is a credible, large improvement over `open_field_v07`
+(paired log-loss delta CIs entirely negative). This DISPROVES the earlier "probably just
+sampling noise" hypothesis for a meaningful fraction of these venues -- some of that
+apparent miscalibration is real, not an artifact of small-sample ECE variance, even though
+the specialist is still comparatively much better than the alternative. The remaining 20
+subgroups/venues are honestly `insufficient_evidence` (mostly smaller venues and the
+`near_wall_5ft`/`spray_sector_left`/`spray_sector_left_center`/`spray_sector_right`/
+`opportunity_time_q1_shortest`/`opportunity_time_q2` subgroups) -- NOT reported as passing.
+See "Version 0.7D: calibration-gate correction" in README.md for the full table.
+
+`near_wall_specialist_calibrated` is `True` ONLY if every subgroup/venue is EITHER
+`calibrated` or has adequate evidence with nothing `not_calibrated` -- if some groups are
+`insufficient_evidence` but none are credibly `not_calibrated`, the overall status is the
+separately-labeled `calibrated_with_limited_subgroup_evidence`, which STILL does not flip
+`near_wall_specialist_calibrated` to `True` (near-wall rows stay `provisional_near_wall`) --
+"insufficient evidence" must never be reported as a pass, per the task that produced this
+correction. When adding ANY future confidence-interval-based gate, follow the SAME pattern:
+a credible finding requires an entire CI on the wrong side of a line, and "we don't have
+enough data to tell" is its own honestly-labeled outcome, never silently merged into either
+"pass" or "fail".
+
+## Version 0.7 is now FROZEN -- 2024 is development validation, not an untouched test set
+
+The near-wall design line (Versions 0.7A-0.7D, `mlb_luck_score.models.
+compare_near_wall_models`/`compare_near_wall_calibration_gate`) has now had its checks,
+required-check set, and calibration-gating rule redesigned MULTIPLE times specifically in
+response to what real 2024 results looked like each time (0.7C's launch-angle perturbation
+check was replaced after its result looked backwards on 2024 data; 0.7D's subgroup-gating
+rule was replaced after the SAME 2024 venue results looked like a threshold artifact). This
+is fundamentally different from `FINAL_TEST_SEASONS` (2025, never touched at all) -- 2024
+has been iterated against repeatedly, so it no longer functions as an untouched validation
+season FOR THIS DESIGN LINE, even though `mlb_luck_score.config.VALIDATION_SEASONS`/
+`CALIBRATION_EVAL_SEASONS` still formally include it. Per the task that produced Version
+0.7D: **do not make any further near-wall model, feature, perturbation-check, or
+calibration-gate change that is justified by, or tuned against, 2024 near-wall results.**
+If a future near-wall change is genuinely needed, either (a) evaluate it against a season
+range not yet used for near-wall design decisions, or (b) get explicit maintainer sign-off
+to treat 2024 as non-pristine for that specific change, and say so plainly in the
+docstring/README -- do not silently repeat the pattern this rule documents. This does NOT
+freeze anything else in the codebase (weather, geometry, alignment, contact model, etc.
+proceed under their own existing rules above).
+
 ## Confidence must never dampen the score
 
 The Version 0.1 confidence report

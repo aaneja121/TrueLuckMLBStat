@@ -1399,10 +1399,95 @@ make compare-near-wall-models   # model selection + final comparison, see above
 ```
 
 **Next steps**: re-examine whether the wall-height/spray-sector/venue subgroup ECE issues
-persist with a larger or differently-thresholded sample (the perturbation-check finding
-above is now resolved and no longer part of what's blocking adoption); once the subgroup
-issues are resolved, `near_wall_specialist_calibrated` should flip to `True` and near-wall
-rows will automatically report `available_near_wall_calibrated`.
+above are genuine or a fixed-threshold-at-small-scale artifact -- see "Version 0.7D:
+calibration-gate correction" immediately below, which replaces the fixed-threshold
+subgroup rule with a sample-size-aware one and answers this question directly (with a
+sharper, less comfortable answer than "probably just noise").
+
+## Version 0.7D: calibration-gate correction
+
+Version 0.7C's subgroup/venue gate flagged issues using a single fixed `MATERIAL_ECE_
+ABSOLUTE_THRESHOLD` (0.05) point-estimate comparison -- see "Subgroup ECE against a fixed
+absolute threshold does not transfer across population sizes" above. That rule could not
+distinguish "this point estimate looks bad because the model really is worse here" from
+"this point estimate looks bad because a ~250-row sample is noisy" -- it just reported
+every crossing honestly, with a caveat, and left the question open. Version 0.7D
+(`mlb_luck_score.models.compare_near_wall_calibration_gate`) answers it: every subgroup and
+venue now gets a game_pk-clustered bootstrap confidence interval on its own adaptive-bin
+ECE, plus a PAIRED bootstrap CI comparing the specialist against `open_field_v07` on the
+identical rows, and is assigned one of three statuses instead of a pass/fail boolean:
+
+- **`calibrated`**: adequate outcome support (documented minimums: >=100 plays, >=20
+  distinct games, >=20 of EACH outcome class) AND the ECE confidence interval sits entirely
+  at or below 0.05, with no credible paired regression vs. `open_field_v07`.
+- **`not_calibrated`**: CREDIBLE evidence of a problem -- an ENTIRE confidence interval on
+  the wrong side of a line (the ECE CI entirely above 0.05, or the paired
+  specialist-minus-baseline log-loss delta CI entirely above zero), never a bare point
+  estimate.
+- **`insufficient_evidence`**: either raw support is below the documented minimum, or
+  support is nominally adequate but the confidence interval straddles the threshold -- the
+  data genuinely cannot tell yet. This is explicitly neither a pass nor a fail.
+
+This module does NOT change the near-wall model, its features, hyperparameters, or
+predictions, `open_field_v07`, or the contact-only fallback -- it reuses all of Version
+0.7A/0.7C's trained models and required physical perturbation checks UNCHANGED, and
+replaces ONLY the subgroup/venue calibration-gating rule.
+
+**Real 2024 result** (`make compare-near-wall-calibration-gate`): of the 15 required
+subgroups (wall-distance bands, wall-height bands, spray sectors, opportunity-time groups)
+plus 30 venues (45 total):
+
+| status | count | which |
+|---|---|---|
+| `calibrated` | 6 | `near_wall_10ft`, `near_wall_20ft`, `spray_sector_center`, `spray_sector_right_center`, `opportunity_time_q3`, `opportunity_time_q4_longest` |
+| `not_calibrated` | 19 | `wall_height_medium`, `wall_height_tall`, and 17 individual venues (~250-330 rows each) |
+| `insufficient_evidence` | 20 | `near_wall_5ft`, `wall_height_short`, `spray_sector_left`/`left_center`/`right`, `opportunity_time_q1_shortest`/`q2`, and 13 smaller venues |
+
+This is a SHARPER, less comfortable finding than the Version 0.7C writeup's working
+hypothesis: e.g. venue 3's specialist ECE is 0.129 (CI [0.096, 0.198], entirely above
+0.05) -- credibly `not_calibrated` by the absolute bar -- even though the SAME rows'
+paired log-loss delta CI is [-0.447, -0.247] (entirely negative), meaning the specialist is
+a credible, LARGE improvement over `open_field_v07` (whose own ECE on those rows is
+0.324) for that same venue. Both things are true at once: comparatively much better, and
+still not meeting the absolute 0.05 bar. This disproves the earlier "probably just
+small-sample noise" hypothesis for a meaningful fraction of these venues (17 of 30 hold up
+under bootstrap resampling as genuinely `not_calibrated`, not merely nominal crossings) --
+some of Version 0.7C's flagged venues were real, not artifacts. The aggregate-level checks
+carried over unchanged from 0.7C all still pass: log-loss improves (-0.275946), the
+aggregate bootstrap supports it (CI entirely negative), the architectural
+no-open-field-regression check passes, and BOTH required physical perturbation checks
+(`wall_distance_direction`, `trajectory_matched_opportunity_time_short_of_wall`) pass.
+
+**`near_wall_specialist_calibrated: False`, `overall_status: not_calibrated`.** Because at
+least one adequately-supported group (17 venues plus 2 wall-height bands) is CREDIBLY
+`not_calibrated`, the overall status is `not_calibrated`, not the softer
+`calibrated_with_limited_subgroup_evidence` tier -- per the task's reporting rule, near-wall
+rows stay `provisional_near_wall`. (Had every group instead been either `calibrated` or
+`insufficient_evidence` -- i.e. no CREDIBLE failures, just some groups too small to judge --
+the overall status would have been `calibrated_with_limited_subgroup_evidence`, which ALSO
+does not flip `near_wall_specialist_calibrated` to `True`: insufficient evidence is never
+reported as a pass. See "Measured miscalibration vs. insufficient evidence" in
+CLAUDE.md/AGENTS.md.)
+
+Reliability tables (every subgroup/venue's full evidence -- n plays, n games, positive/
+negative outcome counts, log loss, Brier score, adaptive-bin ECE, calibration
+intercept/slope where estimable, and both CIs) are written to `outputs/tables/near_wall_
+calibration_gate_detail.json`; reliability-diagram PNGs for every subgroup/venue are
+written to `outputs/figures/near_wall_calibration_gate/` when `--figures-dir` is passed.
+
+```bash
+make compare-near-wall-calibration-gate
+```
+
+**Version 0.7 is now FROZEN.** This near-wall design line (0.7A-0.7D) has had its checks,
+required-check set, and calibration-gating rule redesigned multiple times specifically in
+response to what 2024 results looked like each time. 2024 must now be treated as
+DEVELOPMENT validation for near-wall work, not an untouched test set, even though it
+remains `VALIDATION_SEASONS`/`CALIBRATION_EVAL_SEASONS` formally -- see CLAUDE.md/AGENTS.md
+"Version 0.7 is now FROZEN" for the full rule. Any further near-wall model, feature,
+perturbation-check, or calibration-gate change needs either a season range not yet used
+for near-wall design decisions, or explicit maintainer sign-off treating 2024 as
+non-pristine for that specific change.
 
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
