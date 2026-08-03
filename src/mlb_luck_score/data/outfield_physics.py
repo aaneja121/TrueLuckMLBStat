@@ -84,6 +84,58 @@ def estimate_hang_time_seconds(launch_speed_mph: float, launch_angle_deg: float)
     return max(hang_time, MIN_HANG_TIME_SECONDS)
 
 
+#: Exact unit conversion (not an estimate, unlike `MIN_HANG_TIME_SECONDS`) --
+#: used only to convert a feet-denominated distance into the meters the
+#: vacuum projectile formulas below are stated in.
+FEET_TO_METERS = 0.3048
+
+
+def solve_launch_speed_for_matched_range_mph(
+    target_distance_ft: float, launch_angle_deg: float
+) -> float:
+    """Exit velocity (mph) that reaches `target_distance_ft` at `launch_angle_deg`,
+    under the SAME vacuum (no-drag) projectile model as `estimate_hang_time_seconds`.
+
+    This is the companion "range" formula to `estimate_hang_time_seconds`'s
+    "time of flight" formula -- both come from the same vacuum projectile
+    model launched and landing at the same height: `R = v0^2 * sin(2*theta) /
+    g`, solved here for `v0` given a target `R` and `theta`.
+
+    Used to build a TRAJECTORY-MATCHED counterfactual row: same landing
+    distance (and therefore the same spray-direction wall geometry) as a
+    real row, but a different launch angle, with exit velocity solved so the
+    ball still reaches that same distance -- see `mlb_luck_score.models.
+    compare_near_wall_models`'s trajectory-matched opportunity-time check for
+    why this is needed (a naive launch-angle override that leaves exit
+    velocity untouched silently changes the landing point too, entangling
+    "launch angle" with "how far this ball happened to travel").
+
+    Args:
+        target_distance_ft: Desired projected/observed distance in feet.
+        launch_angle_deg: Launch angle in degrees to solve exit velocity for.
+
+    Returns:
+        Exit velocity in mph. `NaN` if either input is `NaN`, or if
+        `launch_angle_deg` is at or outside `(0, 90)` where the vacuum range
+        formula is undefined or non-physical (`sin(2*theta) <= 0`).
+    """
+    if math.isnan(target_distance_ft) or math.isnan(launch_angle_deg):
+        return math.nan
+
+    theta_rad = math.radians(launch_angle_deg)
+    sin_2theta = math.sin(2.0 * theta_rad)
+    # Floating-point `sin` at exactly 0/90 degrees lands on a tiny nonzero
+    # value (e.g. ~1.2e-16 at 90 deg) rather than exactly 0, so a strict
+    # `<= 0` guard would let a degenerate near-0/90-degree angle through as
+    # a spuriously huge finite speed instead of `NaN`.
+    if sin_2theta <= 1e-9:
+        return math.nan
+
+    distance_m = target_distance_ft * FEET_TO_METERS
+    v0_mps = math.sqrt(distance_m * STANDARD_GRAVITY_M_S2 / sin_2theta)
+    return v0_mps / MPH_TO_MPS
+
+
 def estimate_landing_coordinates_ft(
     hit_distance_ft: float, spray_angle_deg: float
 ) -> tuple[float, float]:

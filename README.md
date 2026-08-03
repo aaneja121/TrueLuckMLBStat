@@ -1311,17 +1311,7 @@ A large, real, **bootstrap-confirmed** improvement (500 game-level reps): log-lo
 - **Controlled perturbations**: the wall-distance check passes cleanly and with a large,
   sensible effect (close wall mean P(out) 0.255731 vs. far wall 0.586909, delta +0.331178
   -- a farther wall makes the SAME batted ball comparatively more catchable, as physically
-  expected). The launch-angle/hang-time check (low angle/short hang time: 0.270407 vs. high
-  angle/long hang time: 0.663381, delta +0.392974) is BACKWARDS from the open-field
-  intuition -- but this may be a real, different physical relationship specific to the
-  near-wall CONDITIONAL population, not a bug: among plays that all travel roughly the same
-  (long) distance to reach the wall by construction of the gate, achieving that distance
-  via a LOW launch angle requires much higher exit velocity (a flat, hard-hit line-drive
-  double/triple giving the fielder little time to react) than achieving it via a HIGH
-  launch angle (a softer, higher-arcing, more trackable fly ball) -- the reverse of the
-  open-field-wide correlation, where distance varies freely. Per CLAUDE.md's
-  confounding-by-indication guidance, this is reported as an unresolved finding requiring
-  further investigation, not "fixed" by relaxing the check.
+  expected).
 
   A real bug WAS caught and fixed during this work: an earlier version of both perturbation
   checks overrode a raw feature (`wall_distance_in_spray_direction`, `estimated_hang_time_
@@ -1332,10 +1322,67 @@ A large, real, **bootstrap-confirmed** improvement (500 game-level reps): log-lo
   recomputing dependents on every override (`_override_wall_distance_and_recompute`/
   `_override_launch_angle_and_recompute_hang_time`).
 
-**`near_wall_specialist_calibrated: False`.** Despite the large, real, bootstrap-confirmed
-aggregate improvement and clean wall-band results, the specialist does not yet clear every
-required check (the launch-angle perturbation finding above, plus the wall-height/spray
--sector/venue subgroup issues). Per the task's reporting rule:
+  **The original launch-angle requirement was invalid, not just backwards -- and the
+  corrected check confirms the open-field intuition was right all along.** The original
+  band-restricted check (`_override_launch_angle_and_recompute_hang_time`, band-restricted
+  to `BAND_SHORT_OF_WALL`) varies `launch_angle` while leaving `launch_speed` -- and
+  therefore the counterfactual ball's landing distance -- at whatever the real row
+  happened to have. That is not a clean test of "does more opportunity time help the
+  fielder"; it is a test of "launch angle, entangled with however hard this particular ball
+  needed to be hit to travel this particular distance." On real 2024 data this proxy check
+  gives low angle/unmatched distance P(out) 0.475014 vs. high angle/unmatched distance
+  0.944219 (delta +0.469205, n=2,508) -- BACKWARDS from the open-field "more opportunity
+  time -> more catchable" intuition, exactly as before. But this is LAUNCH ANGLE, not
+  opportunity time: reaching the same distance via a low angle requires much higher exit
+  velocity (a flatter, harder-hit ball) than via a high angle (a softer, higher-arcing one),
+  so this proxy conflates "more opportunity time" with "how hard the ball was hit." This
+  check is kept and reported (renamed `launch_angle_proxy_short_of_wall`, plus the same
+  proxy construction for `launch_angle_proxy_effect_at_wall`/`_beyond_wall`), but is now
+  DESCRIPTIVE ONLY -- it no longer gates `near_wall_specialist_calibrated`.
+
+  The corrected replacement, `trajectory_matched_opportunity_time_short_of_wall`
+  (`_override_launch_angle_matched_trajectory`, `mlb_luck_score.data.outfield_physics.
+  solve_launch_speed_for_matched_range_mph`), holds landing distance -- and therefore every
+  wall-geometry feature derived from it -- fixed at the row's REAL value, and instead SOLVES
+  the exit velocity (same vacuum projectile model as `estimate_hang_time_seconds`) that
+  reaches that same distance at the new angle. Because both trajectories are matched to the
+  SAME distance, the higher-angle one is mathematically guaranteed (and verified at runtime,
+  `trajectory_match_invariants`) to have strictly greater estimated opportunity time: mean
+  hang time 2.69s (18 deg) vs. 4.33s (40 deg). With the exit-velocity confound removed, the
+  result flips to the physically expected direction and PASSES: mean P(out) 0.560452 (low
+  angle, matched) vs. 0.949601 (high angle, matched), delta +0.389149, n=2,508. This
+  confirms the confounding hypothesis directly rather than leaving it as a suspicion --
+  "more opportunity time" genuinely does increase catchability near the wall once launch
+  angle's entanglement with exit velocity is removed; the original required check's
+  direction was not a real physical finding, and demoting it (rather than simply flipping
+  its sign) is the right fix, per CLAUDE.md's guidance to treat a backwards-signed
+  perturbation as a likely confound first.
+
+  A REAL-DATA (never synthetic) grouped response curve corroborates this independently:
+  `compute_grouped_opportunity_time_response` bins real rows' own `estimated_hang_time_s`
+  into quartiles within each wall band and `bb_type`, with no override at all. Every one of
+  the 6 (band x bb_type) strata shows mean predicted P(out) increasing monotonically from
+  the shortest to the longest hang-time quartile (e.g. `short_of_wall`/`fly_ball`: 0.700 ->
+  0.847 -> 0.931 -> 0.950; `short_of_wall`/`line_drive`: 0.293 -> 0.392 -> 0.470 -> 0.609),
+  while each stratum's mean `hit_distance_sc` stays reasonably flat across bins (e.g.
+  361.7/364.5/360.5/354.4 ft for that same `short_of_wall`/`fly_ball` stratum -- if anything
+  trending slightly DOWN at the longest-hang-time bin, the opposite of what a
+  distance-confound would produce) -- landing distance is not silently driving the curve.
+
+- **Launch angle is not the same variable as opportunity time.** A pure "vary opportunity
+  time alone" perturbation is not physically constructible: `estimated_hang_time_s` is
+  fully determined by `launch_speed`/`launch_angle`, so directly overriding it while
+  leaving those two at their real values would recreate the same internal-inconsistency bug
+  class documented above, one feature removed. The trajectory-matched check and the grouped
+  real-data response curve are the two valid substitutes -- one varies hang time only
+  through a jointly-solved, physically valid change to angle AND exit velocity; the other
+  uses real rows' own natural variation with no override at all.
+
+**`near_wall_specialist_calibrated: False`.** Both required perturbation checks now pass
+cleanly (`perturbation_failures: []`) alongside the large, bootstrap-confirmed aggregate
+improvement and clean wall-band results -- but the specialist still doesn't clear every
+required check, because the wall-height/spray-sector/venue subgroup issues above are
+unrelated to the perturbation-check fix and remain open. Per the task's reporting rule:
 
 > Outfield execution score available for calibrated open-field opportunities; provisional
 > or unavailable for wall-adjacent opportunities.
@@ -1351,12 +1398,11 @@ with `p_out_opportunity`/`defensive_execution` left `NaN`.
 make compare-near-wall-models   # model selection + final comparison, see above
 ```
 
-**Next steps**: investigate the launch-angle/hang-time perturbation finding directly (does
-exit velocity really trade off against launch angle at fixed near-wall distance in this
-data, confirming the hypothesis above); re-examine whether the wall-height/spray-sector
-subgroup issues persist with a larger or differently-thresholded sample; once resolved,
-`near_wall_specialist_calibrated` should flip to `True` and near-wall rows will
-automatically report `available_near_wall_calibrated`.
+**Next steps**: re-examine whether the wall-height/spray-sector/venue subgroup ECE issues
+persist with a larger or differently-thresholded sample (the perturbation-check finding
+above is now resolved and no longer part of what's blocking adoption); once the subgroup
+issues are resolved, `near_wall_specialist_calibrated` should flip to `True` and near-wall
+rows will automatically report `available_near_wall_calibrated`.
 
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 

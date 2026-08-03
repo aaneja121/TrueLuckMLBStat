@@ -18,12 +18,18 @@ from mlb_luck_score.config import (
     CALIBRATION_EVAL_SEASONS,
 )
 from mlb_luck_score.models.compare_near_wall_models import (
+    BAND_SHORT_OF_WALL,
     NEAR_WALL_SELECTION_CANDIDATES,
     VARIANT_NEAR_WALL_FINAL,
     VARIANT_NEAR_WALL_LOGISTIC,
     VARIANT_OPEN_FIELD,
+    BandedEffectResult,
+    NearWallPerturbationSuite,
+    OpportunityTimeResponseBin,
     _override_launch_angle_and_recompute_hang_time,
+    _override_launch_angle_matched_trajectory,
     _override_wall_distance_and_recompute,
+    compute_grouped_opportunity_time_response,
     compute_near_wall_paired_bootstrap,
     compute_near_wall_subgroups,
     compute_wall_height_buckets,
@@ -126,6 +132,43 @@ def test_override_launch_angle_recomputes_hang_time():
     assert out["estimated_hang_time_s"].iloc[0] > 0
 
 
+def test_override_launch_angle_matched_trajectory_preserves_distance_holds_context_fixed():
+    df = pd.DataFrame(
+        {
+            "launch_angle": [10.0],
+            "launch_speed": [95.0],
+            "hit_distance_sc": [340.0],
+            "estimated_hang_time_s": [999.0],  # stale sentinel
+            "wall_distance_in_spray_direction": [350.0],
+            "projected_distance_to_wall_margin": [-10.0],
+            "absolute_distance_to_wall": [10.0],
+            "landing_x_ft": [5.0],
+            "landing_y_ft": [339.9],
+        }
+    )
+    out = _override_launch_angle_matched_trajectory(df, 40.0)
+    assert out["launch_angle"].iloc[0] == 40.0
+    # Exit velocity is SOLVED, not left at the real row's value.
+    assert out["launch_speed"].iloc[0] != 95.0
+    assert out["estimated_hang_time_s"].iloc[0] != 999.0
+    assert out["estimated_hang_time_s"].iloc[0] > 0
+    # Landing distance and every wall-geometry feature derived from it are
+    # UNCHANGED -- the whole point of a trajectory-matched counterfactual.
+    assert out["hit_distance_sc"].iloc[0] == 340.0
+    assert out["wall_distance_in_spray_direction"].iloc[0] == 350.0
+    assert out["projected_distance_to_wall_margin"].iloc[0] == -10.0
+    assert out["absolute_distance_to_wall"].iloc[0] == 10.0
+    assert out["landing_x_ft"].iloc[0] == 5.0
+    assert out["landing_y_ft"].iloc[0] == 339.9
+
+
+def test_override_launch_angle_matched_trajectory_higher_angle_has_more_hang_time():
+    df = pd.DataFrame({"launch_angle": [15.0], "launch_speed": [95.0], "hit_distance_sc": [360.0]})
+    low_df = _override_launch_angle_matched_trajectory(df, 18.0)
+    high_df = _override_launch_angle_matched_trajectory(df, 40.0)
+    assert high_df["estimated_hang_time_s"].iloc[0] > low_df["estimated_hang_time_s"].iloc[0]
+
+
 # ---------------------------------------------------------------------------
 # Wall height buckets / subgroup calibration
 # ---------------------------------------------------------------------------
@@ -214,13 +257,52 @@ def test_wall_distance_perturbation_detects_correct_direction(near_wall_df):
         categorical_features=NEAR_WALL_CATEGORICAL_FEATURES,
     )
     results = run_near_wall_perturbation_checks(trained, near_wall_df)
-    assert "wall_distance_direction" in results
-    assert "hang_time_direction" in results
-    assert all(isinstance(r, DirectionalCheckResult) for r in results.values())
+    assert "wall_distance_direction" in results.required
+    assert "trajectory_matched_opportunity_time_short_of_wall" in results.required
+    assert all(isinstance(r, DirectionalCheckResult) for r in results.required.values())
     # The synthetic fixture deterministically encodes the wall-distance
     # relationship, so the model should learn it correctly.
-    assert results["wall_distance_direction"].passed is True
-    assert results["wall_distance_direction"].sample_size == len(near_wall_df)
+    assert results.required["wall_distance_direction"].passed is True
+    assert results.required["wall_distance_direction"].sample_size == len(near_wall_df)
+    # The ORIGINAL (unmatched) launch-angle proxy check is demoted to
+    # descriptive -- reported, but no longer required to pass.
+    assert "launch_angle_proxy_short_of_wall" in results.descriptive
+    assert isinstance(results.descriptive["launch_angle_proxy_short_of_wall"], BandedEffectResult)
+    # The trajectory-match invariant (higher matched angle -> strictly more
+    # estimated opportunity time) must hold by construction.
+    assert BAND_SHORT_OF_WALL in results.trajectory_match_invariants
+    invariant = results.trajectory_match_invariants[BAND_SHORT_OF_WALL]
+    assert invariant.verified is True
+    assert invariant.mean_hang_time_high_angle_s > invariant.mean_hang_time_low_angle_s
+    # Real-data grouped opportunity-time response curve is populated.
+    assert len(results.opportunity_time_response) > 0
+    assert all(isinstance(b, OpportunityTimeResponseBin) for b in results.opportunity_time_response)
+
+
+def test_grouped_opportunity_time_response_uses_only_real_rows(near_wall_df):
+    from mlb_luck_score.features.build_contact_features import (
+        NEAR_WALL_CATEGORICAL_FEATURES,
+        NEAR_WALL_NUMERIC_FEATURES,
+    )
+
+    fit_df = near_wall_df[near_wall_df["season"].isin(CALIBRATION_BASE_TRAIN_SEASONS)]
+    trained = train_opportunity_model(
+        fit_df,
+        class_weight=None,
+        numeric_features=NEAR_WALL_NUMERIC_FEATURES,
+        categorical_features=NEAR_WALL_CATEGORICAL_FEATURES,
+    )
+    bins = compute_grouped_opportunity_time_response(trained, near_wall_df)
+    assert len(bins) > 0
+    real_distances = set(near_wall_df["hit_distance_sc"].round(6))
+    for b in bins:
+        assert b.band in ("short_of_wall", "at_wall", "beyond_wall")
+        assert b.bb_type == "fly_ball"  # the only bb_type in this synthetic fixture
+        assert b.sample_size > 0
+        assert 0.0 <= b.mean_predicted_p_out <= 1.0
+        # Real-data only -- every bin's mean distance is a genuine average of
+        # REAL rows' hit_distance_sc, never a synthetic override.
+        assert any(abs(b.mean_hit_distance_ft - d) < 50 for d in real_distances)
 
 
 # ---------------------------------------------------------------------------
@@ -316,13 +398,21 @@ def _summary(log_loss: float) -> dict:
     }
 
 
+def _passing_suite() -> NearWallPerturbationSuite:
+    return NearWallPerturbationSuite(
+        required={
+            "wall_distance_direction": _passing_check(),
+            "trajectory_matched_opportunity_time_short_of_wall": _passing_check(),
+        },
+        descriptive={},
+        partial_dependence={},
+    )
+
+
 def test_calibrated_true_when_everything_passes():
     comparison = {VARIANT_OPEN_FIELD: _summary(0.6), VARIANT_NEAR_WALL_FINAL: _summary(0.4)}
     bootstrap = {"log_loss_delta": {"ci_high": -0.05}}
-    perturbation = {
-        "wall_distance_direction": _passing_check(),
-        "hang_time_direction": _passing_check(),
-    }
+    perturbation = _passing_suite()
     regression_check = {"predictions_identical_via_gate": True}
     summary = summarize_near_wall_validation(comparison, bootstrap, perturbation, regression_check)
     assert summary["near_wall_specialist_calibrated"] is True
@@ -331,23 +421,24 @@ def test_calibrated_true_when_everything_passes():
 def test_calibrated_false_when_perturbation_fails_despite_log_loss_win():
     comparison = {VARIANT_OPEN_FIELD: _summary(0.6), VARIANT_NEAR_WALL_FINAL: _summary(0.4)}
     bootstrap = {"log_loss_delta": {"ci_high": -0.05}}
-    perturbation = {
-        "wall_distance_direction": _passing_check(),
-        "hang_time_direction": _failing_check(),
-    }
+    perturbation = NearWallPerturbationSuite(
+        required={
+            "wall_distance_direction": _passing_check(),
+            "trajectory_matched_opportunity_time_short_of_wall": _failing_check(),
+        },
+        descriptive={},
+        partial_dependence={},
+    )
     regression_check = {"predictions_identical_via_gate": True}
     summary = summarize_near_wall_validation(comparison, bootstrap, perturbation, regression_check)
     assert summary["near_wall_specialist_calibrated"] is False
-    assert "hang_time_direction" in summary["perturbation_failures"]
+    assert "trajectory_matched_opportunity_time_short_of_wall" in summary["perturbation_failures"]
 
 
 def test_calibrated_false_when_bootstrap_does_not_support_improvement():
     comparison = {VARIANT_OPEN_FIELD: _summary(0.6), VARIANT_NEAR_WALL_FINAL: _summary(0.599)}
     bootstrap = {"log_loss_delta": {"ci_high": 0.01}}  # crosses zero
-    perturbation = {
-        "wall_distance_direction": _passing_check(),
-        "hang_time_direction": _passing_check(),
-    }
+    perturbation = _passing_suite()
     regression_check = {"predictions_identical_via_gate": True}
     summary = summarize_near_wall_validation(comparison, bootstrap, perturbation, regression_check)
     assert summary["near_wall_specialist_calibrated"] is False
@@ -359,10 +450,7 @@ def test_calibrated_false_when_subgroup_issue_present():
         "near_wall_5ft": {"ece": 0.3, "sample_count": 500}
     }
     bootstrap = {"log_loss_delta": {"ci_high": -0.05}}
-    perturbation = {
-        "wall_distance_direction": _passing_check(),
-        "hang_time_direction": _passing_check(),
-    }
+    perturbation = _passing_suite()
     regression_check = {"predictions_identical_via_gate": True}
     summary = summarize_near_wall_validation(comparison, bootstrap, perturbation, regression_check)
     assert summary["near_wall_specialist_calibrated"] is False
@@ -374,7 +462,7 @@ def test_reporting_rule_text_matches_task_wording():
     summary = summarize_near_wall_validation(
         comparison,
         {"log_loss_delta": {"ci_high": -0.05}},
-        {},
+        NearWallPerturbationSuite(required={}, descriptive={}, partial_dependence={}),
         {"predictions_identical_via_gate": True},
     )
     assert "provisional or unavailable for wall-adjacent" in summary["reporting_rule"]

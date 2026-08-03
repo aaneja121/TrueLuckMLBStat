@@ -60,33 +60,135 @@ bootstrap (near-wall specialist vs. `open_field_v07`, on the SAME near-wall
 2024 rows); an architectural no-open-field-regression check (`open_field_
 v07`'s predictions for open-field-gated rows are BIT-IDENTICAL whether
 reached via the gate or directly -- gating only routes rows, it cannot
-alter the model or its inputs); and controlled-perturbation directional
-checks (wall distance close-vs-far; launch angle low-vs-high, i.e. short
--vs-long hang time, with the DEPENDENT `projected_distance_to_wall_margin`/
-`absolute_distance_to_wall`/`estimated_hang_time_s` columns RECOMPUTED after
-each override -- see `_override_wall_distance_and_recompute`/`_override_
-launch_angle_and_recompute_hang_time`'s docstrings for a real bug this
-caught during development: overriding a raw feature without recomputing its
-dependents fed the model an internally-inconsistent row and produced a
-spurious backwards wall-distance result).
+alter the model or its inputs); and a controlled-perturbation PLAUSIBILITY
+SUITE (see next section) -- NOT a single global launch-angle monotonicity
+rule.
 
-On real 2024 data, the FIXED wall-distance perturbation check passes
-cleanly (close wall -> materially lower P(out) than far wall, as expected).
-The launch-angle/hang-time check, however, is genuinely backwards from the
-open-field intuition even after the fix -- and this may be a real, different
-physical relationship specific to the near-wall CONDITIONAL population, not
-a bug: among plays that all travel roughly the same (long) distance to
-reach the wall by construction of the gate, achieving that distance via a
-LOW launch angle requires much higher exit velocity (a flat, hard-hit
-line-drive double/triple that gives the fielder little time to react) than
-achieving it via a HIGH launch angle (a softer, higher-arcing fly ball the
-fielder has more time to track) -- the reverse of the open-field-wide
-correlation between hang time and out probability, where distance itself
-varies freely. This is reported as an unresolved, documented finding
--- per CLAUDE.md's confounding-by-indication guidance, a backwards
--signed perturbation is treated as a signal to investigate further, not a
-check to relax to force a pass -- and is exactly why `near_wall_specialist_
-calibrated` stays `False` until it is understood.
+## Launch angle does NOT have one global expected direction near the wall
+
+An earlier version of this module required "low launch angle (short hang
+time) -> higher P(out)" as a single, GLOBAL, always-true rule -- copied
+directly from the open-field intuition. That produced a genuinely backwards
+-looking result even after fixing a real dependent-feature bug (see
+`_override_wall_distance_and_recompute`'s docstring). On reflection this was
+the WRONG kind of check to begin with, not just a buggy implementation of a
+correct one: within the near-wall CONDITIONAL population, launch angle
+interacts with exit velocity, projected distance, hang time, wall height,
+and margin-to-wall (short of it, at it, or beyond it) -- a higher launch
+angle gives more opportunity time, but can also push the projected intercept
+point toward or past the wall, INTO a defender's unreachable area or over
+the fence entirely. The physically sound expected direction is therefore
+CONDITIONAL on where the ball is projected to land relative to the wall, not
+a single global monotonic rule.
+
+`run_near_wall_perturbation_checks` replaces that one global rule with:
+
+  1. `wall_distance_direction` (unchanged, still REQUIRED, still global): a
+     farther wall means the SAME batted ball is comparatively more
+     catchable -- this direction genuinely is clear and unconditional
+     across the whole near-wall population, and continues to pass cleanly
+     on real 2024 data.
+  2. `launch_angle_proxy_short_of_wall` (DESCRIPTIVE ONLY -- see "Launch
+     angle is not the same variable as opportunity time" below for why this
+     is no longer required, band-restricted to `BAND_SHORT_OF_WALL`):
+     overrides ONLY `launch_angle` (via `_override_launch_angle_and_
+     recompute_hang_time`) and recomputes `estimated_hang_time_s` from it,
+     but leaves `launch_speed` -- and therefore the row's landing distance
+     and every wall-geometry feature derived from it -- at whatever the
+     REAL row happened to have. That is a proxy for "more opportunity time"
+     confounded with "how hard this ball was hit to go this distance at
+     this angle," not a clean test of opportunity time alone. Kept and
+     renamed (from `hang_time_direction_short_of_wall`) for continuity with
+     prior reporting, but demoted to descriptive: it is reported, never
+     used to gate `near_wall_specialist_calibrated`.
+  3. `trajectory_matched_opportunity_time_short_of_wall` (REQUIRED,
+     band-restricted to `BAND_SHORT_OF_WALL`): the corrected replacement
+     for check 2 as the actual required signal. Built via
+     `_override_launch_angle_matched_trajectory`, which holds landing
+     distance (and therefore `wall_distance_in_spray_direction`,
+     `projected_distance_to_wall_margin`, `absolute_distance_to_wall`,
+     `landing_x_ft`/`landing_y_ft` -- everything spray-direction/wall
+     -geometry related) fixed at the row's REAL value, and instead SOLVES
+     for the exit velocity (`mlb_luck_score.data.outfield_physics.
+     solve_launch_speed_for_matched_range_mph`, the same vacuum projectile
+     model as `estimate_hang_time_seconds`) that would still reach that
+     same distance at the new launch angle. Because two trajectories are
+     matched to the SAME range, the higher-angle one is guaranteed (and
+     verified at runtime -- see `trajectory_match_invariants`) to have
+     strictly greater estimated opportunity time. This isolates "does more
+     opportunity time increase P(out), landing location and wall context
+     truly held fixed" from the exit-velocity confound that made check 2
+     backwards-looking, and is expected to hold: `expect_high_greater=True`
+     (a NON-STRICT `>=` pass condition -- "should not reduce," not "must
+     strictly increase," matching the softer physical claim that more time
+     to react cannot make a play harder, though it may not measurably help
+     every row).
+  4. `launch_angle_proxy_effect_at_wall` / `launch_angle_proxy_effect_
+     beyond_wall` (DESCRIPTIVE ONLY, band-restricted, no required sign,
+     renamed from `hang_time_effect_at_wall`/`hang_time_effect_beyond_
+     wall` for the same "this is a launch-angle proxy, not hang time
+     itself" reason as check 2): for rows projected AT the wall
+     (`BAND_AT_WALL`) or BEYOND it (`BAND_BEYOND_WALL`), the launch-angle
+     effect is reported (mean P(out) at low vs. high angle, and the delta)
+     but NOT required to point a specific direction -- a real interaction
+     with wall clearance is plausible and expected here (see module
+     docstring above), so forcing a sign would repeat the original mistake
+     in a narrower disguise. The trajectory-matched construction (check 3)
+     is NOT extended to these bands: for rows already at or beyond the
+     wall, changing launch angle while holding distance fixed does not
+     eliminate the wall-clearance confound the way it does for
+     `BAND_SHORT_OF_WALL` -- a matched trajectory could cross from
+     "caught" to "over the fence" purely by construction, which is exactly
+     the interaction these bands are meant to surface, not average away.
+  5. `compute_launch_angle_partial_dependence`: a classical partial
+     -dependence curve (mean predicted P(out) across a launch-angle grid,
+     globally and per band) plus a basic smoothness diagnostic (count of
+     sign changes in the discrete derivative) -- flagged, not
+     auto-rejected, if the curve reverses direction more than once across
+     the grid, which would suggest an unstable/discontinuous fit rather
+     than a genuine, single interaction effect. Meant for the SAME kind of
+     manual inspection the notebook already does for calibration curves and
+     example plays -- not a fully automated pass/fail gate, matching this
+     project's established "physical plausibility is a judgment call, not
+     100% automatable" pattern (see `mlb_luck_score.models.
+     compare_geometry_aware`/`compare_weather_aware`).
+  6. `compute_grouped_opportunity_time_response`: a REAL-DATA (never
+     synthetic/counterfactual) grouped response curve -- rows' own natural
+     `estimated_hang_time_s` binned into quartiles within each wall band and
+     `bb_type` (`fly_ball`/`line_drive`) stratum, reporting mean predicted
+     P(out) per bin alongside the bin's mean `hit_distance_sc` (so a reader
+     can see whether landing distance is reasonably stable across bins --
+     genuinely controlling for it -- or itself trends with the bin, a sign
+     the curve is still entangled with distance rather than isolating
+     opportunity time). DESCRIPTIVE ONLY, reported for manual review.
+
+## Launch angle is not the same variable as opportunity time
+
+A pure "vary opportunity time alone, holding launch angle/exit velocity/
+distance/wall context fixed" perturbation is NOT physically constructible in
+this codebase's feature model: `estimated_hang_time_s` is fully DETERMINED by
+`launch_speed`/`launch_angle` (`estimate_hang_time_seconds`) -- there is no
+free, independent lever for hang time itself. Directly overriding
+`estimated_hang_time_s` while leaving `launch_speed`/`launch_angle` at their
+real values would recreate the exact internal-inconsistency bug class
+`_override_launch_angle_and_recompute_hang_time`'s docstring (and CLAUDE.md)
+already warns about, just with the override and the raw feature swapped.
+Rather than build that invalid row, two real substitutes are used instead,
+per the design above: (a) the trajectory-matched check (3), which varies
+hang time only THROUGH a physically valid, jointly-solved change to launch
+angle AND exit velocity, and (b) the grouped real-data response curve (6),
+which uses REAL rows' own natural hang-time variation rather than any
+synthetic override at all.
+
+`near_wall_specialist_calibrated` (see `summarize_near_wall_validation`)
+requires checks 1 and 3 to pass; checks 2, 4, 5, and 6 are reported for
+review but do not block it -- they exist to distinguish a real, interesting
+interaction (or a genuine confound) from a broken counterfactual, which is
+exactly what they're for and not something a single fixed threshold could
+safely automate. The ORIGINAL required check (2, then named `hang_time_
+direction_short_of_wall`) is deliberately no longer, by itself, load-bearing
+for calibration -- see "Launch angle is not the same variable as opportunity
+time" above for why it was demoted rather than simply sign-flipped.
 
 ## Reporting rule until/unless this succeeds
 
@@ -111,6 +213,7 @@ import argparse
 import json
 import logging
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -125,7 +228,10 @@ from mlb_luck_score.config import (
     TABLES_DIR,
     assert_seasons_allowed,
 )
-from mlb_luck_score.data.outfield_physics import estimate_hang_time_seconds
+from mlb_luck_score.data.outfield_physics import (
+    estimate_hang_time_seconds,
+    solve_launch_speed_for_matched_range_mph,
+)
 from mlb_luck_score.eligibility import add_outfield_opportunity_eligibility
 from mlb_luck_score.features.build_contact_features import (
     NEAR_WALL_CATEGORICAL_FEATURES,
@@ -194,6 +300,53 @@ CLOSE_WALL_DISTANCE_FT = 320.0
 FAR_WALL_DISTANCE_FT = 400.0
 LOW_LAUNCH_ANGLE_DEG = 18.0
 HIGH_LAUNCH_ANGLE_DEG = 40.0
+
+#: Wall-intercept bands -- see `classify_wall_intercept_band`. `AT_WALL_
+#: TOLERANCE_FT` (10 ft) matches the existing `near_wall_10ft` convention
+#: (`mlb_luck_score.data.join_park_geometry`) rather than inventing a new
+#: threshold; chosen empirically to give a reasonably balanced 3-way split
+#: on real 2021-2024 near-wall data (short=9,924 / at=15,863 /
+#: beyond=5,718 of 31,505 rows).
+AT_WALL_TOLERANCE_FT = 10.0
+BAND_SHORT_OF_WALL = "short_of_wall"
+BAND_AT_WALL = "at_wall"
+BAND_BEYOND_WALL = "beyond_wall"
+ALL_WALL_INTERCEPT_BANDS: tuple[str, ...] = (BAND_SHORT_OF_WALL, BAND_AT_WALL, BAND_BEYOND_WALL)
+
+#: Grid for the launch-angle partial-dependence diagnostic -- spans the
+#: real observed near-wall launch-angle range (12-54 deg).
+LAUNCH_ANGLE_PDP_GRID = tuple(np.linspace(12.0, 54.0, 15))
+#: More than this many direction reversals in the discrete derivative of
+#: the PDP curve is flagged as potentially unstable/discontinuous rather
+#: than a genuine single interaction effect. A documented Version 0.7C
+#: research placeholder, not a validated threshold -- see module docstring.
+MAX_PLAUSIBLE_PDP_SIGN_CHANGES = 1
+#: A wall-intercept band needs at least this many rows before its
+#: launch-angle effect (required or descriptive) is computed at all --
+#: matches `DEFAULT_MIN_SUBGROUP_SAMPLES` for consistency with every other
+#: subgroup-reliability threshold in this module.
+MIN_BAND_SAMPLE_SIZE = DEFAULT_MIN_SUBGROUP_SAMPLES
+
+
+def classify_wall_intercept_band(
+    margin: pd.Series, *, tolerance_ft: float = AT_WALL_TOLERANCE_FT
+) -> pd.Series:
+    """Classify each row's projected landing point relative to the wall.
+
+    `margin` is `projected_distance_to_wall_margin` (`mlb_luck_score.data.
+    join_park_geometry`: `hit_distance_sc - wall_distance_in_spray_
+    direction`) -- positive means the ball is projected to land BEYOND the
+    wall (home-run territory), negative means SHORT of it (in the
+    fielder's reachable area, at least in terms of raw distance).
+
+    Returns a `str`-valued Series: `BAND_SHORT_OF_WALL` (`margin <
+    -tolerance_ft`), `BAND_AT_WALL` (`-tolerance_ft <= margin <=
+    tolerance_ft`), or `BAND_BEYOND_WALL` (`margin > tolerance_ft`).
+    """
+    band = pd.Series(BAND_AT_WALL, index=margin.index, dtype=object)
+    band.loc[margin < -tolerance_ft] = BAND_SHORT_OF_WALL
+    band.loc[margin > tolerance_ft] = BAND_BEYOND_WALL
+    return band
 
 
 def _prepare_near_wall_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -373,6 +526,15 @@ def _override_launch_angle_and_recompute_hang_time(
     contradicts the row's own (unchanged) launch_angle/launch_speed. This
     perturbs the genuinely independent variable (launch_angle) and
     recomputes the dependent one instead.
+
+    NOTE this is a LAUNCH-ANGLE PROXY, not a clean opportunity-time
+    perturbation: `launch_speed` (and therefore the row's landing distance
+    and every wall-geometry feature derived from it) is left at the REAL
+    row's value, so the counterfactual ball silently lands somewhere
+    different than the real one did. See `_override_launch_angle_matched_
+    trajectory` for the corrected, distance-preserving alternative, and
+    module docstring "Launch angle is not the same variable as opportunity
+    time" for why both are kept (one descriptive, one required).
     """
     out = override_columns(df, {"launch_angle": new_launch_angle_deg})
     out["estimated_hang_time_s"] = [
@@ -382,30 +544,285 @@ def _override_launch_angle_and_recompute_hang_time(
     return out
 
 
+def _override_launch_angle_matched_trajectory(
+    df: pd.DataFrame, new_launch_angle_deg: float
+) -> pd.DataFrame:
+    """Build a TRAJECTORY-MATCHED counterfactual: same landing distance (and
+    therefore the same spray-direction wall geometry) as the real row, but a
+    different launch angle, with exit velocity SOLVED (`mlb_luck_score.data.
+    outfield_physics.solve_launch_speed_for_matched_range_mph`, the same
+    vacuum projectile model as `estimate_hang_time_seconds`) so the ball
+    still reaches the row's REAL `hit_distance_sc`.
+
+    Unlike `_override_launch_angle_and_recompute_hang_time` (which changes
+    launch angle while implicitly leaving exit velocity -- and therefore the
+    landing point -- at whatever the real row had), this holds `hit_
+    distance_sc` fixed, so `landing_x_ft`/`landing_y_ft`, `wall_distance_in_
+    spray_direction`, `projected_distance_to_wall_margin`, and `absolute_
+    distance_to_wall` (all derived from distance/spray angle, NOT from
+    launch angle or exit velocity -- see `mlb_luck_score.data.
+    outfield_physics`/`mlb_luck_score.data.join_park_geometry`) are correct
+    and unchanged with no recomputation needed. Only `launch_speed`,
+    `launch_angle`, and `estimated_hang_time_s` (derived from the first two)
+    change.
+    """
+    out = override_columns(df, {"launch_angle": new_launch_angle_deg})
+    solved_speed = [
+        solve_launch_speed_for_matched_range_mph(distance, new_launch_angle_deg)
+        for distance in out["hit_distance_sc"].astype(float)
+    ]
+    out["launch_speed"] = solved_speed
+    out["estimated_hang_time_s"] = [
+        estimate_hang_time_seconds(speed, new_launch_angle_deg) for speed in solved_speed
+    ]
+    return out
+
+
+@dataclass(frozen=True)
+class BandedEffectResult:
+    """A launch-angle low-vs-high effect reported WITHOUT a required sign.
+
+    Used for `BAND_AT_WALL`/`BAND_BEYOND_WALL`, where the physically
+    plausible direction genuinely depends on the interaction of launch
+    angle with exit velocity, wall height, and margin-to-wall -- see module
+    docstring "Launch angle does NOT have one global expected direction
+    near the wall". Reported for manual review, never auto-passed or
+    auto-failed.
+    """
+
+    band: str
+    outcome_class: str
+    low_label: str
+    high_label: str
+    mean_prob_low: float
+    mean_prob_high: float
+    delta: float
+    sample_size: int
+
+
+@dataclass(frozen=True)
+class PartialDependenceDiagnostic:
+    """Mean predicted P(out) across a launch-angle grid, plus a smoothness diagnostic.
+
+    `n_sign_changes` counts direction reversals in the discrete derivative
+    of the curve -- more than `MAX_PLAUSIBLE_PDP_SIGN_CHANGES` is flagged
+    (`flagged_as_erratic`) as POSSIBLY indicating an unstable/discontinuous
+    fit rather than a genuine single interaction effect. This is a
+    diagnostic for manual inspection (see module docstring), not an
+    automated pass/fail gate.
+    """
+
+    band: str
+    grid: list[float]
+    mean_p_out: list[float]
+    n_sign_changes: int
+    flagged_as_erratic: bool
+
+
+@dataclass(frozen=True)
+class TrajectoryMatchInvariantCheck:
+    """Runtime verification that a matched-trajectory pair actually has the
+    opportunity-time relationship it's supposed to by construction.
+
+    `_override_launch_angle_matched_trajectory` solves exit velocity so two
+    trajectories reach the SAME distance -- which mathematically guarantees
+    (for the vacuum projectile model, `0 < angle < 90`) that the higher
+    -angle trajectory has strictly greater estimated hang time. This records
+    that verification rather than silently assuming it -- `run_near_wall_
+    perturbation_checks` raises if `verified` would be `False`, since that
+    would indicate a bug in the trajectory-matching itself, not a genuine
+    physical finding worth reporting.
+    """
+
+    band: str
+    mean_hang_time_low_angle_s: float
+    mean_hang_time_high_angle_s: float
+    verified: bool
+
+
+@dataclass(frozen=True)
+class OpportunityTimeResponseBin:
+    """One bin of a REAL-DATA (never synthetic/counterfactual) grouped response
+    curve for `estimated_hang_time_s`, within a wall-intercept band and `bb_type`.
+
+    Uses rows' own natural variation in hang time (binned into quartiles via
+    `mlb_luck_score.models.compare_opportunity_models.
+    compute_opportunity_time_buckets`), never an override -- see module
+    docstring "Launch angle is not the same variable as opportunity time".
+    `mean_hit_distance_ft` is reported alongside so a reader can check
+    whether landing distance is reasonably stable across bins (genuinely
+    controlling for it) or itself trends with the bin (a sign this curve is
+    still entangled with distance, not a clean isolated opportunity-time
+    effect). Descriptive only -- never gates `near_wall_specialist_
+    calibrated`.
+    """
+
+    band: str
+    bb_type: str
+    bucket: str
+    mean_estimated_hang_time_s: float
+    mean_hit_distance_ft: float
+    mean_predicted_p_out: float
+    sample_size: int
+
+
+@dataclass(frozen=True)
+class NearWallPerturbationSuite:
+    """The full Version 0.7C plausibility suite -- required checks, descriptive
+    banded effects, partial-dependence diagnostics, trajectory-match runtime
+    verifications, and real-data grouped opportunity-time response curves.
+    See module docstring.
+    """
+
+    required: dict[str, DirectionalCheckResult]
+    descriptive: dict[str, BandedEffectResult]
+    partial_dependence: dict[str, PartialDependenceDiagnostic]
+    trajectory_match_invariants: dict[str, TrajectoryMatchInvariantCheck] = field(
+        default_factory=dict
+    )
+    opportunity_time_response: list[OpportunityTimeResponseBin] = field(default_factory=list)
+
+
+def compute_launch_angle_partial_dependence(
+    trained: TrainedOpportunityModel,
+    df: pd.DataFrame,
+    *,
+    grid: tuple[float, ...] = LAUNCH_ANGLE_PDP_GRID,
+    band: str = "all",
+) -> PartialDependenceDiagnostic:
+    """Classical partial-dependence curve for launch angle, over `df`.
+
+    For each grid value, overrides EVERY row's launch angle to that value
+    (recomputing `estimated_hang_time_s` -- see `_override_launch_angle_
+    and_recompute_hang_time`) and takes the mean predicted P(out) -- the
+    standard PDP definition (average marginal effect holding the joint
+    distribution of every other feature fixed at its real values).
+    """
+    mean_p_out = [
+        _mean_predicted_p_out(trained, _override_launch_angle_and_recompute_hang_time(df, angle))
+        for angle in grid
+    ]
+    diffs = np.diff(mean_p_out)
+    nonzero_diffs = diffs[diffs != 0]
+    sign_changes = (
+        int(np.sum(np.diff(np.sign(nonzero_diffs)) != 0)) if len(nonzero_diffs) > 1 else 0
+    )
+    return PartialDependenceDiagnostic(
+        band=band,
+        grid=list(grid),
+        mean_p_out=mean_p_out,
+        n_sign_changes=sign_changes,
+        flagged_as_erratic=sign_changes > MAX_PLAUSIBLE_PDP_SIGN_CHANGES,
+    )
+
+
+#: `bb_type` values eligible for the near-wall gate -- see `mlb_luck_score.
+#: eligibility.OUTFIELD_AIR_BALL_TYPES`. Used to stratify the grouped
+#: opportunity-time response curve (`compute_grouped_opportunity_time_
+#: response`) so a batted-ball-type mix shift can't masquerade as an
+#: opportunity-time effect.
+_NEAR_WALL_BB_TYPES: tuple[str, ...] = ("fly_ball", "line_drive")
+_OPPORTUNITY_TIME_BUCKET_LABELS: tuple[str, ...] = ("q1_shortest", "q2", "q3", "q4_longest")
+
+
+def compute_grouped_opportunity_time_response(
+    trained: TrainedOpportunityModel, near_wall_df: pd.DataFrame
+) -> list[OpportunityTimeResponseBin]:
+    """REAL-DATA grouped response curve: mean predicted P(out) by `estimated_
+    hang_time_s` quartile, within each wall-intercept band and `bb_type`.
+
+    Never overrides or synthesizes a row -- bins rows by their OWN natural
+    hang-time variation (`compute_opportunity_time_buckets`) within each
+    (wall band, bb_type) stratum, and reports each bin's mean predicted
+    P(out) alongside its mean REAL `hit_distance_sc` -- the latter lets a
+    reader check whether distance is genuinely comparable across bins
+    (stratifying/controlling for it, per module docstring "Launch angle is
+    not the same variable as opportunity time") rather than confounding the
+    curve. Descriptive only.
+    """
+    band = classify_wall_intercept_band(near_wall_df["projected_distance_to_wall_margin"])
+    feature_cols = trained.numeric_features + trained.categorical_features
+    results: list[OpportunityTimeResponseBin] = []
+
+    for wall_band in ALL_WALL_INTERCEPT_BANDS:
+        band_df = near_wall_df[(band == wall_band).to_numpy()]
+        for bb_type in _NEAR_WALL_BB_TYPES:
+            subset = band_df[band_df["bb_type"] == bb_type]
+            if len(subset) < MIN_BAND_SAMPLE_SIZE:
+                continue
+            buckets = compute_opportunity_time_buckets(subset["estimated_hang_time_s"])
+            p_out = predict_opportunity_proba(trained, subset[feature_cols])
+            for bucket_label in _OPPORTUNITY_TIME_BUCKET_LABELS:
+                mask = (buckets == bucket_label).to_numpy()
+                n = int(mask.sum())
+                if n == 0:
+                    continue
+                results.append(
+                    OpportunityTimeResponseBin(
+                        band=wall_band,
+                        bb_type=bb_type,
+                        bucket=bucket_label,
+                        mean_estimated_hang_time_s=float(
+                            subset["estimated_hang_time_s"].to_numpy()[mask].mean()
+                        ),
+                        mean_hit_distance_ft=float(
+                            subset["hit_distance_sc"].to_numpy()[mask].mean()
+                        ),
+                        mean_predicted_p_out=float(p_out.to_numpy()[mask].mean()),
+                        sample_size=n,
+                    )
+                )
+    return results
+
+
 def run_near_wall_perturbation_checks(
     trained: TrainedOpportunityModel, near_wall_df: pd.DataFrame
-) -> dict[str, DirectionalCheckResult]:
-    """Controlled-perturbation directional checks for the near-wall specialist.
+) -> NearWallPerturbationSuite:
+    """The Version 0.7C controlled-perturbation plausibility suite -- see module docstring
+    "Launch angle does NOT have one global expected direction near the wall" and "Launch
+    angle is not the same variable as opportunity time" for the full design and history.
 
-    1. A FARTHER wall should mean a HIGHER P(out) than a CLOSE wall (holding
-       everything else fixed, including the dependent wall-margin columns --
-       see `_override_wall_distance_and_recompute`) -- a ball hit the same
-       distance is more likely to clear a close wall (home run, not an out)
-       or bang off it for extra bases than to be a routine catch; farther
-       from the wall, the same batted ball is comparatively more catchable.
-    2. A LOW launch angle (short resulting hang time, recomputed via
-       `_override_launch_angle_and_recompute_hang_time`) should mean a
-       HIGHER P(out) than a HIGH launch angle (long hang time) -- same
-       directional expectation as Version 0.7A's opportunity-time subgroup,
-       reconfirmed within the near-wall-specific model.
+    Required (gate `near_wall_specialist_calibrated`):
+      1. `wall_distance_direction`: a FARTHER wall should mean a HIGHER
+         P(out) than a CLOSE wall (holding everything else fixed, including
+         the dependent wall-margin columns -- see `_override_wall_distance_
+         and_recompute`) -- unconditionally clear across the whole near
+         -wall population.
+      2. `trajectory_matched_opportunity_time_short_of_wall`: among rows
+         whose OWN projected landing point is clearly short of the wall
+         (`BAND_SHORT_OF_WALL`), a trajectory matched to the SAME landing
+         distance but a HIGHER launch angle (exit velocity solved via
+         `_override_launch_angle_matched_trajectory` -- strictly more
+         estimated opportunity time by construction, verified via
+         `trajectory_match_invariants`) should not have a LOWER P(out) than
+         the low-angle matched trajectory.
+
+    Descriptive only (reported, never gating):
+      3. `launch_angle_proxy_short_of_wall`: the ORIGINAL required check
+         (renamed from `hang_time_direction_short_of_wall`), which varies
+         launch angle WITHOUT matching exit velocity/distance -- confounded
+         with "how hard the ball was hit to go this far at this angle," per
+         module docstring, so demoted to descriptive.
+      4. `launch_angle_proxy_effect_at_wall` / `launch_angle_proxy_effect_
+         beyond_wall`: the SAME (unmatched) low-vs-high launch-angle
+         comparison, restricted to `BAND_AT_WALL`/`BAND_BEYOND_WALL` rows,
+         with NO required sign -- see module docstring for why a real
+         interaction is plausible here.
+      5. `partial_dependence`: `compute_launch_angle_partial_dependence`,
+         globally and per band.
+      6. `opportunity_time_response`: `compute_grouped_opportunity_time_
+         response`, real-data hang-time-quartile response curves by band and
+         `bb_type`.
     """
-    results: dict[str, DirectionalCheckResult] = {}
+    required: dict[str, DirectionalCheckResult] = {}
+    descriptive: dict[str, BandedEffectResult] = {}
+    trajectory_match_invariants: dict[str, TrajectoryMatchInvariantCheck] = {}
 
     close_df = _override_wall_distance_and_recompute(near_wall_df, CLOSE_WALL_DISTANCE_FT)
     far_df = _override_wall_distance_and_recompute(near_wall_df, FAR_WALL_DISTANCE_FT)
     mean_close = _mean_predicted_p_out(trained, close_df)
     mean_far = _mean_predicted_p_out(trained, far_df)
-    results["wall_distance_direction"] = DirectionalCheckResult(
+    required["wall_distance_direction"] = DirectionalCheckResult(
         label="near-wall: wall distance close vs far",
         outcome_class="out",
         low_label=f"close wall ({CLOSE_WALL_DISTANCE_FT} ft)",
@@ -418,28 +835,115 @@ def run_near_wall_perturbation_checks(
         sample_size=len(near_wall_df),
     )
 
-    low_angle_df = _override_launch_angle_and_recompute_hang_time(
-        near_wall_df, LOW_LAUNCH_ANGLE_DEG
-    )
-    high_angle_df = _override_launch_angle_and_recompute_hang_time(
-        near_wall_df, HIGH_LAUNCH_ANGLE_DEG
-    )
-    mean_short = _mean_predicted_p_out(trained, low_angle_df)
-    mean_long = _mean_predicted_p_out(trained, high_angle_df)
-    results["hang_time_direction"] = DirectionalCheckResult(
-        label="near-wall: launch angle low (short hang time) vs high (long hang time)",
-        outcome_class="out",
-        low_label=f"low launch angle ({LOW_LAUNCH_ANGLE_DEG} deg)",
-        high_label=f"high launch angle ({HIGH_LAUNCH_ANGLE_DEG} deg)",
-        mean_prob_low=mean_short,
-        mean_prob_high=mean_long,
-        delta=mean_long - mean_short,
-        expect_high_greater=False,
-        passed=(mean_long - mean_short) < 0,
-        sample_size=len(near_wall_df),
-    )
+    band = classify_wall_intercept_band(near_wall_df["projected_distance_to_wall_margin"])
+    band_masks = {b: (band == b).to_numpy() for b in ALL_WALL_INTERCEPT_BANDS}
 
-    return results
+    for wall_band in ALL_WALL_INTERCEPT_BANDS:
+        mask = band_masks[wall_band]
+        n = int(mask.sum())
+        if n < MIN_BAND_SAMPLE_SIZE:
+            continue
+        subset = near_wall_df[mask]
+        low_angle_df = _override_launch_angle_and_recompute_hang_time(subset, LOW_LAUNCH_ANGLE_DEG)
+        high_angle_df = _override_launch_angle_and_recompute_hang_time(
+            subset, HIGH_LAUNCH_ANGLE_DEG
+        )
+        mean_low = _mean_predicted_p_out(trained, low_angle_df)
+        mean_high = _mean_predicted_p_out(trained, high_angle_df)
+
+        if wall_band == BAND_SHORT_OF_WALL:
+            descriptive["launch_angle_proxy_short_of_wall"] = BandedEffectResult(
+                band=wall_band,
+                outcome_class="out",
+                low_label=f"low launch angle ({LOW_LAUNCH_ANGLE_DEG} deg), unmatched distance",
+                high_label=f"high launch angle ({HIGH_LAUNCH_ANGLE_DEG} deg), unmatched distance",
+                mean_prob_low=mean_low,
+                mean_prob_high=mean_high,
+                delta=mean_high - mean_low,
+                sample_size=n,
+            )
+
+            matched_low_df = _override_launch_angle_matched_trajectory(subset, LOW_LAUNCH_ANGLE_DEG)
+            matched_high_df = _override_launch_angle_matched_trajectory(
+                subset, HIGH_LAUNCH_ANGLE_DEG
+            )
+            mean_hang_low = float(matched_low_df["estimated_hang_time_s"].mean())
+            mean_hang_high = float(matched_high_df["estimated_hang_time_s"].mean())
+            verified = mean_hang_high > mean_hang_low
+            if not verified:
+                raise RuntimeError(
+                    "Trajectory-matched invariant violated for band "
+                    f"{wall_band!r}: the higher-angle matched trajectory "
+                    f"(mean hang time {mean_hang_high:.4f}s) did not have "
+                    f"strictly greater estimated opportunity time than the "
+                    f"lower-angle one ({mean_hang_low:.4f}s). This indicates "
+                    "a bug in _override_launch_angle_matched_trajectory or "
+                    "solve_launch_speed_for_matched_range_mph, not a "
+                    "genuine physical finding."
+                )
+            trajectory_match_invariants[wall_band] = TrajectoryMatchInvariantCheck(
+                band=wall_band,
+                mean_hang_time_low_angle_s=mean_hang_low,
+                mean_hang_time_high_angle_s=mean_hang_high,
+                verified=verified,
+            )
+
+            mean_matched_low = _mean_predicted_p_out(trained, matched_low_df)
+            mean_matched_high = _mean_predicted_p_out(trained, matched_high_df)
+            required["trajectory_matched_opportunity_time_short_of_wall"] = DirectionalCheckResult(
+                label=(
+                    f"near-wall ({wall_band}): trajectory-matched launch angle "
+                    "low vs high (landing distance/wall context held fixed, "
+                    "exit velocity solved to match)"
+                ),
+                outcome_class="out",
+                low_label=(
+                    f"matched trajectory, low angle ({LOW_LAUNCH_ANGLE_DEG} deg, "
+                    f"mean opportunity time {mean_hang_low:.2f}s)"
+                ),
+                high_label=(
+                    f"matched trajectory, high angle ({HIGH_LAUNCH_ANGLE_DEG} deg, "
+                    f"mean opportunity time {mean_hang_high:.2f}s)"
+                ),
+                mean_prob_low=mean_matched_low,
+                mean_prob_high=mean_matched_high,
+                delta=mean_matched_high - mean_matched_low,
+                expect_high_greater=True,
+                passed=(mean_matched_high - mean_matched_low) >= 0,
+                sample_size=n,
+            )
+        else:
+            descriptive[f"launch_angle_proxy_effect_{wall_band}"] = BandedEffectResult(
+                band=wall_band,
+                outcome_class="out",
+                low_label=f"low launch angle ({LOW_LAUNCH_ANGLE_DEG} deg)",
+                high_label=f"high launch angle ({HIGH_LAUNCH_ANGLE_DEG} deg)",
+                mean_prob_low=mean_low,
+                mean_prob_high=mean_high,
+                delta=mean_high - mean_low,
+                sample_size=n,
+            )
+
+    partial_dependence = {
+        "all": compute_launch_angle_partial_dependence(trained, near_wall_df, band="all")
+    }
+    for wall_band in ALL_WALL_INTERCEPT_BANDS:
+        mask = band_masks[wall_band]
+        if int(mask.sum()) < MIN_BAND_SAMPLE_SIZE:
+            continue
+        partial_dependence[wall_band] = compute_launch_angle_partial_dependence(
+            trained, near_wall_df[mask], band=wall_band
+        )
+
+    opportunity_time_response = compute_grouped_opportunity_time_response(trained, near_wall_df)
+
+    return NearWallPerturbationSuite(
+        required=required,
+        descriptive=descriptive,
+        partial_dependence=partial_dependence,
+        trajectory_match_invariants=trajectory_match_invariants,
+        opportunity_time_response=opportunity_time_response,
+    )
 
 
 def compute_near_wall_paired_bootstrap(
@@ -630,14 +1134,23 @@ def run_near_wall_final_comparison(
 def summarize_near_wall_validation(
     comparison: dict[str, dict[str, Any]],
     bootstrap: dict[str, dict[str, Any]],
-    perturbation_results: dict[str, DirectionalCheckResult],
+    perturbation_suite: NearWallPerturbationSuite,
     open_field_regression_check: dict[str, Any],
 ) -> dict[str, Any]:
     """Combine every required Version 0.7C check into one pass/fail summary.
 
     `near_wall_specialist_calibrated` is the single boolean `mlb_luck_score.
     scoring.gated_outfield_report` reads to decide between `"available_
-    near_wall_calibrated"` and `"provisional_near_wall"`.
+    near_wall_calibrated"` and `"provisional_near_wall"`. Only `perturbation_
+    suite.required` (`wall_distance_direction`, `trajectory_matched_
+    opportunity_time_short_of_wall`) gates this -- `perturbation_suite.
+    descriptive` (the launch-angle-proxy banded effects, including the
+    demoted original `launch_angle_proxy_short_of_wall` check), `.partial_
+    dependence`, `.trajectory_match_invariants`, and `.opportunity_time_
+    response` are all reported for manual review but never block it, per
+    module docstring "Launch angle does NOT have one global expected
+    direction near the wall" / "Launch angle is not the same variable as
+    opportunity time".
     """
     specialist = comparison[VARIANT_NEAR_WALL_FINAL]
     baseline = comparison[VARIANT_OPEN_FIELD]
@@ -664,8 +1177,15 @@ def summarize_near_wall_validation(
 
     improves_log_loss = specialist["binary_log_loss"] < baseline["binary_log_loss"]
     bootstrap_supports = bootstrap.get("log_loss_delta", {}).get("ci_high", float("inf")) <= 0.0
-    perturbation_failures = [name for name, r in perturbation_results.items() if not r.passed]
-    perturbation_checks_passed = bool(perturbation_results) and not perturbation_failures
+    perturbation_failures = [
+        name for name, r in perturbation_suite.required.items() if not r.passed
+    ]
+    perturbation_checks_passed = bool(perturbation_suite.required) and not perturbation_failures
+    pdp_flags = [
+        band
+        for band, diag in perturbation_suite.partial_dependence.items()
+        if diag.flagged_as_erratic
+    ]
 
     calibrated = (
         improves_log_loss
@@ -686,7 +1206,22 @@ def summarize_near_wall_validation(
         "venue_ece_issues": venue_issues,
         "perturbation_checks_passed": perturbation_checks_passed,
         "perturbation_failures": perturbation_failures,
-        "perturbation_detail": {k: v.__dict__ for k, v in perturbation_results.items()},
+        "perturbation_required_detail": {
+            k: v.__dict__ for k, v in perturbation_suite.required.items()
+        },
+        "perturbation_descriptive_detail": {
+            k: v.__dict__ for k, v in perturbation_suite.descriptive.items()
+        },
+        "partial_dependence_flags": pdp_flags,
+        "partial_dependence_detail": {
+            k: v.__dict__ for k, v in perturbation_suite.partial_dependence.items()
+        },
+        "trajectory_match_invariants_detail": {
+            k: v.__dict__ for k, v in perturbation_suite.trajectory_match_invariants.items()
+        },
+        "opportunity_time_response_detail": [
+            b.__dict__ for b in perturbation_suite.opportunity_time_response
+        ],
         "open_field_regression_check": open_field_regression_check,
         "near_wall_specialist_calibrated": calibrated,
         "reporting_rule": (
@@ -779,11 +1314,11 @@ def main(argv: list[str] | None = None) -> int:
         n_reps=args.n_bootstrap_reps,
         seed=args.bootstrap_seed,
     )
-    perturbation_results = run_near_wall_perturbation_checks(winner_trained, final_df)
+    perturbation_suite = run_near_wall_perturbation_checks(winner_trained, final_df)
     open_field_regression_check = check_no_open_field_regression(open_field_trained, df)
 
     validation_summary = summarize_near_wall_validation(
-        comparison, bootstrap, perturbation_results, open_field_regression_check
+        comparison, bootstrap, perturbation_suite, open_field_regression_check
     )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

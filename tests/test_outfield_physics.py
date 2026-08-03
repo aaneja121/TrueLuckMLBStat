@@ -13,6 +13,7 @@ from mlb_luck_score.data.outfield_physics import (
     MIN_HANG_TIME_SECONDS,
     estimate_hang_time_seconds,
     estimate_landing_coordinates_ft,
+    solve_launch_speed_for_matched_range_mph,
 )
 
 
@@ -81,3 +82,51 @@ def test_landing_coordinates_nan_propagates():
     assert math.isnan(x) and math.isnan(y)
     x, y = estimate_landing_coordinates_ft(300.0, math.nan)
     assert math.isnan(x) and math.isnan(y)
+
+
+def test_solved_launch_speed_reproduces_target_distance():
+    # Forward-check: plug the solved v0 back into the same vacuum range
+    # formula (R = v0^2 * sin(2*theta) / g) and confirm it lands back on the
+    # target distance.
+    target_distance_ft = 350.0
+    angle = 30.0
+    v0_mph = solve_launch_speed_for_matched_range_mph(target_distance_ft, angle)
+    v0_mps = v0_mph * 0.44704
+    theta_rad = math.radians(angle)
+    range_m = v0_mps**2 * math.sin(2.0 * theta_rad) / 9.80665
+    range_ft = range_m / 0.3048
+    assert range_ft == pytest.approx(target_distance_ft, rel=1e-9)
+
+
+def test_solved_launch_speed_lower_for_higher_angle_below_45_degrees():
+    # Both 18 and 40 degrees are below the 45-degree max-range angle, so
+    # reaching the SAME distance at the higher angle requires LESS exit
+    # velocity (sin(2*theta) is still increasing in this range).
+    target_distance_ft = 380.0
+    low_angle_speed = solve_launch_speed_for_matched_range_mph(target_distance_ft, 18.0)
+    high_angle_speed = solve_launch_speed_for_matched_range_mph(target_distance_ft, 40.0)
+    assert high_angle_speed < low_angle_speed
+
+
+def test_matched_trajectory_higher_angle_has_greater_hang_time():
+    # The core invariant the trajectory-matched perturbation check in
+    # compare_near_wall_models relies on: for two trajectories reaching the
+    # SAME distance, the higher-angle one spends more time in the air, even
+    # though it needs less exit velocity to get there.
+    target_distance_ft = 380.0
+    low_angle, high_angle = 18.0, 40.0
+    low_speed = solve_launch_speed_for_matched_range_mph(target_distance_ft, low_angle)
+    high_speed = solve_launch_speed_for_matched_range_mph(target_distance_ft, high_angle)
+    low_hang_time = estimate_hang_time_seconds(low_speed, low_angle)
+    high_hang_time = estimate_hang_time_seconds(high_speed, high_angle)
+    assert high_hang_time > low_hang_time
+
+
+def test_solved_launch_speed_nan_for_degenerate_angle():
+    assert math.isnan(solve_launch_speed_for_matched_range_mph(350.0, 0.0))
+    assert math.isnan(solve_launch_speed_for_matched_range_mph(350.0, 90.0))
+
+
+def test_solved_launch_speed_nan_propagates():
+    assert math.isnan(solve_launch_speed_for_matched_range_mph(math.nan, 30.0))
+    assert math.isnan(solve_launch_speed_for_matched_range_mph(350.0, math.nan))
