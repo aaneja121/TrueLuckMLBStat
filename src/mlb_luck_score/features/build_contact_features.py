@@ -646,6 +646,60 @@ NEAR_WALL_CATEGORICAL_FEATURES: tuple[str, ...] = (
     "wall_segment_label",
 )
 
+#: Version 0.8 `infield_contact_only_v08` target column -- distinct from
+#: `OPPORTUNITY_TARGET_COLUMN` (outfield): `y_out` is built directly by
+#: `mlb_luck_score.eligibility.add_infield_opportunity_eligibility` (1 =
+#: `field_out`, 0 = safely reached INCLUDING on an error -- see that
+#: function's docstring for why a reached-on-error play is `y_out = 0`, never
+#: a model input on its own). `add_infield_opportunity_features` below
+#: ALIASES `y_out` into `OPPORTUNITY_TARGET_COLUMN` so the EXISTING, UNCHANGED
+#: `mlb_luck_score.models.train_opportunity_model` trainer (hardcoded to read
+#: `OPPORTUNITY_TARGET_COLUMN`) can be reused as-is for the infield model,
+#: rather than duplicating ~370 lines of training/evaluation machinery for a
+#: differently-named target column.
+INFIELD_TARGET_COLUMN = "y_out"
+
+#: Version 0.8 `infield_contact_only_v08` feature set -- the ONLY candidate
+#: built (see `mlb_luck_score.models.compare_infield_opportunity` module
+#: docstring for why `infield_time_margin_proxy_v08_candidate` was
+#: INVESTIGATED but NOT built: no citable, calibrated public physics exists
+#: for ground-ball roll deceleration the way `mlb_luck_score.data.
+#: outfield_physics`'s vacuum projectile formula exists for airborne
+#: trajectories, and building one would require inventing an unvalidated
+#: friction constant -- exactly the kind of assumption the task instructs
+#: against). Every numeric feature here is either directly measured
+#: (`launch_speed`, `launch_angle`, `hit_distance_sc`, `outs_when_up`) or a
+#: real, documented SEASON-LEVEL public leaderboard value (`sprint_speed` --
+#: see `mlb_luck_score.data.download_sprint_speed`/`join_sprint_speed`; NOT a
+#: per-play measurement, and NOT available for every batter -- see
+#: `select_infield_opportunity_features`'s missingness handling).
+#: `on_1b_occupied` is a pre-contact game-state indicator (double-play-depth
+#: positioning depends on it) computed by `add_infield_opportunity_features`,
+#: not a raw column. None of these are computed from the play's OWN outcome,
+#: so none are target-leakage columns.
+INFIELD_NUMERIC_FEATURES: tuple[str, ...] = (
+    "launch_speed",
+    "launch_angle",
+    "spray_angle_approx",
+    "hit_distance_sc",
+    "sprint_speed",
+    "outs_when_up",
+    "on_1b_occupied",
+)
+#: `assigned_infield_position` (1-6, see `mlb_luck_score.eligibility.
+#: add_infield_opportunity_eligibility`) is CATEGORICAL, not numeric -- the
+#: same "position codes are labels, not an ordinal quantity" reasoning as
+#: `assigned_outfield_position` above. `surface_type` (Grass/Artificial Turf)
+#: is the ONE venue-context feature used here: park GEOMETRY is irrelevant to
+#: an infield ground ball (no wall involved), but playing surface genuinely
+#: affects ground-ball speed/bounce consistency, unlike geometry.
+INFIELD_CATEGORICAL_FEATURES: tuple[str, ...] = (
+    "stand",
+    "if_fielding_alignment",
+    "assigned_infield_position",
+    "surface_type",
+)
+
 
 def add_opportunity_target(df: pd.DataFrame) -> pd.DataFrame:
     """Add the Version 0.7A binary target column from the existing `outcome_class`.
@@ -721,6 +775,49 @@ def add_outfield_opportunity_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_infield_opportunity_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute Version 0.8 infield-opportunity features and alias the binary target.
+
+    A no-op (returns `df` unchanged) if `df` has no `y_out` column. Must be
+    called AFTER `mlb_luck_score.eligibility.add_infield_opportunity_
+    eligibility` (uses `y_out`, `assigned_infield_position`) and, for
+    `sprint_speed` to be available, after `mlb_luck_score.data.
+    join_sprint_speed.join_sprint_speed` (a no-op for that column, not an
+    error, if it hasn't been joined -- `select_infield_opportunity_features`
+    drops it for insufficient non-null coverage like any other feature, same
+    as `select_opportunity_features`).
+
+    Adds:
+        - `on_1b_occupied`: `1` if `on_1b` is non-null (a runner was on
+          first), else `0` -- a pre-contact game-state indicator (double
+          -play-depth positioning depends on it), NOT computed from this
+          play's own outcome.
+        - `converted_to_out`: `y_out`, ALIASED under
+          `mlb_luck_score.features.build_contact_features.
+          OPPORTUNITY_TARGET_COLUMN`'s name so the existing, UNCHANGED
+          `mlb_luck_score.models.train_opportunity_model` trainer (hardcoded
+          to read that column name) can be reused as-is -- see
+          `INFIELD_TARGET_COLUMN`'s docstring.
+        - `assigned_infield_position` is cast to plain `object` dtype with
+          `None` for missing (same `SimpleImputer`-compatibility fix as
+          `assigned_outfield_position` above).
+    """
+    if "y_out" not in df.columns:
+        return df
+
+    out = df.copy()
+    out["on_1b_occupied"] = out["on_1b"].notna().astype(int) if "on_1b" in out.columns else 0
+
+    out[OPPORTUNITY_TARGET_COLUMN] = out["y_out"]
+
+    if "assigned_infield_position" in out.columns:
+        out["assigned_infield_position"] = (
+            out["assigned_infield_position"].apply(lambda v: None if pd.isna(v) else str(int(v)))
+        ).astype(object)
+
+    return out
+
+
 def select_opportunity_features(
     df: pd.DataFrame,
     *,
@@ -764,6 +861,55 @@ def select_opportunity_features(
 
     numeric_features = [c for c in OPPORTUNITY_NUMERIC_FEATURES if _keep(c)]
     categorical_features = [c for c in OPPORTUNITY_CATEGORICAL_FEATURES if _keep(c)]
+
+    assert_no_leakage(numeric_features + categorical_features)
+    return numeric_features, categorical_features
+
+
+def select_infield_opportunity_features(
+    df: pd.DataFrame,
+    *,
+    min_non_null_fraction: float = MIN_NON_NULL_FRACTION,
+) -> tuple[list[str], list[str]]:
+    """Choose Version 0.8 `infield_contact_only_v08` features actually usable in `df`.
+
+    Same drop-if-missing-or-too-sparse logic as `select_opportunity_features`
+    -- in particular, `sprint_speed` is DROPPED (not imputed or guessed) if
+    its non-null coverage in `df` falls below `min_non_null_fraction`
+    (real 2021-2024 coverage is ~98.9% of eligible rows, well above the
+    default threshold -- see README.md "Infield opportunity (Version 0.8)").
+
+    Deliberately excludes `responsible_infielder_id`: the opportunity
+    model's whole definition is "probability an AVERAGE MLB infielder
+    converts this," so training on the specific fielder's identity would
+    make the model encode THAT fielder's actual skill rather than physical
+    difficulty -- the SAME opportunity/execution conflation `mlb_luck_
+    score.models.compare_opportunity_models` avoids for outfielders. Fielder
+    identity is used only for evaluation subgroups and post-hoc per-defender
+    execution aggregation, never as a training feature.
+
+    Returns:
+        (numeric_features, categorical_features) actually usable.
+    """
+
+    def _keep(col: str) -> bool:
+        if col not in df.columns:
+            logger.info("Infield opportunity feature '%s' not present in data; excluding.", col)
+            return False
+        non_null_fraction = df[col].notna().mean() if len(df) else 0.0
+        if non_null_fraction < min_non_null_fraction:
+            logger.info(
+                "Infield opportunity feature '%s' is only %.1f%% non-null (< %.0f%% "
+                "threshold); excluding.",
+                col,
+                non_null_fraction * 100,
+                min_non_null_fraction * 100,
+            )
+            return False
+        return True
+
+    numeric_features = [c for c in INFIELD_NUMERIC_FEATURES if _keep(c)]
+    categorical_features = [c for c in INFIELD_CATEGORICAL_FEATURES if _keep(c)]
 
     assert_no_leakage(numeric_features + categorical_features)
     return numeric_features, categorical_features

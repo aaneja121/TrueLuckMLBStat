@@ -183,6 +183,19 @@ def station_weather_path(raw_dir: Path, station_id: str, season: int) -> Path:
     return raw_dir / STATION_WEATHER_FILENAME_TEMPLATE.format(station_id=station_id, season=season)
 
 
+#: Filename template for per-season Baseball Savant Sprint Speed leaderboard
+#: cache files (`mlb_luck_score.data.download_sprint_speed`) -- a SEASON
+#: -LEVEL leaderboard (one row per qualified batter per season), not a
+#: per-play field, joined by `batter`+`season` for the Version 0.8 infield
+#: opportunity model.
+SPRINT_SPEED_FILENAME_TEMPLATE = "sprint_speed_{season}.parquet"
+
+
+def sprint_speed_path(raw_dir: Path, season: int) -> Path:
+    """Path to a single season's cached Sprint Speed leaderboard Parquet file."""
+    return raw_dir / SPRINT_SPEED_FILENAME_TEMPLATE.format(season=season)
+
+
 class ProtectedSeasonError(ValueError):
     """Raised when a command would use a protected final-test season."""
 

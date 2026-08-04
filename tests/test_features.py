@@ -4,17 +4,22 @@ import pandas as pd
 import pytest
 
 from mlb_luck_score.features.build_contact_features import (
+    INFIELD_CATEGORICAL_FEATURES,
+    INFIELD_NUMERIC_FEATURES,
+    INFIELD_TARGET_COLUMN,
     NEAR_WALL_CATEGORICAL_FEATURES,
     NEAR_WALL_NUMERIC_FEATURES,
     OPPORTUNITY_CATEGORICAL_FEATURES,
     OPPORTUNITY_NUMERIC_FEATURES,
     OPPORTUNITY_TARGET_COLUMN,
     LeakageError,
+    add_infield_opportunity_features,
     add_opportunity_target,
     add_outfield_opportunity_features,
     assert_no_leakage,
     build_preprocessing_pipeline,
     select_available_features,
+    select_infield_opportunity_features,
     select_opportunity_features,
 )
 
@@ -181,5 +186,82 @@ def test_select_opportunity_features_never_include_leakage_columns():
         }
     )
     numeric, categorical = select_opportunity_features(df)
+    assert "events" not in numeric + categorical
+    assert "outcome_class" not in numeric + categorical
+
+
+# ---------------------------------------------------------------------------
+# Version 0.8: infield-opportunity features
+# ---------------------------------------------------------------------------
+
+
+def test_infield_features_are_not_leakage_columns():
+    assert set(INFIELD_NUMERIC_FEATURES).isdisjoint(
+        {"events", "outcome_class", "woba_value", "delta_home_win_exp"}
+    )
+    assert set(INFIELD_CATEGORICAL_FEATURES).isdisjoint(
+        {"events", "outcome_class", "woba_value", "delta_home_win_exp"}
+    )
+
+
+def test_infield_features_never_include_responsible_infielder_id():
+    assert "responsible_infielder_id" not in INFIELD_NUMERIC_FEATURES
+    assert "responsible_infielder_id" not in INFIELD_CATEGORICAL_FEATURES
+
+
+def test_add_infield_opportunity_features_is_noop_without_y_out():
+    df = pd.DataFrame({"bb_type": ["ground_ball"]})
+    result = add_infield_opportunity_features(df)
+    pd.testing.assert_frame_equal(df, result)
+
+
+def test_add_infield_opportunity_features_computes_context_and_aliases_target():
+    df = pd.DataFrame(
+        {
+            "y_out": pd.array([1, 0], dtype="Int64"),
+            "on_1b": pd.array([123, pd.NA], dtype="Int64"),
+            "assigned_infield_position": pd.array([6, pd.NA], dtype="Int64"),
+        }
+    )
+    out = add_infield_opportunity_features(df)
+    assert out["on_1b_occupied"].tolist() == [1, 0]
+    assert out[INFIELD_TARGET_COLUMN].tolist() == [1, 0]
+    assert out[OPPORTUNITY_TARGET_COLUMN].tolist() == [1, 0]
+    assert out["assigned_infield_position"].iloc[0] == "6"
+    assert pd.isna(out["assigned_infield_position"].iloc[1])
+
+
+def test_add_infield_opportunity_features_defaults_on_1b_occupied_when_absent():
+    df = pd.DataFrame({"y_out": pd.array([1], dtype="Int64")})
+    out = add_infield_opportunity_features(df)
+    assert out["on_1b_occupied"].tolist() == [0]
+
+
+def test_select_infield_opportunity_features_drops_missing_and_sparse_columns():
+    df = pd.DataFrame(
+        {
+            "launch_speed": [95.0, 96.0, 97.0, 98.0],
+            "sprint_speed": [27.0, None, None, None],  # 25% present -> below threshold
+            "stand": ["R"] * 4,
+        }
+    )
+    numeric, categorical = select_infield_opportunity_features(df)
+    assert "launch_speed" in numeric
+    assert "sprint_speed" not in numeric  # too sparse
+    assert "hit_distance_sc" not in numeric  # absent entirely
+    assert "stand" in categorical
+    assert "if_fielding_alignment" not in categorical  # absent entirely
+
+
+def test_select_infield_opportunity_features_never_include_leakage_columns():
+    df = pd.DataFrame(
+        {
+            "launch_speed": [95.0],
+            "stand": ["R"],
+            "events": ["field_out"],
+            "outcome_class": ["out"],
+        }
+    )
+    numeric, categorical = select_infield_opportunity_features(df)
     assert "events" not in numeric + categorical
     assert "outcome_class" not in numeric + categorical

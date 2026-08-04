@@ -7,7 +7,9 @@
 	compare-weather-aware notebook-weather compare-weather-variants \
 	compare-alignment-aware notebook-alignment \
 	compare-opportunity-models notebook-outfield-opportunity \
-	compare-near-wall-models compare-near-wall-calibration-gate
+	compare-near-wall-models compare-near-wall-calibration-gate \
+	download-sprint-speed join-sprint-speed compare-infield-opportunity \
+	notebook-infield-opportunity
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -283,3 +285,37 @@ compare-near-wall-calibration-gate:
 		--input data/processed/cleaned_development_data_with_geometry.parquet \
 		--output-dir outputs/tables \
 		--figures-dir outputs/figures/near_wall_calibration_gate
+
+# Version 0.8: download the public Baseball Savant Sprint Speed leaderboard
+# (season-level, 2021-2024 only -- requires internet access). See
+# mlb_luck_score.data.download_sprint_speed for why this is a SEPARATE
+# leaderboard download, not a per-pitch Statcast field.
+download-sprint-speed:
+	$(PY) -m mlb_luck_score.data.download_sprint_speed \
+		--seasons 2021 2022 2023 2024 --output-dir data/raw
+
+# Version 0.8: join the downloaded Sprint Speed leaderboard onto the cleaned,
+# geometry-joined development dataset by (batter, season).
+join-sprint-speed:
+	$(PY) -m mlb_luck_score.data.join_sprint_speed \
+		--cleaned-input data/processed/cleaned_development_data_with_geometry.parquet \
+		--raw-dir data/raw \
+		--output data/processed/cleaned_development_data_with_sprint_speed.parquet
+
+# Version 0.8 infield opportunity model: fits logistic + HGB candidates on
+# 2021-2022, selects the winner on 2023, and runs the final comparison on
+# 2024 (development validation -- 2025 untouched), restricted to fair ground
+# balls fielded by an infielder with an unambiguous batter-runner outcome.
+# Uses the v0.7D sample-size-aware calibration gate FROM THE START (reused,
+# not reimplemented) and reports controlled-perturbation checks (sprint
+# speed, exit-velocity partial dependence). Does NOT automatically mark the
+# model "calibrated" -- see module docstring. Does not modify anything in
+# Version 0.7 (frozen).
+compare-infield-opportunity:
+	$(PY) -m mlb_luck_score.models.compare_infield_opportunity \
+		--input data/processed/cleaned_development_data_with_sprint_speed.parquet \
+		--output-dir outputs/tables \
+		--figures-dir outputs/figures/infield_opportunity
+
+notebook-infield-opportunity:
+	$(PY) -m jupyter notebook notebooks/10_infield_opportunity_execution_analysis.ipynb

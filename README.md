@@ -1489,6 +1489,173 @@ perturbation-check, or calibration-gate change needs either a season range not y
 for near-wall design decisions, or explicit maintainer sign-off treating 2024 as
 non-pristine for that specific change.
 
+## Infield opportunity and execution (Version 0.8)
+
+Extends the opportunity/execution pattern from Version 0.7A/0.7B to fair GROUND balls
+fielded by an infielder, restricted to plays where the batter-runner is the unambiguous,
+sole out opportunity. Built on a NEW eligibility question (`mlb_luck_score.eligibility.
+add_infield_opportunity_eligibility`) deliberately independent of Version 0.1's
+`eligible_for_training`/`map_outcome_class` -- see that function's module comment for why
+`field_error` is a clean "not retired" case here (no base classification needed) while
+`force_out`/`fielders_choice`-type events are excluded entirely (the batter himself is
+typically not the one retired). Version 0.7 remains FROZEN; nothing here touches it.
+
+### Public-data audit (required checkpoint, done BEFORE any model code)
+
+The real, already-downloaded 2021-2024 dataset and the installed `pybaseball` package were
+audited for every field the task named:
+
+| Field | Availability |
+|---|---|
+| Responsible fielder identity | **Available** -- `fielder_2`..`fielder_6` plus `pitcher` for position 1 (no separate `fielder_1` column). Used only for post-hoc evaluation, never a model input. |
+| Responsible fielding position | **Available** via `hit_location` (1=P..6=SS), 99.98% coverage on ground balls |
+| Batter sprint speed | **NOT a per-pitch field** -- available only as Baseball Savant's separate SEASON-LEVEL "Sprint Speed" leaderboard (`pybaseball.statcast_sprint_speed`). Downloaded per season (`mlb_luck_score.data.download_sprint_speed`) and joined by `(batter, season)` (`mlb_luck_score.data.join_sprint_speed`). |
+| Infield alignment | **Available** via `if_fielding_alignment` (Standard/Infield shift/Infield shade/Strategic), the same column Version 0.6 uses |
+| Batted-ball coordinates | **Available** (`hc_x`/`hc_y`, `spray_angle_approx`/`spray_sector`) |
+| Fielded distance | **Available and REAL** -- `hit_distance_sc` is Statcast's own measured distance to where the ball was fielded (99.4% coverage), unlike the outfield model's physics-*estimated* landing point |
+| Errors / force outs / fielder's choices / double plays / bunts | Controlled `events` taxonomy, except bunts (no dedicated flag; detected via a `des` keyword) |
+| Exact defender starting position, route distance, exchange/throw time | **Not available anywhere in public data -- never assumed** |
+
+Real 2021-2024 ground balls (`bb_type == "ground_ball"`, 214,032 rows) break down as:
+
+| Category | Rows |
+|---|---|
+| `eligible` | 143,377 |
+| `outfield_credited_hit_location` (ball got through the infield before any fielder touched it) | 34,647 |
+| `excluded_strategic_play` (force out / fielder's choice / double play / sac bunt or fly) | 30,322 |
+| `bunt_excluded` (`des` keyword match) | 4,393 |
+| `missing_required_contact_data` | 1,151 |
+| `interference_or_obstruction` | 113 |
+| `missing_responsible_infield_position` | 29 |
+
+`reviewed_or_overturned` (informational only, never excluded) matches 1,199 of 143,377
+eligible plays (0.84%) -- Statcast's recorded `events`/`des` already reflect the final,
+corrected ruling, so these are kept.
+
+### Candidate B (timing-margin proxy) was investigated and NOT built
+
+Unlike the outfield model's hang-time estimate (a real, citable vacuum-projectile-motion
+formula), there is no comparable citable physics for ground-ball roll deceleration on
+grass/turf -- building one would require an unvalidated friction/restitution constant,
+exactly the kind of invented assumption the task instructs against. `hit_distance_sc` and
+`sprint_speed`/`hp_to_1b` are both real, but there is no defensible way to combine them into
+a genuine "time margin" feature. Per the task's explicit permission, this candidate is
+skipped -- the only feature set built is `infield_contact_only_v08` (`launch_speed`,
+`launch_angle`, `spray_angle_approx`, `hit_distance_sc`, `sprint_speed`, `outs_when_up`,
+`on_1b_occupied` numeric; `stand`, `if_fielding_alignment`, `assigned_infield_position`,
+`surface_type` categorical).
+
+### Model selection and real 2024 result
+
+Fit on 2021-2022, model CLASS selected on 2023 by log loss (`LogisticRegression` vs.
+unweighted `HistGradientBoostingClassifier`, both `class_weight=None`), final comparison on
+2024 (`make compare-infield-opportunity`):
+
+| Candidate | Selection (2023) log loss | Selection ECE |
+|---|---|---|
+| `infield_logistic_v08` | 0.368668 | 0.016779 |
+| `infield_hgb_v08` (winner) | 0.331572 | 0.012220 |
+
+**Final 2024 comparison** (`infield_contact_only_v08`, n=35,526): log loss 0.335659, Brier
+0.098767, ECE 0.009108, calibration intercept -0.179 / slope 1.103, outcome prevalence
+86.40% (an average infield ground ball is retired ~86% of the time). Feature missingness is
+low across the board; the largest is `sprint_speed` at 0.64% (real coverage matches the
+Phase 1 audit -- unmatched batters are disproportionately below Savant's own `min_opp=10`
+qualification threshold, not a pipeline defect).
+
+Like Version 0.7A, this is a genuinely NEW opportunity-difficulty category with no prior
+public per-play infield baseline -- per CLAUDE.md/AGENTS.md's "a model with no prior
+baseline needs an ABSOLUTE quality bar, not a relative one," it is judged against the same
+`MATERIAL_ECE_ABSOLUTE_THRESHOLD` (0.05) reused from Version 0.7A/0.7C/0.7D, using the
+v0.7D sample-size-aware three-status calibration gate FROM THE START, never a bare
+point-estimate.
+
+### Perturbation checks
+
+- **`sprint_speed_direction` (required)**: among otherwise-identical batted balls, a slow
+  batter (23.0 ft/s) shows mean predicted `P(out)` 0.9279 vs. a fast batter (29.0 ft/s) at
+  0.8379 (delta -0.0899, n=35,298) -- correctly signed (faster batters are less likely to be
+  retired) and **passes**. `sprint_speed` has no derived-dependent feature in this set, so no
+  recomputation-on-override concern applies (see "Any override of a raw feature must
+  recompute every feature DERIVED from it" in CLAUDE.md/AGENTS.md).
+- **Timing-margin direction check**: `not_applicable` -- Candidate B was never built (see
+  above), reported explicitly rather than silently omitted.
+- **Exit velocity partial dependence**: descriptive only, no required sign (a harder-hit
+  ground ball can both reduce a fielder's reaction time and reach a well-positioned defender
+  before a bad hop) -- 1 sign change across the grid, not flagged as erratic.
+- A real-data (never synthetic) grouped response curve for `sprint_speed` by infield
+  position corroborates the required check using rows' own natural variation.
+
+### Calibration gate: `calibrated_with_limited_subgroup_evidence`
+
+Of 28 required subgroups (fielding position, pull/center/opposite-field, batter handedness,
+sprint-speed quartile, standard-vs-shifted alignment, ground-ball hardness tercile, spray
+sector) plus 34 venues (62 total):
+
+| status | count | notes |
+|---|---|---|
+| `calibrated` | 47 | 26 of 28 subgroups, 21 of 34 venues |
+| `not_calibrated` | 0 | none |
+| `insufficient_evidence` | 15 | `position_2` (catcher fielding a grounder, n=289), `alignment_infield_shift` (n=0 -- no eligible rows tagged that exact category in the 2024 eval slice), and 13 smaller venues |
+
+Overall ECE (0.009108) clears the absolute bar, the required perturbation check passes, and
+no adequately-supported group is credibly `not_calibrated` -- but because some groups lack
+adequate evidence rather than being confirmed either way, `overall_status` is
+`calibrated_with_limited_subgroup_evidence`, and per CLAUDE.md/AGENTS.md's "Measured
+miscalibration vs. insufficient evidence" rule, **`calibrated_infield_opportunity` is
+`False`** -- insufficient evidence is never reported as a pass. Rows stay tagged
+`insufficient_evidence` (for the `position_2`/`alignment_infield_shift`/13-venue rows) or
+`calibrated_infield_opportunity` cannot be claimed globally; see
+`mlb_luck_score.scoring.infield_ball_components` for exactly how `overall_status` maps to
+each row's `infield_opportunity_status`.
+
+Reached-on-error plays (n=976, mean predicted `P(out)` 0.8608) are DESCRIPTIVE ONLY (task
+Phase 3 forbids using the error flag as a predictor) but plausible: they score noticeably
+higher than genuine non-error safe outcomes (n=3,854, mean predicted `P(out)` 0.7064) --
+consistent with errors disproportionately happening on plays that "should" have been
+routine outs, from pre-contact features alone (no post-outcome leakage).
+
+Full reliability tables are written to `outputs/tables/infield_opportunity_detail.json`;
+reliability-diagram PNGs for every subgroup/venue are written to
+`outputs/figures/infield_opportunity/` when `--figures-dir` is passed.
+
+```bash
+make download-sprint-speed     # requires internet access
+make join-sprint-speed
+make compare-infield-opportunity
+```
+
+### Combined infield execution and component report
+
+Same formula/sign-convention pattern as Version 0.7B, parallel but NOT shared with it (see
+`mlb_luck_score.scoring.infield_execution` module docstring for why):
+
+```
+defensive_execution_probability = actual_out - p_out_opportunity
+batter_perspective_infield_execution = -defensive_execution_probability
+```
+
+`mlb_luck_score.scoring.infield_ball_components.build_infield_ball_component_report`
+assembles, per ground-ball play: the existing Version 0.2 contact-model expectation/residual
+(null for reached-on-error rows, since Version 0.1 leaves `outcome_class` undetermined for
+`field_error`), `p_out_opportunity`, `defensive_execution_probability`/`batter_perspective_
+infield_execution`, `reached_on_error` (reporting only), and `infield_opportunity_status`.
+**Reported side by side, never summed into one score** -- same reasoning as
+`air_ball_components`.
+
+### Limitations
+
+- This is a BINARY, opportunity-relative execution measure -- it says nothing about pickup,
+  transfer, footwork, or throwing specifically; a clean barehand play and a workmanlike play
+  of the same difficulty register identically.
+- Does not isolate positioning, scorer judgment, or unobserved route quality from execution.
+- `calibrated_infield_opportunity` is `False` pending more data for `position_2`,
+  `alignment_infield_shift`, and 13 individual venues -- treat those specific
+  subgroups/venues with extra caution; the other 47 groups are genuinely `calibrated`.
+- Individual-defender identity (`responsible_infielder_id`) is available for post-hoc
+  evaluation only, never a training feature -- training on it would encode that specific
+  fielder's skill rather than physical opportunity difficulty.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit

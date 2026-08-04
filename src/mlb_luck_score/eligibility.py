@@ -407,3 +407,354 @@ def add_outfield_opportunity_eligibility(df: pd.DataFrame) -> pd.DataFrame:
     out["responsible_outfielder_id"] = responsible_fielder
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Version 0.8: infield-opportunity eligibility
+# ---------------------------------------------------------------------------
+#
+# A narrow restriction identifying fair GROUND balls fielded by an INFIELDER
+# (pitcher/1B/2B/SS/3B) where the batter-runner is the unambiguous, sole out
+# opportunity. Built INDEPENDENTLY of Version 0.1's `eligible_for_training`/
+# `map_outcome_class` above -- reusing them would be WRONG here: Version 0.1
+# groups `force_out`/`double_play`/`grounded_into_double_play`/
+# `fielders_choice_out`/`sac_bunt` into outcome_class "out" because the
+# BATTER's own extra-base value is zero either way (a contact-luck/run-value
+# question), and separately marks `field_error` INELIGIBLE because the
+# batter's resulting BASE can't be determined (a hit-classification
+# question). Version 0.8 asks a different, narrower question -- "was the
+# BATTER-RUNNER physically retired on this specific play" -- for which
+# `field_error` is a perfectly clean "not retired" case (no base
+# classification needed, just safe-vs-out) and `force_out`/`fielders_choice`
+# -type events are NOT batter-runner outs at all (a preceding runner is the
+# one retired; the batter himself typically reaches first safely) and must
+# be excluded, not folded into "out." See README.md "Infield opportunity
+# (Version 0.8)" for the real 2021-2024 row counts by exclusion category and
+# CLAUDE.md/AGENTS.md for why this is a NEW eligibility question, not a bug
+# fix to Version 0.1's.
+
+#: `events` values where the batter-runner's fate is CLEAN and unambiguous:
+#: retired (`field_out`) or safely reached base, INCLUDING on an error
+#: (`field_error` -- the defense failed to complete the conversion; see
+#: `add_infield_opportunity_eligibility`'s `reached_on_error` column). Never
+#: use the scorer's error/hit classification as a model INPUT -- only as this
+#: eligibility/labeling step and the separate `reached_on_error` reporting
+#: indicator (task Phase 3).
+INFIELD_RETIRED_EVENT = "field_out"
+INFIELD_SAFE_EVENTS: frozenset[str] = frozenset({"single", "double", "triple", "field_error"})
+INFIELD_CLEAN_OUTCOME_EVENTS: frozenset[str] = (
+    frozenset({INFIELD_RETIRED_EVENT}) | INFIELD_SAFE_EVENTS
+)
+
+#: `events` values EXCLUDED from the primary Version 0.8 model because the
+#: defense's target was not (only) the batter-runner: lead-runner force
+#: plays, fielder's choices, double-play attempts, and sacrifice bunts/flies.
+#: Verified against real 2021-2024 ground balls: these are the ONLY event
+#: values, alongside `INFIELD_CLEAN_OUTCOME_EVENTS`, that occur at all for
+#: `bb_type == "ground_ball"` (11 total; no `triple_play`, no null `events`).
+INFIELD_EXCLUDED_STRATEGIC_EVENTS: frozenset[str] = frozenset(
+    {
+        "force_out",
+        "fielders_choice",
+        "fielders_choice_out",
+        "double_play",
+        "grounded_into_double_play",
+        "sac_fly_double_play",
+        "sac_bunt",
+        "sac_fly",
+    }
+)
+
+#: Statcast `hit_location` codes assigned to infield positions -- pitcher(1),
+#: catcher(2, essentially never a real ground-ball fielder of interest but
+#: kept for completeness), 1B(3), 2B(4), 3B(5), SS(6). Reuses the SAME
+#: `INFIELD_HIT_LOCATIONS` frozenset already defined above for the Version
+#: 0.7A outfield section (this file's single source of truth for the
+#: position-code mapping) rather than redefining it.
+#:
+#: Verified against real 2021-2024 ground balls: 16% (34,659 of 214,032) have
+#: an OUTFIELD-credited `hit_location` (7/8/9) -- the ball got through the
+#: infield entirely before any fielder touched it. These are excluded: no
+#: infielder ever had a genuine opportunity on that specific play.
+INFIELD_POSITION_FIELDER_COLUMN: dict[int, str] = {
+    1: "pitcher",  # no separate `fielder_1` column -- the pitcher IS fielder 1
+    2: "fielder_2",
+    3: "fielder_3",
+    4: "fielder_4",
+    5: "fielder_5",
+    6: "fielder_6",
+}
+
+#: Keyword heuristics for the free-text `des` field -- the ONLY source for
+#: these flags in public Statcast data (no dedicated boolean column exists
+#: for any of them). Narrow and case-insensitive, matching this file's
+#: existing `_INTERFERENCE_KEYWORDS`-style convention. Verified against real
+#: 2021-2024 ground balls (see README.md for exact counts):
+#:   - "bunt": catches non-sacrifice bunts too (2,364 of 214,032 ground balls
+#:     have "bunt" in `des` with an `events` value OTHER than `sac_bunt` --
+#:     bunt singles, bunt outs, bunt force outs -- none of which are tagged
+#:     any other way in this schema).
+#:   - "interference"/"obstruction": catches BOTH directions -- a batter
+#:     ruled out for "batter interference" (recorded as an ordinary
+#:     `field_out`, NOT a real defensive conversion: a rules-violation
+#:     penalty, not fielding) and a hit awarded extra bases on "fan
+#:     interference" (recorded as an ordinary `single`/`double`/`triple`, NOT
+#:     a real defensive failure: an external event). Both must be excluded
+#:     regardless of which `events` bucket they land in -- a pure
+#:     `events`-value filter would silently miss both. "Catcher interference"
+#:     cannot co-occur with a batted ball by construction (Statcast's
+#:     `catcher_interf` event has no batted-ball trajectory at all --
+#:     verified zero co-occurrence with `bb_type == "ground_ball"`), so it
+#:     never reaches this check in practice, but the keyword still catches it
+#:     if `des` ever mentions it.
+#:   - "appeal"/"rundown": verified ZERO real 2021-2024 ground-ball rows
+#:     match either -- kept as a documented, checkable exclusion category per
+#:     the task's explicit list, not because it fires today.
+_BUNT_KEYWORD = "bunt"
+_INTERFERENCE_OR_OBSTRUCTION_KEYWORDS = ("interference", "obstruction")
+_APPEAL_KEYWORD = "appeal"
+_RUNDOWN_KEYWORDS = ("rundown", "run down")
+#: INFORMATIONAL ONLY -- reviewed/overturned plays are NOT excluded (see
+#: `add_infield_opportunity_eligibility`'s `reviewed_or_overturned` column
+#: docstring for why), just counted and reported per task Phase 1's audit
+#: ("reviewed or overturned outcomes").
+_REVIEW_KEYWORDS = ("challenged", "overturned", " review")
+
+REASON_NOT_GROUND_BALL = "not_ground_ball_bb_type"
+REASON_BUNT_EXCLUDED = "bunt_excluded"
+REASON_INTERFERENCE_OR_OBSTRUCTION = "interference_or_obstruction"
+REASON_APPEAL_PLAY = "appeal_play"
+REASON_RUNDOWN_PLAY = "rundown_play"
+REASON_EXCLUDED_STRATEGIC_PLAY = "excluded_strategic_play"
+REASON_AMBIGUOUS_INFIELD_EVENT = "ambiguous_or_unmapped_event"
+REASON_MISSING_INFIELD_POSITION = "missing_responsible_infield_position"
+REASON_OUTFIELD_CREDITED_HIT_LOCATION = "outfield_credited_hit_location"
+REASON_MISSING_INFIELD_CONTACT_DATA = "missing_required_contact_data"
+
+
+def _contains_keyword(text: object, keyword: str) -> bool:
+    return isinstance(text, str) and keyword in text.lower()
+
+
+def _contains_any_keyword(text: object, keywords: tuple[str, ...]) -> bool:
+    if not isinstance(text, str):
+        return False
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in keywords)
+
+
+def add_infield_opportunity_eligibility(df: pd.DataFrame) -> pd.DataFrame:
+    """Add Version 0.8 infield-opportunity eligibility, label, and identity columns.
+
+    Does NOT require `compute_eligibility` to have been run first -- unlike
+    the Version 0.7A outfield section, this builds its own eligibility
+    directly from raw `events`/`bb_type`/`hit_location`/`des`, since Version
+    0.1's `eligible_for_training` answers a different question (see module
+    comment above).
+
+    Adds:
+        - `infield_opportunity_eligible`: True only if ALL of: `bb_type ==
+          "ground_ball"`; not bunt/interference-or-obstruction/appeal/
+          rundown (per `des` keyword checks); `events` is in
+          `INFIELD_CLEAN_OUTCOME_EVENTS` (not an excluded strategic-play
+          event, and not some other unmapped event); `hit_location` is a
+          real infield code (1-6); `launch_speed`/`launch_angle` are both
+          present.
+        - `infield_opportunity_exclusion_reason`: reason string if not
+          eligible, else None. Precedence (first applicable reason wins,
+          checked in this order): not-ground-ball, bunt, interference/
+          obstruction, appeal, rundown, excluded-strategic-event, ambiguous
+          -event, missing-position, outfield-credited-position,
+          missing-contact-data.
+        - `y_out`: 1 if `events == "field_out"`, 0 if in
+          `INFIELD_SAFE_EVENTS`, else null. Task Phase 3's label -- a
+          reached-on-error play gets `y_out = 0` (the defense did NOT
+          complete the conversion), never `1`.
+        - `reached_on_error`: True iff `events == "field_error"` --
+          reporting/evaluation ONLY (task Phase 3: "Never use the scorer's
+          error classification as a predictor"), never a model input.
+        - `is_bunt`, `has_interference_or_obstruction`, `is_appeal_play`,
+          `is_rundown_play`: the individual `des`-keyword flags (see module
+          comment for exact keywords and real-data counts).
+        - `reviewed_or_overturned`: `des` mentions "challenged"/"overturned"/
+          "review" -- INFORMATIONAL ONLY, never used to exclude a row.
+          Statcast's `events`/`des` already reflect the FINAL, corrected
+          ruling after any review, so the recorded label is not made less
+          reliable by having been reviewed; excluding these would introduce
+          an unprincipled selection bias (high-leverage/close plays are
+          reviewed more often) with no data-quality justification. Reported
+          per task Phase 1's audit request, not filtered on.
+        - `assigned_infield_position`: 1-6 (nullable `Int64`, from
+          `hit_location`), or null if not infield-opportunity-eligible.
+        - `responsible_infielder_id`: the player ID from `pitcher` (position
+          1 -- there is no separate `fielder_1` Statcast column) or
+          `fielder_2`.."fielder_6"` corresponding to `assigned_infield_
+          position`, or null if unavailable/not eligible. Individual
+          -defender identity, for POST-HOC evaluation only -- never a model
+          input (task Phase 4).
+
+    Args:
+        df: A DataFrame with `events`, `bb_type`, `hit_location`,
+            `launch_speed`, `launch_angle`, and ideally `des`, `pitcher`,
+            `fielder_2`..`fielder_6` (any missing optional column degrades
+            gracefully rather than raising).
+
+    Returns:
+        A copy of `df` with the above columns added.
+    """
+    required = ("events", "bb_type", "hit_location", "launch_speed", "launch_angle")
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"add_infield_opportunity_eligibility requires column(s) {missing}")
+
+    out = df.copy()
+    des = out["des"] if "des" in out.columns else pd.Series([None] * len(out), index=out.index)
+
+    is_ground_ball = out["bb_type"] == "ground_ball"
+    is_bunt = des.apply(lambda text: _contains_keyword(text, _BUNT_KEYWORD))
+    has_interference_or_obstruction = des.apply(
+        lambda text: _contains_any_keyword(text, _INTERFERENCE_OR_OBSTRUCTION_KEYWORDS)
+    )
+    is_appeal_play = des.apply(lambda text: _contains_keyword(text, _APPEAL_KEYWORD))
+    is_rundown_play = des.apply(lambda text: _contains_any_keyword(text, _RUNDOWN_KEYWORDS))
+    reviewed_or_overturned = des.apply(lambda text: _contains_any_keyword(text, _REVIEW_KEYWORDS))
+
+    out["is_bunt"] = is_bunt
+    out["has_interference_or_obstruction"] = has_interference_or_obstruction
+    out["is_appeal_play"] = is_appeal_play
+    out["is_rundown_play"] = is_rundown_play
+    out["reviewed_or_overturned"] = reviewed_or_overturned
+
+    is_clean_event = out["events"].isin(INFIELD_CLEAN_OUTCOME_EVENTS)
+    is_excluded_strategic_event = out["events"].isin(INFIELD_EXCLUDED_STRATEGIC_EVENTS)
+
+    hit_location_numeric = pd.to_numeric(out["hit_location"], errors="coerce")
+    has_infield_hit_location = hit_location_numeric.isin(INFIELD_HIT_LOCATIONS)
+    has_outfield_hit_location = hit_location_numeric.isin(OUTFIELD_HIT_LOCATIONS)
+    hit_location_missing = hit_location_numeric.isna()
+
+    missing_contact_data = out["launch_speed"].isna() | out["launch_angle"].isna()
+
+    infield_opportunity_eligible = (
+        is_ground_ball
+        & ~is_bunt
+        & ~has_interference_or_obstruction
+        & ~is_appeal_play
+        & ~is_rundown_play
+        & is_clean_event
+        & has_infield_hit_location
+        & ~missing_contact_data
+    )
+    out["infield_opportunity_eligible"] = infield_opportunity_eligible
+
+    reason = pd.Series(None, index=out.index, dtype=object)
+    reason = reason.where(is_ground_ball, REASON_NOT_GROUND_BALL)
+    reason = reason.where(~(is_ground_ball & is_bunt), REASON_BUNT_EXCLUDED)
+    reason = reason.where(
+        ~(is_ground_ball & ~is_bunt & has_interference_or_obstruction),
+        REASON_INTERFERENCE_OR_OBSTRUCTION,
+    )
+    reason = reason.where(
+        ~(is_ground_ball & ~is_bunt & ~has_interference_or_obstruction & is_appeal_play),
+        REASON_APPEAL_PLAY,
+    )
+    reason = reason.where(
+        ~(
+            is_ground_ball
+            & ~is_bunt
+            & ~has_interference_or_obstruction
+            & ~is_appeal_play
+            & is_rundown_play
+        ),
+        REASON_RUNDOWN_PLAY,
+    )
+    clean_base = (
+        is_ground_ball
+        & ~is_bunt
+        & ~has_interference_or_obstruction
+        & ~is_appeal_play
+        & ~is_rundown_play
+    )
+    reason = reason.where(
+        ~(clean_base & is_excluded_strategic_event), REASON_EXCLUDED_STRATEGIC_PLAY
+    )
+    reason = reason.where(
+        ~(clean_base & ~is_excluded_strategic_event & ~is_clean_event),
+        REASON_AMBIGUOUS_INFIELD_EVENT,
+    )
+    reason = reason.where(
+        ~(clean_base & is_clean_event & hit_location_missing), REASON_MISSING_INFIELD_POSITION
+    )
+    reason = reason.where(
+        ~(clean_base & is_clean_event & has_outfield_hit_location),
+        REASON_OUTFIELD_CREDITED_HIT_LOCATION,
+    )
+    reason = reason.where(
+        ~(clean_base & is_clean_event & has_infield_hit_location & missing_contact_data),
+        REASON_MISSING_INFIELD_CONTACT_DATA,
+    )
+    reason = reason.where(~infield_opportunity_eligible, None)
+    out["infield_opportunity_exclusion_reason"] = reason
+
+    y_out = pd.Series(pd.NA, index=out.index, dtype="Int64")
+    y_out.loc[out["events"] == INFIELD_RETIRED_EVENT] = 1
+    y_out.loc[out["events"].isin(INFIELD_SAFE_EVENTS)] = 0
+    y_out.loc[~infield_opportunity_eligible] = pd.NA
+    out["y_out"] = y_out
+
+    reached_on_error = (out["events"] == "field_error") & infield_opportunity_eligible
+    out["reached_on_error"] = reached_on_error
+
+    assigned_position = pd.Series(pd.NA, index=out.index, dtype="Int64")
+    assigned_position.loc[infield_opportunity_eligible] = hit_location_numeric.loc[
+        infield_opportunity_eligible
+    ].astype("Int64")
+    out["assigned_infield_position"] = assigned_position
+
+    responsible_fielder = pd.Series(pd.NA, index=out.index, dtype="object")
+    for position, fielder_col in INFIELD_POSITION_FIELDER_COLUMN.items():
+        if fielder_col not in out.columns:
+            continue
+        position_mask = assigned_position == position
+        responsible_fielder.loc[position_mask] = out.loc[position_mask, fielder_col]
+    out["responsible_infielder_id"] = responsible_fielder
+
+    return out
+
+
+@dataclass(frozen=True)
+class InfieldExclusionCounts:
+    """Row counts by exclusion category and season -- task Phase 2's required report."""
+
+    by_season: dict[int, dict[str, int]]
+    total: dict[str, int]
+
+
+def summarize_infield_exclusions(df: pd.DataFrame) -> InfieldExclusionCounts:
+    """Row counts by `infield_opportunity_exclusion_reason` (plus "eligible"), per season and overall.
+
+    Args:
+        df: A DataFrame already passed through `add_infield_opportunity_
+            eligibility`, with a `season` column.
+
+    Returns:
+        `InfieldExclusionCounts` -- `by_season[season][reason_or_"eligible"]
+        = count`, and the same totals across all seasons in `.total`.
+    """
+    working = df.copy()
+    label = working["infield_opportunity_exclusion_reason"].astype(object)
+    label = label.where(~working["infield_opportunity_eligible"].astype(bool), "eligible")
+    working["_label"] = label
+
+    total: dict[str, int] = {
+        str(k): int(v) for k, v in working["_label"].value_counts(dropna=False).items()
+    }
+    by_season: dict[int, dict[str, int]] = {}
+    if "season" in working.columns:
+        for season_value in working["season"].dropna().unique():
+            group = working[working["season"] == season_value]
+            by_season[int(season_value)] = {
+                str(k): int(v) for k, v in group["_label"].value_counts(dropna=False).items()
+            }
+
+    return InfieldExclusionCounts(by_season=by_season, total=total)
