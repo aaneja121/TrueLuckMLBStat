@@ -231,6 +231,7 @@ from mlb_luck_score.eligibility import (
     summarize_infield_exclusions,
 )
 from mlb_luck_score.features.build_contact_features import (
+    INFIELD_OPPORTUNITY_TARGET_COLUMN,
     add_infield_opportunity_features,
     select_infield_opportunity_features,
 )
@@ -365,6 +366,7 @@ def run_infield_model_selection(
             numeric_features=numeric_features,
             categorical_features=categorical_features,
             model_type=model_type,
+            target_column=INFIELD_OPPORTUNITY_TARGET_COLUMN,
         )
         feature_cols = trained.numeric_features + trained.categorical_features
         p_out = predict_opportunity_proba(trained, selection_df[feature_cols])

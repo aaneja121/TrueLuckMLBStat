@@ -83,7 +83,7 @@ def _synthetic_near_wall_rows(season: int, rng: np.random.Generator, *, n: int =
                 "near_wall_20ft": "True",
                 "venue_id": "3",
                 "outcome_class": outcome_class,
-                "converted_to_out": converted,
+                "outfield_converted_to_out": converted,
             }
         )
     return rows
@@ -181,7 +181,7 @@ def test_wall_height_buckets_produces_three_groups():
 
 
 def test_compute_near_wall_subgroups_covers_required_dimensions(near_wall_df):
-    y_true = near_wall_df["converted_to_out"].to_numpy()
+    y_true = near_wall_df["outfield_converted_to_out"].to_numpy()
     p_out = pd.Series(0.5, index=near_wall_df.index)
     subgroups = compute_near_wall_subgroups(y_true, p_out, near_wall_df)
     for expected in (

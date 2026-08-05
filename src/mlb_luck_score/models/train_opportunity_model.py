@@ -3,8 +3,13 @@
 Predicts `P(an average MLB outfielder converts this batted ball into an out)`
 for `outfield_opportunity_eligible` rows (`mlb_luck_score.eligibility.
 add_outfield_opportunity_eligibility`) -- a SEPARATE binary target
-(`converted_to_out`, `mlb_luck_score.features.build_contact_features.
-OPPORTUNITY_TARGET_COLUMN`) from the 5-class contact model's `outcome_class`.
+(`outfield_converted_to_out`, `mlb_luck_score.features.build_contact_
+features.OUTFIELD_OPPORTUNITY_TARGET_COLUMN`, the default `target_column`)
+from the 5-class contact model's `outcome_class`. This trainer is reused
+as-is for the Version 0.8 infield model too, by passing `target_column=
+mlb_luck_score.features.build_contact_features.INFIELD_OPPORTUNITY_
+TARGET_COLUMN` explicitly -- see that constant's docstring for why the two
+domains no longer share one column name.
 Deliberately NOT built on top of `mlb_luck_score.models.train_contact_model`:
 that module is hardcoded to the 5-class target and `CLASS_ORDER` throughout
 (`_prepare_xy`, `reorder_proba_columns`, `evaluate_model`'s confusion
@@ -52,7 +57,7 @@ from sklearn.pipeline import Pipeline
 from mlb_luck_score import __version__ as package_version
 from mlb_luck_score.config import TRAIN_SEASONS, VALIDATION_SEASONS, assert_seasons_allowed
 from mlb_luck_score.features.build_contact_features import (
-    OPPORTUNITY_TARGET_COLUMN,
+    OUTFIELD_OPPORTUNITY_TARGET_COLUMN,
     build_preprocessing_pipeline,
     select_opportunity_features,
 )
@@ -96,14 +101,24 @@ class TrainedOpportunityModel:
     variant: str = VARIANT_UNWEIGHTED
     feature_set_label: str = "measured_contact_only_v07"
     model_type: str = MODEL_TYPE_LOGISTIC
+    #: Which column this SPECIFIC trained model was fit against -- recorded
+    #: per-instance (rather than assumed to be the module-level default)
+    #: since the same trainer is reused for the infield domain with a
+    #: different target column (see `train_opportunity_model`'s
+    #: `target_column` parameter).
+    target_column: str = OUTFIELD_OPPORTUNITY_TARGET_COLUMN
 
 
 def _prepare_xy(
-    df: pd.DataFrame, numeric_features: list[str], categorical_features: list[str]
+    df: pd.DataFrame,
+    numeric_features: list[str],
+    categorical_features: list[str],
+    *,
+    target_column: str = OUTFIELD_OPPORTUNITY_TARGET_COLUMN,
 ) -> tuple[pd.DataFrame, pd.Series]:
     feature_cols = numeric_features + categorical_features
     x = df[feature_cols]
-    y = df[OPPORTUNITY_TARGET_COLUMN].astype(int)
+    y = df[target_column].astype(int)
     return x, y
 
 
@@ -115,12 +130,14 @@ def train_opportunity_model(
     numeric_features: Sequence[str] | None = None,
     categorical_features: Sequence[str] | None = None,
     model_type: str = MODEL_TYPE_LOGISTIC,
+    target_column: str = OUTFIELD_OPPORTUNITY_TARGET_COLUMN,
 ) -> TrainedOpportunityModel:
     """Fit the binary opportunity-difficulty model pipeline.
 
     Args:
         train_df: Rows already filtered to `outfield_opportunity_eligible`
-            and the desired training seasons.
+            (or `infield_opportunity_eligible`, if `target_column` is set to
+            the infield column) and the desired training seasons.
         class_weight: Passed straight through to the underlying classifier
             (`LogisticRegression` or `HistGradientBoostingClassifier`, both
             of which support this argument). Defaults to `None` -- see
@@ -139,6 +156,15 @@ def train_opportunity_model(
             feature list without duplicating the training/evaluation logic.
         model_type: `MODEL_TYPE_LOGISTIC` (default) or `MODEL_TYPE_HGB` --
             see that constant's docstring.
+        target_column: Which binary label column to fit against. Defaults
+            to the Version 0.7A outfield target
+            (`OUTFIELD_OPPORTUNITY_TARGET_COLUMN`). The Version 0.8 infield
+            model reuses this SAME trainer by passing `target_column=
+            mlb_luck_score.features.build_contact_features.
+            INFIELD_OPPORTUNITY_TARGET_COLUMN` explicitly -- the two domains
+            no longer share one column name (see that constant's docstring
+            for the collision bug this replaced), so callers must say which
+            one they mean rather than relying on an implicit shared default.
     """
     if numeric_features is None or categorical_features is None:
         selected_numeric, selected_categorical = select_opportunity_features(train_df)
@@ -182,10 +208,12 @@ def train_opportunity_model(
         )
     pipeline = Pipeline(steps=[("preprocess", preprocessor), ("classify", classifier)])
 
-    x_train, y_train = _prepare_xy(train_df, selected_numeric, selected_categorical)
+    x_train, y_train = _prepare_xy(
+        train_df, selected_numeric, selected_categorical, target_column=target_column
+    )
     if y_train.nunique() < 2:
         raise ValueError(
-            "Training data must contain both converted_to_out=0 and =1 rows to fit a "
+            f"Training data must contain both {target_column}=0 and =1 rows to fit a "
             "binary opportunity model."
         )
     pipeline.fit(x_train, y_train)
@@ -197,6 +225,7 @@ def train_opportunity_model(
         class_weight=class_weight,
         variant=variant,
         feature_set_label=feature_set_label,
+        target_column=target_column,
         model_type=model_type,
     )
 
@@ -230,7 +259,12 @@ def evaluate_opportunity_model(
     trained: TrainedOpportunityModel, eval_df: pd.DataFrame
 ) -> dict[str, Any]:
     """Compute Version 0.7A evaluation metrics (binary log loss, Brier score) on a held-out split."""
-    x_eval, y_eval = _prepare_xy(eval_df, trained.numeric_features, trained.categorical_features)
+    x_eval, y_eval = _prepare_xy(
+        eval_df,
+        trained.numeric_features,
+        trained.categorical_features,
+        target_column=trained.target_column,
+    )
     p_out = predict_opportunity_proba(trained, x_eval)
     validate_opportunity_probabilities(p_out)
 
@@ -275,7 +309,7 @@ def save_artifact(
         "training_seasons": train_seasons,
         "numeric_features": trained.numeric_features,
         "categorical_features": trained.categorical_features,
-        "target_column": OPPORTUNITY_TARGET_COLUMN,
+        "target_column": trained.target_column,
         "training_timestamp_utc": datetime.now(UTC).isoformat(),
         "package_version": package_version,
         "scikit_learn_version": sklearn.__version__,

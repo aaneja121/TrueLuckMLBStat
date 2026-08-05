@@ -115,7 +115,7 @@ from mlb_luck_score.config import (
     TRAIN_SEASONS,
     assert_seasons_allowed,
 )
-from mlb_luck_score.features.build_contact_features import OPPORTUNITY_TARGET_COLUMN
+from mlb_luck_score.features.build_contact_features import OUTFIELD_OPPORTUNITY_TARGET_COLUMN
 from mlb_luck_score.models.compare_geometry_aware import _bool_mask
 from mlb_luck_score.models.compare_near_wall_models import (
     MATERIAL_ECE_ABSOLUTE_THRESHOLD,
@@ -929,7 +929,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     final_df = near_wall_df[near_wall_df["season"].isin(CALIBRATION_EVAL_SEASONS)]
-    y_true = final_df[OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
+    y_true = final_df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
     open_field_feature_cols = (
         open_field_trained.numeric_features + open_field_trained.categorical_features
     )

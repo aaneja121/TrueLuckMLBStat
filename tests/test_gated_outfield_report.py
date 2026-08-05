@@ -51,7 +51,7 @@ def _rows(n: int, *, gate_kind: str, rng: np.random.Generator) -> list[dict]:
             "assigned_outfield_position": "8",
             "wall_segment_label": "CF",
             "outcome_class": outcome_class,
-            "converted_to_out": converted,
+            "outfield_converted_to_out": converted,
         }
         if gate_kind == "open_field":
             base["has_park_geometry"] = True

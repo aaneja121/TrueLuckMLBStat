@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from mlb_luck_score.features.build_contact_features import OUTFIELD_OPPORTUNITY_TARGET_COLUMN
 from mlb_luck_score.models.outfield_gating import (
     GATE_CONTACT_ONLY_FALLBACK,
     GATE_NEAR_WALL,
@@ -100,8 +101,8 @@ def _build_contact_only_segment(
     residual_contact_luck_runs = actual_run_value - expected_run_value
 
     converted_to_out = (
-        df["converted_to_out"].astype(float)
-        if "converted_to_out" in df.columns
+        df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(float)
+        if OUTFIELD_OPPORTUNITY_TARGET_COLUMN in df.columns
         else (df["outcome_class"] == "out").astype(float)
     )
 

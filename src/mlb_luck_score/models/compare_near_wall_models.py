@@ -236,7 +236,7 @@ from mlb_luck_score.eligibility import add_outfield_opportunity_eligibility
 from mlb_luck_score.features.build_contact_features import (
     NEAR_WALL_CATEGORICAL_FEATURES,
     NEAR_WALL_NUMERIC_FEATURES,
-    OPPORTUNITY_TARGET_COLUMN,
+    OUTFIELD_OPPORTUNITY_TARGET_COLUMN,
     add_geometry_interaction_features,
     add_outfield_opportunity_features,
 )
@@ -469,7 +469,7 @@ def run_near_wall_model_selection(
         feature_cols = trained.numeric_features + trained.categorical_features
         p_out = predict_opportunity_proba(trained, selection_df[feature_cols])
         validate_opportunity_probabilities(p_out)
-        y_true = selection_df[OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
+        y_true = selection_df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
         table = compute_binary_calibration_table(y_true, p_out)
         selection_metrics[candidate] = {
             "binary_log_loss": float(log_loss(y_true, p_out.to_numpy(), labels=[0, 1])),
@@ -1054,7 +1054,7 @@ def check_no_open_field_regression(
     )
     identical = bool(np.allclose(p_out_via_gate.to_numpy(), p_out_standalone.to_numpy(), atol=0.0))
 
-    y_true = open_field_df[OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
+    y_true = open_field_df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
     table = compute_binary_calibration_table(y_true, p_out_via_gate)
     ece = compute_binary_ece(table)
     log_loss_value = float(log_loss(y_true, p_out_via_gate.to_numpy(), labels=[0, 1]))
@@ -1101,7 +1101,7 @@ def run_near_wall_final_comparison(
         raise ValueError(
             f"Need non-empty final-comparison ({CALIBRATION_EVAL_SEASONS}) near-wall rows."
         )
-    y_true = final_df[OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
+    y_true = final_df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
 
     comparison: dict[str, dict[str, Any]] = {}
     for variant, trained in (
@@ -1296,7 +1296,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     final_df = near_wall_df[near_wall_df["season"].isin(CALIBRATION_EVAL_SEASONS)]
-    y_true = final_df[OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
+    y_true = final_df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
     open_field_feature_cols = (
         open_field_trained.numeric_features + open_field_trained.categorical_features
     )

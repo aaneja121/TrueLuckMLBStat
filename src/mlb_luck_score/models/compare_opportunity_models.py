@@ -104,7 +104,7 @@ from sklearn.metrics import brier_score_loss, log_loss
 from mlb_luck_score.config import TABLES_DIR, TRAIN_SEASONS, VALIDATION_SEASONS
 from mlb_luck_score.eligibility import add_outfield_opportunity_eligibility
 from mlb_luck_score.features.build_contact_features import (
-    OPPORTUNITY_TARGET_COLUMN,
+    OUTFIELD_OPPORTUNITY_TARGET_COLUMN,
     add_geometry_interaction_features,
     add_outfield_opportunity_features,
 )
@@ -482,7 +482,7 @@ def run_opportunity_model_evaluation(
         p_out = predict_opportunity_proba(trained, val_df[feature_cols])
         validate_opportunity_probabilities(p_out)
 
-        y_true = val_df[OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
+        y_true = val_df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
         table = compute_binary_calibration_table(y_true, p_out)
         summary: dict[str, Any] = {
             "variant": variant,
@@ -609,7 +609,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     eligible = df_prepared[df_prepared["outfield_opportunity_eligible"].astype(bool)]
     val_df = eligible[eligible["season"].isin(VALIDATION_SEASONS)]
-    y_true = val_df[OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
+    y_true = val_df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int).to_numpy()
 
     bootstrap_by_variant: dict[str, dict[str, dict[str, Any]]] = {}
     for variant in ALL_V07A_CANDIDATES:

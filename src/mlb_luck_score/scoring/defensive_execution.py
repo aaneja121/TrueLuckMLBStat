@@ -7,8 +7,8 @@ the Version 0.7A opportunity-difficulty model's prediction:
 
 Where `actual_out_indicator` is 1 if the batter-runner was put out on this
 play, 0 otherwise (`mlb_luck_score.features.build_contact_features.
-OPPORTUNITY_TARGET_COLUMN`), and `p_out_opportunity` is `mlb_luck_score.
-models.train_opportunity_model.predict_opportunity_proba`'s output --
+OUTFIELD_OPPORTUNITY_TARGET_COLUMN`), and `p_out_opportunity` is `mlb_luck_
+score.models.train_opportunity_model.predict_opportunity_proba`'s output --
 `P(an average MLB outfielder converts this opportunity into an out)`.
 
 ## Sign convention (fielder's perspective)

@@ -590,7 +590,19 @@ MIN_NON_NULL_FRACTION = 0.5
 #: logic -- `outcome_class == "out"` already covers every batter-out result
 #: (field outs, sac flies, double plays where the batter is out, etc.; see
 #: `mlb_luck_score.eligibility._UNAMBIGUOUS_OUT_EVENTS`).
-OPPORTUNITY_TARGET_COLUMN = "converted_to_out"
+#:
+#: DOMAIN-SPECIFIC NAME (Version 0.10 hardening): this used to be the
+#: generic `OPPORTUNITY_TARGET_COLUMN`, shared with the infield builder via
+#: an alias -- see `INFIELD_OPPORTUNITY_TARGET_COLUMN`'s docstring for why
+#: that was a real, discovered collision bug (Version 0.10's attribution
+#: ledger silently lost outfield targets when both builders ran on one
+#: combined DataFrame). `add_outfield_opportunity_features` and
+#: `add_infield_opportunity_features` now write to STRUCTURALLY DIFFERENT
+#: column names -- there is no longer any shared name for the two builders
+#: to collide on, regardless of call order or fixture discipline. Prefer
+#: `add_opportunity_features_by_domain` (below) over calling either builder
+#: directly on a combined (mixed ground-ball + air-ball) DataFrame.
+OUTFIELD_OPPORTUNITY_TARGET_COLUMN = "outfield_converted_to_out"
 
 #: Version 0.7A `measured_contact_only_v07` feature set -- see
 #: `mlb_luck_score.models.compare_opportunity_models` module docstring for
@@ -646,18 +658,36 @@ NEAR_WALL_CATEGORICAL_FEATURES: tuple[str, ...] = (
     "wall_segment_label",
 )
 
-#: Version 0.8 `infield_contact_only_v08` target column -- distinct from
-#: `OPPORTUNITY_TARGET_COLUMN` (outfield): `y_out` is built directly by
-#: `mlb_luck_score.eligibility.add_infield_opportunity_eligibility` (1 =
-#: `field_out`, 0 = safely reached INCLUDING on an error -- see that
-#: function's docstring for why a reached-on-error play is `y_out = 0`, never
-#: a model input on its own). `add_infield_opportunity_features` below
-#: ALIASES `y_out` into `OPPORTUNITY_TARGET_COLUMN` so the EXISTING, UNCHANGED
-#: `mlb_luck_score.models.train_opportunity_model` trainer (hardcoded to read
-#: `OPPORTUNITY_TARGET_COLUMN`) can be reused as-is for the infield model,
-#: rather than duplicating ~370 lines of training/evaluation machinery for a
-#: differently-named target column.
+#: The RAW Version 0.8 label, built directly by `mlb_luck_score.eligibility.
+#: add_infield_opportunity_eligibility` (1 = `field_out`, 0 = safely reached
+#: INCLUDING on an error -- see that function's docstring for why a
+#: reached-on-error play is `y_out = 0`, never a model input on its own).
+#: NOT itself the trainer's target column -- see `INFIELD_OPPORTUNITY_
+#: TARGET_COLUMN` immediately below.
 INFIELD_TARGET_COLUMN = "y_out"
+
+#: Version 0.8 `infield_contact_only_v08` target column -- `add_infield_
+#: opportunity_features` below copies `INFIELD_TARGET_COLUMN` (`y_out`) into
+#: this DOMAIN-SPECIFIC name.
+#:
+#: Version 0.10 hardening: this used to be an ALIAS into the SAME generic
+#: `OPPORTUNITY_TARGET_COLUMN` the outfield builder also wrote, specifically
+#: so `mlb_luck_score.models.train_opportunity_model` (hardcoded at the time
+#: to read one fixed column name) could be reused as-is for both domains
+#: without duplicating ~370 lines of training/evaluation machinery. That
+#: aliasing trick is exactly what caused a real, discovered bug: Version
+#: 0.10's attribution-ledger test fixture called `add_outfield_opportunity_
+#: features` then `add_infield_opportunity_features` on one shared, combined
+#: DataFrame, and the second call unconditionally overwrote the first call's
+#: target values for ALL rows (not just its own domain's), including the
+#: outfield rows -- `train_opportunity_model` then crashed on an
+#: all-`pd.NA` target column rather than silently training on wrong labels,
+#: but a slightly different call order could easily have produced silently
+#: wrong labels instead of a crash. `train_opportunity_model` now takes an
+#: explicit `target_column` parameter (see that module) instead of relying
+#: on a single hardcoded/aliased name, so this column can have its own
+#: identity without losing trainer reuse.
+INFIELD_OPPORTUNITY_TARGET_COLUMN = "infield_converted_to_out"
 
 #: Version 0.8 `infield_contact_only_v08` feature set -- the ONLY candidate
 #: built (see `mlb_luck_score.models.compare_infield_opportunity` module
@@ -704,14 +734,14 @@ INFIELD_CATEGORICAL_FEATURES: tuple[str, ...] = (
 def add_opportunity_target(df: pd.DataFrame) -> pd.DataFrame:
     """Add the Version 0.7A binary target column from the existing `outcome_class`.
 
-    `converted_to_out = 1` if `outcome_class == "out"`, else `0`. Rows with a
-    null `outcome_class` (should not occur for `outfield_opportunity_
-    eligible` rows, which are a subset of `eligible_for_training`) get a
-    null target rather than a guessed value.
+    `outfield_converted_to_out = 1` if `outcome_class == "out"`, else `0`.
+    Rows with a null `outcome_class` (should not occur for `outfield_
+    opportunity_eligible` rows, which are a subset of `eligible_for_
+    training`) get a null target rather than a guessed value.
     """
     out = df.copy()
-    out[OPPORTUNITY_TARGET_COLUMN] = (out["outcome_class"] == "out").astype("Int64")
-    out.loc[out["outcome_class"].isna(), OPPORTUNITY_TARGET_COLUMN] = pd.NA
+    out[OUTFIELD_OPPORTUNITY_TARGET_COLUMN] = (out["outcome_class"] == "out").astype("Int64")
+    out.loc[out["outcome_class"].isna(), OUTFIELD_OPPORTUNITY_TARGET_COLUMN] = pd.NA
     return out
 
 
@@ -731,12 +761,22 @@ def add_outfield_opportunity_features(df: pd.DataFrame) -> pd.DataFrame:
     Adds:
         - `estimated_hang_time_s`, `landing_x_ft`, `landing_y_ft`: see
           `mlb_luck_score.data.outfield_physics`.
-        - `converted_to_out`: see `add_opportunity_target`.
+        - `outfield_converted_to_out`: see `add_opportunity_target`.
         - `assigned_outfield_position` is cast to plain `object` dtype with
           `None` for missing (same `SimpleImputer`-compatibility fix as
           `add_geometry_interaction_features`/`add_weather_interaction_
           features` -- pandas' nullable `Int64`/`pd.NA` raises inside
           `SimpleImputer`).
+
+    Safe to call on a COMBINED (mixed ground-ball + air-ball) DataFrame
+    together with `add_infield_opportunity_features` -- each builder writes
+    a STRUCTURALLY DIFFERENT target column name (`outfield_converted_to_out`
+    vs. `infield_converted_to_out`, see `INFIELD_OPPORTUNITY_TARGET_COLUMN`'s
+    docstring for the collision this replaced), so there is nothing left for
+    the two calls to overwrite regardless of order. Prefer `add_opportunity_
+    features_by_domain` for that combined case anyway -- it also fail-fasts
+    on rows eligible for both domains simultaneously and reassembles in the
+    original row order, which calling this function directly does not do.
     """
     required = ("launch_speed", "launch_angle", "hit_distance_sc", "spray_angle_approx")
     if not all(col in df.columns for col in required):
@@ -792,15 +832,21 @@ def add_infield_opportunity_features(df: pd.DataFrame) -> pd.DataFrame:
           first), else `0` -- a pre-contact game-state indicator (double
           -play-depth positioning depends on it), NOT computed from this
           play's own outcome.
-        - `converted_to_out`: `y_out`, ALIASED under
-          `mlb_luck_score.features.build_contact_features.
-          OPPORTUNITY_TARGET_COLUMN`'s name so the existing, UNCHANGED
-          `mlb_luck_score.models.train_opportunity_model` trainer (hardcoded
-          to read that column name) can be reused as-is -- see
-          `INFIELD_TARGET_COLUMN`'s docstring.
+        - `infield_converted_to_out`: `y_out`, copied under `INFIELD_
+          OPPORTUNITY_TARGET_COLUMN`'s name -- `mlb_luck_score.models.
+          train_opportunity_model.train_opportunity_model` takes an explicit
+          `target_column` parameter (defaulting to the outfield column) so
+          it can be reused for this domain by passing `target_column=
+          INFIELD_OPPORTUNITY_TARGET_COLUMN` explicitly, without the two
+          domains sharing a single column name -- see `INFIELD_OPPORTUNITY_
+          TARGET_COLUMN`'s docstring for the collision this replaced.
         - `assigned_infield_position` is cast to plain `object` dtype with
           `None` for missing (same `SimpleImputer`-compatibility fix as
           `assigned_outfield_position` above).
+
+    Safe to call on a COMBINED (mixed ground-ball + air-ball) DataFrame
+    together with `add_outfield_opportunity_features` -- see that function's
+    docstring; the two builders no longer share a target column name.
     """
     if "y_out" not in df.columns:
         return df
@@ -808,7 +854,7 @@ def add_infield_opportunity_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["on_1b_occupied"] = out["on_1b"].notna().astype(int) if "on_1b" in out.columns else 0
 
-    out[OPPORTUNITY_TARGET_COLUMN] = out["y_out"]
+    out[INFIELD_OPPORTUNITY_TARGET_COLUMN] = out["y_out"]
 
     if "assigned_infield_position" in out.columns:
         out["assigned_infield_position"] = (
@@ -816,6 +862,96 @@ def add_infield_opportunity_features(df: pd.DataFrame) -> pd.DataFrame:
         ).astype(object)
 
     return out
+
+
+class OpportunityDomainRoutingError(ValueError):
+    """Raised by `add_opportunity_features_by_domain` on a routing-invariant violation.
+
+    Never caught and silently worked around -- every condition this raises
+    for (both-domains-eligible rows, a duplicated/null index) indicates
+    either a genuine upstream eligibility bug or a caller reassembling rows
+    unsafely, not a recoverable data-quality issue.
+    """
+
+
+def add_opportunity_features_by_domain(df: pd.DataFrame) -> pd.DataFrame:
+    """Safely compute BOTH outfield and infield opportunity features on one
+    COMBINED (mixed ground-ball + air-ball) DataFrame.
+
+    This is the PREFERRED entry point whenever both domains' features are
+    needed on a shared DataFrame (e.g. Version 0.10's attribution ledger) --
+    it exists specifically so callers never have to hand-split eligible rows
+    and reassemble them (the exact discipline that was skipped once already,
+    see `INFIELD_OPPORTUNITY_TARGET_COLUMN`'s docstring for the bug that
+    caught). Calling `add_outfield_opportunity_features` and `add_infield_
+    opportunity_features` directly on a combined DataFrame is still safe
+    with respect to the target-column collision (the two builders now write
+    different column names), but this function ALSO fail-fasts on the
+    routing invariant those two functions do not check on their own.
+
+    Args:
+        df: Rows already through `mlb_luck_score.eligibility.add_outfield_
+            opportunity_eligibility` AND `add_infield_opportunity_
+            eligibility` (uses `outfield_opportunity_eligible`/`infield_
+            opportunity_eligible` to route each row to at most one builder).
+            `df.index` must be unique and non-null -- it is the ONLY thing
+            this function uses to restore each row to its original position
+            after reassembly, so a duplicated or null index would make that
+            restoration ambiguous or impossible to verify.
+
+    Returns:
+        A DataFrame with the SAME index, in the SAME order as `df`. Rows
+        routed to the outfield builder gain its columns (including
+        `OUTFIELD_OPPORTUNITY_TARGET_COLUMN`); rows routed to the infield
+        builder gain its columns (including `INFIELD_OPPORTUNITY_TARGET_
+        COLUMN`); rows in neither domain are returned unchanged. Each row
+        passes through AT MOST one builder -- never both, never neither's
+        target column populated for the other's rows.
+
+    Raises:
+        OpportunityDomainRoutingError: if `outfield_opportunity_eligible`/
+            `infield_opportunity_eligible` are missing; if `df.index` has a
+            duplicate or null value; or if any row is eligible for BOTH
+            domains simultaneously. The last case should be structurally
+            impossible given the two domains' disjoint `bb_type` requirements
+            (outfield: `OUTFIELD_AIR_BALL_TYPES`; infield: `ground_ball`
+            only -- see `mlb_luck_score.eligibility`), so this is a
+            fail-fast invariant check, not an expected/handled case -- a
+            silent "outfield wins" fallback would be far harder to notice
+            than a raised exception if that invariant is ever broken by a
+            future eligibility change.
+    """
+    required = ("outfield_opportunity_eligible", "infield_opportunity_eligible")
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise OpportunityDomainRoutingError(
+            f"add_opportunity_features_by_domain requires column(s) {missing}"
+        )
+    if df.index.duplicated().any():
+        dupes = df.index[df.index.duplicated()].unique().tolist()
+        raise OpportunityDomainRoutingError(
+            f"df.index has duplicate value(s), cannot safely reassemble rows: {dupes[:10]}"
+        )
+    if pd.isna(df.index).any():
+        raise OpportunityDomainRoutingError(
+            "df.index has null value(s), cannot safely reassemble rows"
+        )
+
+    outfield_mask = df["outfield_opportunity_eligible"].astype(bool)
+    infield_mask = df["infield_opportunity_eligible"].astype(bool)
+    both = outfield_mask & infield_mask
+    if both.any():
+        raise OpportunityDomainRoutingError(
+            f"{int(both.sum())} row(s) are eligible for BOTH outfield and infield "
+            "opportunity domains simultaneously -- refusing to silently route them "
+            "to only one domain (see this function's docstring)"
+        )
+
+    outfield_slice = add_outfield_opportunity_features(df.loc[outfield_mask])
+    infield_slice = add_infield_opportunity_features(df.loc[infield_mask])
+    neither_slice = df.loc[~outfield_mask & ~infield_mask]
+    reassembled = pd.concat([outfield_slice, infield_slice, neither_slice])
+    return reassembled.reindex(df.index)
 
 
 def select_opportunity_features(

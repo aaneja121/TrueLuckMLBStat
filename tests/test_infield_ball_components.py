@@ -13,7 +13,10 @@ import pandas as pd
 import pytest
 
 from mlb_luck_score.eligibility import add_infield_opportunity_eligibility, compute_eligibility
-from mlb_luck_score.features.build_contact_features import add_infield_opportunity_features
+from mlb_luck_score.features.build_contact_features import (
+    INFIELD_OPPORTUNITY_TARGET_COLUMN,
+    add_infield_opportunity_features,
+)
 from mlb_luck_score.models.compare_near_wall_calibration_gate import (
     OVERALL_STATUS_CALIBRATED,
     OVERALL_STATUS_CALIBRATED_LIMITED_EVIDENCE,
@@ -81,7 +84,9 @@ def trained_models():
     contact_trained = train_model(contact_elig, class_weight=None)
 
     infield_elig = df[df["infield_opportunity_eligible"].astype(bool)]
-    infield_trained = train_opportunity_model(infield_elig, class_weight=None)
+    infield_trained = train_opportunity_model(
+        infield_elig, class_weight=None, target_column=INFIELD_OPPORTUNITY_TARGET_COLUMN
+    )
     return df, contact_trained, infield_trained
 
 

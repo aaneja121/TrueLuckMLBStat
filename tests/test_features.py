@@ -12,16 +12,19 @@ from mlb_luck_score.features.build_contact_features import (
     ADVANCEMENT_SPEED_NUMERIC_FEATURES,
     INFIELD_CATEGORICAL_FEATURES,
     INFIELD_NUMERIC_FEATURES,
+    INFIELD_OPPORTUNITY_TARGET_COLUMN,
     INFIELD_TARGET_COLUMN,
     NEAR_WALL_CATEGORICAL_FEATURES,
     NEAR_WALL_NUMERIC_FEATURES,
     OPPORTUNITY_CATEGORICAL_FEATURES,
     OPPORTUNITY_NUMERIC_FEATURES,
-    OPPORTUNITY_TARGET_COLUMN,
+    OUTFIELD_OPPORTUNITY_TARGET_COLUMN,
     LeakageError,
+    OpportunityDomainRoutingError,
     add_advancement_contact_probability_features,
     add_advancement_features,
     add_infield_opportunity_features,
+    add_opportunity_features_by_domain,
     add_opportunity_target,
     add_outfield_opportunity_features,
     assert_no_leakage,
@@ -128,8 +131,8 @@ def test_opportunity_features_never_include_responsible_outfielder_id():
 def test_add_opportunity_target_maps_out_to_one():
     df = pd.DataFrame({"outcome_class": ["out", "single", "double", None]})
     out = add_opportunity_target(df)
-    assert out[OPPORTUNITY_TARGET_COLUMN].tolist()[:3] == [1, 0, 0]
-    assert pd.isna(out[OPPORTUNITY_TARGET_COLUMN].iloc[3])
+    assert out[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].tolist()[:3] == [1, 0, 0]
+    assert pd.isna(out[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[3])
 
 
 def test_add_outfield_opportunity_features_is_noop_without_required_columns():
@@ -153,7 +156,7 @@ def test_add_outfield_opportunity_features_computes_hang_time_and_landing():
     assert out["estimated_hang_time_s"].iloc[0] > 0
     assert pd.isna(out["estimated_hang_time_s"].iloc[1])  # missing launch_speed
     assert out["landing_y_ft"].iloc[0] == pytest.approx(350.0)
-    assert out[OPPORTUNITY_TARGET_COLUMN].tolist() == [1, 0]
+    assert out[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].tolist() == [1, 0]
     assert out["assigned_outfield_position"].iloc[0] == "8"
     assert pd.isna(out["assigned_outfield_position"].iloc[1])
 
@@ -224,7 +227,7 @@ def test_add_infield_opportunity_features_is_noop_without_y_out():
     pd.testing.assert_frame_equal(df, result)
 
 
-def test_add_infield_opportunity_features_computes_context_and_aliases_target():
+def test_add_infield_opportunity_features_computes_context_and_copies_target():
     df = pd.DataFrame(
         {
             "y_out": pd.array([1, 0], dtype="Int64"),
@@ -235,7 +238,11 @@ def test_add_infield_opportunity_features_computes_context_and_aliases_target():
     out = add_infield_opportunity_features(df)
     assert out["on_1b_occupied"].tolist() == [1, 0]
     assert out[INFIELD_TARGET_COLUMN].tolist() == [1, 0]
-    assert out[OPPORTUNITY_TARGET_COLUMN].tolist() == [1, 0]
+    assert out[INFIELD_OPPORTUNITY_TARGET_COLUMN].tolist() == [1, 0]
+    # Version 0.10 hardening: the infield builder must NEVER write the
+    # outfield's target column name -- the two domains no longer collide.
+    assert "outfield_converted_to_out" not in out.columns
+    assert "converted_to_out" not in out.columns
     assert out["assigned_infield_position"].iloc[0] == "6"
     assert pd.isna(out["assigned_infield_position"].iloc[1])
 
@@ -244,6 +251,96 @@ def test_add_infield_opportunity_features_defaults_on_1b_occupied_when_absent():
     df = pd.DataFrame({"y_out": pd.array([1], dtype="Int64")})
     out = add_infield_opportunity_features(df)
     assert out["on_1b_occupied"].tolist() == [0]
+
+
+# ---------------------------------------------------------------------------
+# Version 0.10 hardening: the outfield/infield target-column collision
+# ---------------------------------------------------------------------------
+
+
+def _combined_domain_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "outcome_class": ["out", "single", None, None],
+            "y_out": pd.array([pd.NA, pd.NA, 1, 0], dtype="Int64"),
+            "outfield_opportunity_eligible": [True, True, False, False],
+            "infield_opportunity_eligible": [False, False, True, True],
+            "launch_speed": [95.0, 90.0, 88.0, 85.0],
+            "launch_angle": [30.0, 10.0, -5.0, 2.0],
+            "hit_distance_sc": [350.0, 200.0, 60.0, 65.0],
+            "spray_angle_approx": [0.0, -10.0, 5.0, -5.0],
+        }
+    )
+
+
+def test_calling_both_builders_sequentially_does_not_overwrite_either_target():
+    combined = _combined_domain_df()
+
+    result = add_infield_opportunity_features(add_outfield_opportunity_features(combined))
+    assert result[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[0] == 1
+    assert result[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[1] == 0
+    assert pd.isna(result[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[2])
+    assert pd.isna(result[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[3])
+    assert pd.isna(result[INFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[0])
+    assert pd.isna(result[INFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[1])
+    assert result[INFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[2] == 1
+    assert result[INFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[3] == 0
+
+    # Same values regardless of call order -- there is nothing left for
+    # either call to clobber.
+    reversed_result = add_outfield_opportunity_features(add_infield_opportunity_features(combined))
+    assert reversed_result[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[0] == 1
+    assert reversed_result[INFIELD_OPPORTUNITY_TARGET_COLUMN].iloc[2] == 1
+
+
+def test_opportunity_features_by_domain_routes_each_row_to_at_most_one_builder():
+    combined = _combined_domain_df()
+    out = add_opportunity_features_by_domain(combined)
+
+    # Outfield rows (0, 1) got the outfield builder's columns...
+    assert out.loc[0, OUTFIELD_OPPORTUNITY_TARGET_COLUMN] == 1
+    assert out.loc[1, OUTFIELD_OPPORTUNITY_TARGET_COLUMN] == 0
+    assert out.loc[0, "estimated_hang_time_s"] > 0
+    # ...and never the infield builder's target.
+    assert pd.isna(out.loc[0, INFIELD_OPPORTUNITY_TARGET_COLUMN])
+    assert pd.isna(out.loc[1, INFIELD_OPPORTUNITY_TARGET_COLUMN])
+
+    # Infield rows (2, 3) got the infield builder's columns...
+    assert out.loc[2, INFIELD_OPPORTUNITY_TARGET_COLUMN] == 1
+    assert out.loc[3, INFIELD_OPPORTUNITY_TARGET_COLUMN] == 0
+    assert "on_1b_occupied" in out.columns
+    # ...and never the outfield builder's target.
+    assert pd.isna(out.loc[2, OUTFIELD_OPPORTUNITY_TARGET_COLUMN])
+    assert pd.isna(out.loc[3, OUTFIELD_OPPORTUNITY_TARGET_COLUMN])
+
+
+def test_opportunity_features_by_domain_raises_on_both_domains_eligible():
+    combined = _combined_domain_df()
+    combined.loc[0, "infield_opportunity_eligible"] = True  # now eligible for BOTH domains
+    with pytest.raises(OpportunityDomainRoutingError, match="BOTH outfield and infield"):
+        add_opportunity_features_by_domain(combined)
+
+
+def test_opportunity_features_by_domain_raises_on_duplicate_index():
+    combined = _combined_domain_df()
+    combined.index = [0, 0, 1, 2]
+    with pytest.raises(OpportunityDomainRoutingError, match="duplicate value"):
+        add_opportunity_features_by_domain(combined)
+
+
+def test_opportunity_features_by_domain_raises_on_missing_eligibility_columns():
+    df = pd.DataFrame({"launch_speed": [90.0]})
+    with pytest.raises(OpportunityDomainRoutingError, match="requires column"):
+        add_opportunity_features_by_domain(df)
+
+
+def test_opportunity_features_by_domain_preserves_row_identity_and_order():
+    combined = _combined_domain_df()
+    shuffled = combined.sample(frac=1.0, random_state=0)  # scramble both index and row order
+    out = add_opportunity_features_by_domain(shuffled)
+    assert out.index.tolist() == shuffled.index.tolist()
+    for idx in shuffled.index:
+        assert out.loc[idx, "launch_speed"] == shuffled.loc[idx, "launch_speed"]
 
 
 def test_select_infield_opportunity_features_drops_missing_and_sparse_columns():

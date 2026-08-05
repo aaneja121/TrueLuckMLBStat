@@ -229,7 +229,7 @@ def test_opportunity_bootstrap_returns_log_loss_and_ece_ci(opportunity_joined_df
     df = _prepare_opportunity_columns(training_eligible)
     eligible = df[df["outfield_opportunity_eligible"].astype(bool)]
     val_df = eligible[eligible["season"] == 2024]
-    y_true = val_df["converted_to_out"].astype(int).to_numpy()
+    y_true = val_df["outfield_converted_to_out"].astype(int).to_numpy()
 
     result = compute_opportunity_bootstrap(
         y_true, p_out_by_variant[VARIANT_MEASURED_CONTACT_ONLY], val_df["game_pk"], n_reps=20
@@ -251,7 +251,7 @@ def test_opportunity_bootstrap_deterministic(opportunity_joined_df):
     df = _prepare_opportunity_columns(opportunity_joined_df)
     eligible = df[df["outfield_opportunity_eligible"].astype(bool)]
     val_df = eligible[eligible["season"] == 2024]
-    y_true = val_df["converted_to_out"].astype(int).to_numpy()
+    y_true = val_df["outfield_converted_to_out"].astype(int).to_numpy()
 
     kwargs = dict(
         y_true=y_true,
@@ -318,7 +318,7 @@ def test_compute_opportunity_subgroups_never_references_movement_data(opportunit
 
     df = _prepare_opportunity_columns(opportunity_joined_df)
     eligible = df[df["outfield_opportunity_eligible"].astype(bool)]
-    y_true = eligible["converted_to_out"].astype(int).to_numpy()
+    y_true = eligible["outfield_converted_to_out"].astype(int).to_numpy()
     p_out = pd.Series(0.5, index=eligible.index)
     subgroups = compute_opportunity_subgroups(y_true, p_out, eligible)
     assert not any("movement" in key for key in subgroups)

@@ -48,7 +48,7 @@ def _synthetic_opportunity_df(n: int = 200) -> pd.DataFrame:
                 "bb_type": "fly_ball",
                 "of_fielding_alignment": "Standard",
                 "assigned_outfield_position": "8",
-                "converted_to_out": converted,
+                "outfield_converted_to_out": converted,
                 "season": 2021 + (i % 4),
             }
         )
@@ -72,8 +72,8 @@ def test_train_opportunity_model_produces_binary_probabilities(opportunity_df: p
 def test_opportunity_model_learns_the_real_relationship(opportunity_df: pd.DataFrame):
     trained = train_opportunity_model(opportunity_df, class_weight=None)
     feature_cols = trained.numeric_features + trained.categorical_features
-    deep_row = opportunity_df[opportunity_df["converted_to_out"] == 0].iloc[[0]]
-    shallow_row = opportunity_df[opportunity_df["converted_to_out"] == 1].iloc[[0]]
+    deep_row = opportunity_df[opportunity_df["outfield_converted_to_out"] == 0].iloc[[0]]
+    shallow_row = opportunity_df[opportunity_df["outfield_converted_to_out"] == 1].iloc[[0]]
     p_deep = predict_opportunity_proba(trained, deep_row[feature_cols]).iloc[0]
     p_shallow = predict_opportunity_proba(trained, shallow_row[feature_cols]).iloc[0]
     # Deep balls (label=0, i.e. NOT converted) should have LOWER p_out than
@@ -116,8 +116,8 @@ def test_evaluate_opportunity_model_returns_expected_keys(opportunity_df: pd.Dat
 
 def test_train_opportunity_model_requires_both_classes():
     df = _synthetic_opportunity_df()
-    df["converted_to_out"] = 1  # only one class present
-    with pytest.raises(ValueError, match="both converted_to_out"):
+    df["outfield_converted_to_out"] = 1  # only one class present
+    with pytest.raises(ValueError, match="both outfield_converted_to_out"):
         train_opportunity_model(df)
 
 
@@ -152,8 +152,8 @@ def test_unknown_model_type_rejected(opportunity_df: pd.DataFrame):
 def test_hgb_learns_the_real_relationship(opportunity_df: pd.DataFrame):
     trained = train_opportunity_model(opportunity_df, class_weight=None, model_type=MODEL_TYPE_HGB)
     feature_cols = trained.numeric_features + trained.categorical_features
-    deep_row = opportunity_df[opportunity_df["converted_to_out"] == 0].iloc[[0]]
-    shallow_row = opportunity_df[opportunity_df["converted_to_out"] == 1].iloc[[0]]
+    deep_row = opportunity_df[opportunity_df["outfield_converted_to_out"] == 0].iloc[[0]]
+    shallow_row = opportunity_df[opportunity_df["outfield_converted_to_out"] == 1].iloc[[0]]
     p_deep = predict_opportunity_proba(trained, deep_row[feature_cols]).iloc[0]
     p_shallow = predict_opportunity_proba(trained, shallow_row[feature_cols]).iloc[0]
     assert p_deep < p_shallow

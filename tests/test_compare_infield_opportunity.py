@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from mlb_luck_score.config import CALIBRATION_BASE_TRAIN_SEASONS, CALIBRATION_EVAL_SEASONS
+from mlb_luck_score.features.build_contact_features import INFIELD_OPPORTUNITY_TARGET_COLUMN
 from mlb_luck_score.models.compare_infield_opportunity import (
     INFIELD_SELECTION_CANDIDATES,
     VARIANT_INFIELD_FINAL,
@@ -108,11 +109,18 @@ def test_get_infield_rows_only_keeps_eligible_rows(infield_raw_df):
     assert len(result) <= len(infield_raw_df)
 
 
-def test_get_infield_rows_has_aliased_target_column(infield_df):
-    assert "converted_to_out" in infield_df.columns
+def test_get_infield_rows_has_infield_target_column(infield_df):
+    assert INFIELD_OPPORTUNITY_TARGET_COLUMN in infield_df.columns
     pd.testing.assert_series_equal(
-        infield_df["converted_to_out"], infield_df["y_out"], check_names=False
+        infield_df[INFIELD_OPPORTUNITY_TARGET_COLUMN], infield_df["y_out"], check_names=False
     )
+
+
+def test_get_infield_rows_does_not_write_the_outfield_target_column(infield_df):
+    # Version 0.10 hardening: the infield builder must never write the
+    # outfield's target column name -- the two domains no longer share one.
+    assert "outfield_converted_to_out" not in infield_df.columns
+    assert "converted_to_out" not in infield_df.columns
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +171,7 @@ def _fit_winner(infield_df: pd.DataFrame):
         class_weight=None,
         numeric_features=numeric_features,
         categorical_features=categorical_features,
+        target_column=INFIELD_OPPORTUNITY_TARGET_COLUMN,
     )
 
 

@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from mlb_luck_score.features.build_contact_features import OPPORTUNITY_TARGET_COLUMN
+from mlb_luck_score.features.build_contact_features import OUTFIELD_OPPORTUNITY_TARGET_COLUMN
 from mlb_luck_score.models.train_contact_model import (
     TrainedModel,
     predict_proba_ordered,
@@ -119,7 +119,7 @@ def build_air_ball_component_report(
     p_out_opportunity = predict_opportunity_proba(opportunity_trained, df[opportunity_feature_cols])
     validate_opportunity_probabilities(p_out_opportunity)
 
-    converted_to_out = df[OPPORTUNITY_TARGET_COLUMN].astype(int)
+    converted_to_out = df[OUTFIELD_OPPORTUNITY_TARGET_COLUMN].astype(int)
     execution = compute_defensive_execution(converted_to_out, p_out_opportunity)
 
     report = pd.DataFrame(
