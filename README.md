@@ -1603,11 +1603,24 @@ no adequately-supported group is credibly `not_calibrated` -- but because some g
 adequate evidence rather than being confirmed either way, `overall_status` is
 `calibrated_with_limited_subgroup_evidence`, and per CLAUDE.md/AGENTS.md's "Measured
 miscalibration vs. insufficient evidence" rule, **`calibrated_infield_opportunity` is
-`False`** -- insufficient evidence is never reported as a pass. Rows stay tagged
-`insufficient_evidence` (for the `position_2`/`alignment_infield_shift`/13-venue rows) or
-`calibrated_infield_opportunity` cannot be claimed globally; see
-`mlb_luck_score.scoring.infield_ball_components` for exactly how `overall_status` maps to
-each row's `infield_opportunity_status`.
+`False`** -- insufficient evidence is never reported as a pass.
+
+**Classification: adopted for real scoring on eligible infield plays, not described as
+fully validated.** Selected model `infield_hgb_v08`; `overall_status =
+calibrated_with_limited_subgroup_evidence`; `calibrated_infield_opportunity = False`. This
+is stronger than leaving the model unused (log loss/ECE are excellent, the sprint-speed
+counterfactual is correctly signed, no supported subgroup is credibly miscalibrated, and
+2025 remains untouched) but more honest than calling it universally calibrated (15 groups
+are genuinely uncertain, not failed). `mlb_luck_score.scoring.infield_ball_components`
+implements this as a boolean gate -- the SAME pattern `mlb_luck_score.scoring.
+gated_outfield_report` uses for the Version 0.7C near-wall specialist: every eligible row's
+`p_out_opportunity`/`defensive_execution_probability` IS computed and reported (never
+silently blanked), tagged `infield_opportunity_status = "provisional_infield_opportunity"`
+(not the finer-grained `insufficient_evidence` -- that label describes the 15 flagged
+subgroups/venues at the model-evaluation level, not individual rows; collapsing it to a
+per-row label would understate that most subgroups, including most venues, genuinely ARE
+calibrated). Only once `overall_status` reaches full `calibrated` does a row get
+`calibrated_infield_opportunity` instead.
 
 Reached-on-error plays (n=976, mean predicted `P(out)` 0.8608) are DESCRIPTIVE ONLY (task
 Phase 3 forbids using the error flag as a predictor) but plausible: they score noticeably
@@ -1655,6 +1668,173 @@ infield_execution`, `reached_on_error` (reporting only), and `infield_opportunit
 - Individual-defender identity (`responsible_infielder_id`) is available for post-hoc
   evaluation only, never a training feature -- training on it would encode that specific
   fielder's skill rather than physical opportunity difficulty.
+
+## Batter-runner advancement (Version 0.9)
+
+Models what happens AFTER the batter safely reaches at least first on a fair outfield air
+ball: `P(batter_final_base = held_at_first / advanced_to_second / advanced_to_third /
+inside_the_park_home_run / retired_while_advancing)`. Batter-runner advancement only --
+preexisting-runner advancement is explicitly out of scope. Infield hits are deferred (per
+the task, "overthrows and hurried throws complicate attribution"). Version 0.7/0.8 remain
+frozen/unaffected.
+
+### The target is not a Statcast column -- it is parsed from `des`
+
+`events` only records the batter's HIT TYPE (single/double/triple/home_run), not where
+they ended up: real 2021-2024 examples include a "single" where the batter is later
+thrown out stretching to second, and a "triple" where the batter scores anyway on a
+subsequent throwing error while `events` stays `triple`. The target is reconstructed by
+`mlb_luck_score.eligibility.parse_batter_advancement_des`: extract the batter's own name
+from the leading clause of `des` (validated at 99.98% reliability across 159,743 real hit
+rows), strip any MLB Gameday review/challenge preamble, then search the remainder for four
+specific clause patterns (retired-while-advancing, error-driven advance, simple advance,
+scores). Every batter-name mention must be accounted for by a known pattern or the row is
+excluded, never guessed.
+
+**Two real bugs were caught and fixed during development, not left for later discovery:**
+a verb-lookup dict keyed by regex pattern strings instead of matched text (silently failed
+on every "reaches on error" row until fixed to loop through patterns directly), and an
+unstripped review/challenge preamble that was corrupting name extraction on ~0.8% of real
+rows (`retired_while_advancing` coverage moved from 734 to 887 real rows once fixed).
+
+Real 2021-2024 coverage, restricted to fair outfield air balls (`fly_ball`/`line_drive`)
+with a safe event (single/double/triple/home_run/field_error) -- 107,721 rows:
+
+| Parse status | Count |
+|---|---|
+| `parsed_unambiguous` | 107,718 (99.997%) |
+| `unsupported_play_sequence` (excluded, never guessed) | 3 |
+| `ambiguous` / `no_batter_match` / `parse_failure` | 0 |
+
+| Category | Rows |
+|---|---|
+| `eligible` | 85,282 |
+| `not_advancement_safe_event` (batter retired on the batted ball itself) | 137,952 |
+| `trivial_no_advancement_opportunity` (plain over-the-fence home run -- advancement to home is certain and defense-independent, no genuine opportunity to model) | 22,436 |
+| `unresolved_des_parse` | 3 |
+
+Eligible population by label: `held_at_first` 53,417; `advanced_to_second` 27,982;
+`advanced_to_third` 2,910; `retired_while_advancing` 887; `inside_the_park_home_run` 86
+(this bucket deliberately conflates a genuine inside-the-park home run with the rarer
+case of scoring via error from a lesser hit -- both are the SAME terminal state for the
+batter-runner, kept distinguishable via a separate `is_true_inside_the_park_home_run`
+informational flag).
+
+**Manual review** (task safeguard #5): 125 freshly stratified rows (25 per label, with
+the two rarest labels sampled at their full real proportion) plus all 3 `unsupported_
+play_sequence` failures -- all correct on inspection. `des`, the matched clause, and every
+parser audit-trail column are registered in `mlb_luck_score.config.LEAKAGE_COLUMNS` and
+enforced by the same `assert_no_leakage` check as every other leakage rule in this
+codebase (task safeguard #7).
+
+### A real feature-omission bug, caught by comparing against the empirical baseline
+
+The task specifies a simple empirical baseline (`advancement_empirical_baseline`: outcome
+frequency by hit-type-implied floor base x sprint-speed quartile, fit ONLY on
+`CALIBRATION_BASE_TRAIN_SEASONS`) specifically so the learned candidates have something
+concrete to be checked against, not just their own internal calibration. That check caught
+a real bug: an earlier feature set never included the batter's own hit type (single/
+double/triple) as an explicit feature -- only continuous physics features and the contact
+model's own probability ESTIMATE of hit type (`contact_p_triple`, which barely
+distinguishes double-floor rows from triple-floor rows: mean 0.018 vs. 0.021 on real
+2021-2022 data -- the contact model's pre-fielding guess is a much weaker signal than the
+umpire-scorer's actual, already-final hit-type ruling). Without it, ALL THREE learned
+candidates scored WORSE (multiclass log loss 0.44-0.53) than the two-column empirical
+baseline (0.18) on real 2024 data, driven largely by the tree-based candidate assigning
+near-zero probability (median 8.7e-6) to real `inside_the_park_home_run` rows. Adding
+`hit_type_group` as an explicit categorical feature (legitimate and NOT leakage -- it only
+establishes the FLOOR of possible outcomes, determined by the batted ball itself, not by
+whether the batter later advances further or is retired) fixed this: selection-round log
+loss dropped from 0.53/0.53/0.44 to 0.155/0.154/0.272. `beats_empirical_baseline` is now a
+permanent, real-data-motivated criterion in `summarize_advancement_calibration`, not just a
+one-time diagnostic -- a model that cannot beat a two-column frequency table has no
+business being called calibrated regardless of its own internal ECE.
+
+### Model selection and real 2024 result
+
+Three candidates, IDENTICAL feature set except `sprint_speed` and model class, fit on
+2021-2022, selected on 2023 by multiclass log loss (tie-broken by mean one-vs-rest ECE):
+
+| Candidate | Selection (2023) log loss | Selection mean one-vs-rest ECE |
+|---|---|---|
+| `advancement_context_v09` (logistic, no speed) | 0.154857 | 0.002679 |
+| `advancement_speed_v09` (logistic, +speed) -- winner | 0.154231 | 0.002320 |
+| `advancement_nonlinear_v09_candidate` (HGB, +speed) | 0.272223 | 0.004680 |
+
+(The nonlinear candidate is markedly WORSE here, not better -- HistGradientBoosting's
+tree splits are more prone to the near-zero rare-class collapse described above than
+logistic regression's smoother probability estimates, even with `hit_type_group` included.)
+
+**Final 2024 comparison** (`advancement_speed_v09`, n=21,200): multiclass log loss
+0.155301, **beating the empirical baseline's 0.181123**. Every one-vs-rest class's ECE
+clears the 0.05 absolute bar (max 0.0045, `retired_while_advancing`). Sprint speed adds a
+real but modest improvement over context alone (speed adding sprint_speed as a feature
+narrowly beats context on both selection and reflects the real, if modest, marginal value
+of runner speed once hit type is already known).
+
+### Perturbation check
+
+`sprint_speed_direction` (required): among otherwise-identical rows, a slow batter (23.0
+ft/s) shows mean "expected advancement index" 1.3735 vs. a fast batter (29.0 ft/s) at
+1.3886 (delta +0.0151, n=21,112) -- correctly signed (faster batters advance further) and
+**passes**. `sprint_speed` has no derived-dependent feature anywhere in this set
+(`contact_p_*` comes from an earlier, independent model stage; hang time/landing
+coordinates are derived from launch speed/angle/distance, not speed), so overriding it
+needs no recomputation.
+
+### Calibration gate: `calibrated_with_limited_subgroup_evidence`
+
+Required subgroups (sprint-speed quartile, contact type, spray sector, outfielder
+position, wall proximity) plus venues, evaluated per one-vs-rest CLASS (the "final-base
+outcome" dimension) -- 255 (subgroup/venue, class) pairs total:
+
+| status | count | notes |
+|---|---|---|
+| `calibrated` | 137 | broad coverage across the three common labels (`held_at_first`, `advanced_to_second`, `advanced_to_third`) and most subgroups |
+| `not_calibrated` | 0 | none -- no credible miscalibration anywhere |
+| `insufficient_evidence` | 118 | overwhelmingly `inside_the_park_home_run` (n=86 total) across nearly every subgroup/venue, `retired_while_advancing` (n=887) across many venues, and a few `contact_type_triple` pairs (triples are inherently rare, ~2,900 total) |
+
+Zero credibly `not_calibrated` pairs, but per CLAUDE.md/AGENTS.md's "Measured
+miscalibration vs. insufficient evidence" rule, `overall_status` is `calibrated_with_
+limited_subgroup_evidence` and **`calibrated_advancement_model` is `False`** --
+insufficient evidence for the two rarest outcome classes is never reported as a pass, even
+though every criterion that CAN be checked passes cleanly (beats the empirical baseline,
+every class ECE within threshold, the required perturbation check passes, zero credible
+regressions).
+
+**Classification: adopted for real scoring on eligible outfield-air-ball plays, not
+described as fully validated.** Same pattern as Version 0.8's `provisional_infield_
+opportunity` -- `mlb_luck_score.scoring.advancement_execution` implements this as the SAME
+boolean gate (`overall_status == calibrated` -> `calibrated_advancement_model`; anything
+else -> `provisional_advancement_model`), scores are always computed and reported for
+eligible rows, never silently blanked.
+
+### Six components, reported side by side, never summed
+
+`mlb_luck_score.scoring.advancement_execution.build_advancement_component_report`
+assembles, per eligible play: `expected_contact_base` (the existing contact model's own
+pre-fielding prediction of contact value), `actual_final_batter_base` (the real observed
+outcome), `advancement_opportunity` (this model's predicted expected base value),
+`batter_runner_advancement_execution` (`actual - opportunity`), `defensive_advancement_
+effect` (`= -batter_runner_advancement_execution`, the same batter/defense sign-flip
+convention `defensive_execution`/`infield_execution` already use -- NOT an independently
+-estimated causal split of batter speed vs. defensive positioning, which a single joint
+model cannot support), and `residual_uncertainty` (the variance of the predicted
+base-value distribution -- how much genuine outcome variance remains even after
+conditioning on everything known).
+
+### Limitations
+
+- `calibrated_advancement_model` is `False` pending more data specifically for `inside_
+  the_park_home_run` (n=86) and, to a lesser extent, `retired_while_advancing` (n=887) and
+  triple-floor rows -- the other 137 (subgroup, class) pairs are genuinely `calibrated`,
+  and zero pairs are credibly `not_calibrated`.
+- Infield hits, preexisting-runner advancement, and discretionary scorer decisions are
+  explicitly out of scope for this phase.
+- `defensive_advancement_effect` is a sign-flipped restatement of the SAME execution
+  quantity, not an independent estimate of the defense's own contribution.
+- Plain over-the-fence home runs are excluded from the eligible population by design (no
+  genuine advancement opportunity exists once a ball clears the fence).
 
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 

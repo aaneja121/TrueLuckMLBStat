@@ -9,7 +9,7 @@
 	compare-opportunity-models notebook-outfield-opportunity \
 	compare-near-wall-models compare-near-wall-calibration-gate \
 	download-sprint-speed join-sprint-speed compare-infield-opportunity \
-	notebook-infield-opportunity
+	notebook-infield-opportunity compare-advancement-models notebook-advancement
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -319,3 +319,19 @@ compare-infield-opportunity:
 
 notebook-infield-opportunity:
 	$(PY) -m jupyter notebook notebooks/10_infield_opportunity_execution_analysis.ipynb
+
+# Version 0.9 batter-runner advancement model: fits three multinomial
+# candidates (2021-2022), selects on 2023, and runs the final comparison
+# against a simple empirical baseline on 2024 (development validation --
+# 2025 untouched), restricted to fair outfield air balls where the batter
+# safely reaches at least first. Uses the v0.7D sample-size-aware
+# calibration gate looped per one-vs-rest class, and REQUIRES the winner to
+# beat the empirical baseline's log loss (see module docstring for the real
+# feature-omission bug this caught). Does not modify Version 0.7/0.8.
+compare-advancement-models:
+	$(PY) -m mlb_luck_score.models.compare_advancement_models \
+		--input data/processed/cleaned_development_data_with_sprint_speed.parquet \
+		--output-dir outputs/tables
+
+notebook-advancement:
+	$(PY) -m jupyter notebook notebooks/11_advancement_execution_analysis.ipynb

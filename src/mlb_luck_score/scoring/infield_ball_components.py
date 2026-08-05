@@ -18,7 +18,7 @@ air_ball_components` builds for outfield air balls (task Phase 8/9):
   3. `defensive_execution_probability` / `batter_perspective_infield_
      execution` -- `mlb_luck_score.scoring.infield_execution`.
   4. `reached_on_error` -- REPORTING ONLY (task Phase 3), never a predictor.
-  5. `infield_opportunity_status` -- one of five explicit statuses (task
+  5. `infield_opportunity_status` -- one of four explicit statuses (task
      Phase 9), see `build_infield_ball_component_report`'s docstring.
 
 **These are reported side by side, NEVER summed into one score** -- same
@@ -48,10 +48,7 @@ from mlb_luck_score.eligibility import (
     REASON_OUTFIELD_CREDITED_HIT_LOCATION,
     REASON_RUNDOWN_PLAY,
 )
-from mlb_luck_score.models.compare_near_wall_calibration_gate import (
-    OVERALL_STATUS_CALIBRATED,
-    OVERALL_STATUS_CALIBRATED_LIMITED_EVIDENCE,
-)
+from mlb_luck_score.models.compare_near_wall_calibration_gate import OVERALL_STATUS_CALIBRATED
 from mlb_luck_score.models.train_contact_model import (
     TrainedModel,
     predict_proba_ordered,
@@ -68,7 +65,6 @@ from mlb_luck_score.scoring.weather_attribution import compute_expected_run_valu
 
 STATUS_CALIBRATED_INFIELD_OPPORTUNITY = "calibrated_infield_opportunity"
 STATUS_PROVISIONAL_INFIELD_OPPORTUNITY = "provisional_infield_opportunity"
-STATUS_INSUFFICIENT_EVIDENCE = "insufficient_evidence"
 STATUS_EXCLUDED_STRATEGIC_PLAY = "excluded_strategic_play"
 STATUS_UNAVAILABLE_MISSING_INPUTS = "unavailable_missing_inputs"
 
@@ -106,15 +102,34 @@ class InfieldBallComponentError(ValueError):
 
 
 def _infield_opportunity_status_for_row(exclusion_reason: object, overall_status: str) -> str:
+    """`overall_status` collapses to a boolean gate here -- the SAME pattern
+    `mlb_luck_score.scoring.gated_outfield_report` uses for `near_wall_
+    specialist_calibrated` (Version 0.7C): every eligible row gets
+    `calibrated_infield_opportunity` ONLY if `overall_status` is fully
+    `OVERALL_STATUS_CALIBRATED`; ANY other status -- including `OVERALL_
+    STATUS_CALIBRATED_LIMITED_EVIDENCE`, where most subgroups genuinely ARE
+    calibrated and only a handful lack adequate evidence -- gets `provisional_
+    infield_opportunity`. The score is still COMPUTED and reported for every
+    eligible row (never silently blanked); "provisional" means lower
+    confidence, not unavailable. A separate, finer-grained subgroup/venue
+    breakdown (which groups are `calibrated` vs. `not_calibrated` vs.
+    `insufficient_evidence`) is reported by `mlb_luck_score.models.
+    compare_infield_opportunity.summarize_infield_calibration` -- that
+    per-group detail is intentionally NOT re-derived per row here, since a
+    single play cannot belong to more than one of several overlapping
+    subgroup dimensions (position, alignment, venue, ...) at once in a way
+    that would make a single row-level "which subgroup failed" label
+    meaningful.
+    """
     is_missing = exclusion_reason is None or (
         isinstance(exclusion_reason, float) and pd.isna(exclusion_reason)
     )
     if is_missing:
-        if overall_status == OVERALL_STATUS_CALIBRATED:
-            return STATUS_CALIBRATED_INFIELD_OPPORTUNITY
-        if overall_status == OVERALL_STATUS_CALIBRATED_LIMITED_EVIDENCE:
-            return STATUS_INSUFFICIENT_EVIDENCE
-        return STATUS_PROVISIONAL_INFIELD_OPPORTUNITY
+        return (
+            STATUS_CALIBRATED_INFIELD_OPPORTUNITY
+            if overall_status == OVERALL_STATUS_CALIBRATED
+            else STATUS_PROVISIONAL_INFIELD_OPPORTUNITY
+        )
     if exclusion_reason in _STRATEGIC_EXCLUSION_REASONS:
         return STATUS_EXCLUDED_STRATEGIC_PLAY
     if exclusion_reason in _MISSING_INPUT_REASONS:
@@ -155,10 +170,21 @@ def build_infield_ball_component_report(
             summarize_infield_calibration`'s `overall_status` -- drives
             `infield_opportunity_status` for every ELIGIBLE row (see
             `_infield_opportunity_status_for_row`): `calibrated` ->
-            `calibrated_infield_opportunity`; `calibrated_with_limited_
-            subgroup_evidence` -> `insufficient_evidence` (some subgroups
-            lack evidence -- reported honestly, never as an unconditional
-            pass); anything else -> `provisional_infield_opportunity`.
+            `calibrated_infield_opportunity`; ANY other status (including
+            `calibrated_with_limited_subgroup_evidence`) -> `provisional_
+            infield_opportunity` -- the same boolean-gate pattern `mlb_luck_
+            score.scoring.gated_outfield_report` uses for the near-wall
+            specialist. The score is always computed and reported for
+            eligible rows; "provisional" signals lower confidence, not
+            unavailability. As of the real 2021-2024 run, `overall_status`
+            is `calibrated_with_limited_subgroup_evidence` (log loss/ECE
+            excellent, the required sprint-speed perturbation check passes,
+            no adequately-supported subgroup is credibly `not_calibrated`,
+            but `position_2`/`alignment_infield_shift`/13 individual venues
+            still lack adequate evidence) -- so this is adopted for real
+            scoring, tagged `provisional_infield_opportunity`, never claimed
+            as unconditionally `calibrated_infield_opportunity`. See
+            README.md "Infield opportunity and execution (Version 0.8)".
         run_value_map: Fixed run-value table, same as `mlb_luck_score.
             scoring.air_ball_components` -- never a redefinition.
 

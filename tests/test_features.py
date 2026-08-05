@@ -4,6 +4,12 @@ import pandas as pd
 import pytest
 
 from mlb_luck_score.features.build_contact_features import (
+    ADVANCEMENT_CONTEXT_CATEGORICAL_FEATURES,
+    ADVANCEMENT_CONTEXT_NUMERIC_FEATURES,
+    ADVANCEMENT_NONLINEAR_CATEGORICAL_FEATURES,
+    ADVANCEMENT_NONLINEAR_NUMERIC_FEATURES,
+    ADVANCEMENT_SPEED_CATEGORICAL_FEATURES,
+    ADVANCEMENT_SPEED_NUMERIC_FEATURES,
     INFIELD_CATEGORICAL_FEATURES,
     INFIELD_NUMERIC_FEATURES,
     INFIELD_TARGET_COLUMN,
@@ -13,11 +19,14 @@ from mlb_luck_score.features.build_contact_features import (
     OPPORTUNITY_NUMERIC_FEATURES,
     OPPORTUNITY_TARGET_COLUMN,
     LeakageError,
+    add_advancement_contact_probability_features,
+    add_advancement_features,
     add_infield_opportunity_features,
     add_opportunity_target,
     add_outfield_opportunity_features,
     assert_no_leakage,
     build_preprocessing_pipeline,
+    select_advancement_features,
     select_available_features,
     select_infield_opportunity_features,
     select_opportunity_features,
@@ -265,3 +274,140 @@ def test_select_infield_opportunity_features_never_include_leakage_columns():
     numeric, categorical = select_infield_opportunity_features(df)
     assert "events" not in numeric + categorical
     assert "outcome_class" not in numeric + categorical
+
+
+# ---------------------------------------------------------------------------
+# Version 0.9: batter-runner advancement features
+# ---------------------------------------------------------------------------
+
+
+def test_advancement_context_features_are_not_leakage_columns():
+    assert set(ADVANCEMENT_CONTEXT_NUMERIC_FEATURES).isdisjoint(
+        {"events", "outcome_class", "woba_value", "delta_home_win_exp", "des"}
+    )
+    assert set(ADVANCEMENT_CONTEXT_CATEGORICAL_FEATURES).isdisjoint(
+        {"events", "outcome_class", "woba_value", "delta_home_win_exp", "des"}
+    )
+
+
+def test_advancement_speed_features_add_only_sprint_speed():
+    assert set(ADVANCEMENT_SPEED_NUMERIC_FEATURES) - set(ADVANCEMENT_CONTEXT_NUMERIC_FEATURES) == {
+        "sprint_speed"
+    }
+    assert ADVANCEMENT_SPEED_CATEGORICAL_FEATURES == ADVANCEMENT_CONTEXT_CATEGORICAL_FEATURES
+
+
+def test_advancement_nonlinear_features_identical_to_speed_features():
+    assert ADVANCEMENT_NONLINEAR_NUMERIC_FEATURES == ADVANCEMENT_SPEED_NUMERIC_FEATURES
+    assert ADVANCEMENT_NONLINEAR_CATEGORICAL_FEATURES == ADVANCEMENT_SPEED_CATEGORICAL_FEATURES
+
+
+def test_advancement_features_never_include_des_or_matched_clause():
+    # The target label is reconstructed from des -- des and any parser
+    # audit-trail column must never be a model input (task safeguard #7).
+    forbidden = {
+        "des",
+        "advancement_matched_clause",
+        "advancement_parse_status",
+        "advancement_parse_failure_reason",
+        "batter_final_base",
+    }
+    assert forbidden.isdisjoint(ADVANCEMENT_CONTEXT_NUMERIC_FEATURES)
+    assert forbidden.isdisjoint(ADVANCEMENT_CONTEXT_CATEGORICAL_FEATURES)
+    assert forbidden.isdisjoint(ADVANCEMENT_SPEED_NUMERIC_FEATURES)
+
+
+def test_add_advancement_features_is_noop_without_required_columns():
+    df = pd.DataFrame({"bb_type": ["fly_ball"]})
+    result = add_advancement_features(df)
+    pd.testing.assert_frame_equal(df, result)
+
+
+def test_add_advancement_features_computes_hang_time_landing_and_base_occupancy():
+    df = pd.DataFrame(
+        {
+            "launch_speed": [95.0],
+            "launch_angle": [25.0],
+            "hit_distance_sc": [350.0],
+            "spray_angle_approx": [0.0],
+            "on_1b": pd.array([123], dtype="Int64"),
+            "on_2b": pd.array([pd.NA], dtype="Int64"),
+            "on_3b": pd.array([pd.NA], dtype="Int64"),
+            "assigned_outfield_position": pd.array([8], dtype="Int64"),
+        }
+    )
+    out = add_advancement_features(df)
+    assert out["estimated_hang_time_s"].iloc[0] > 0
+    assert out["on_1b_occupied"].tolist() == [1]
+    assert out["on_2b_occupied"].tolist() == [0]
+    assert out["on_3b_occupied"].tolist() == [0]
+    assert out["assigned_outfield_position"].iloc[0] == "8"
+
+
+def test_add_advancement_features_defaults_base_occupancy_when_absent():
+    df = pd.DataFrame(
+        {
+            "launch_speed": [95.0],
+            "launch_angle": [25.0],
+            "hit_distance_sc": [350.0],
+            "spray_angle_approx": [0.0],
+        }
+    )
+    out = add_advancement_features(df)
+    assert out["on_1b_occupied"].tolist() == [0]
+    assert out["on_2b_occupied"].tolist() == [0]
+    assert out["on_3b_occupied"].tolist() == [0]
+
+
+def test_add_advancement_contact_probability_features_attaches_five_columns():
+    df = pd.DataFrame({"a": [1, 2]})
+    contact_proba = pd.DataFrame(
+        {
+            "out": [0.2, 0.3],
+            "single": [0.3, 0.2],
+            "double": [0.2, 0.2],
+            "triple": [0.1, 0.1],
+            "home_run": [0.2, 0.2],
+        }
+    )
+    out = add_advancement_contact_probability_features(df, contact_proba)
+    assert out["contact_p_out"].tolist() == [0.2, 0.3]
+    assert out["contact_p_home_run"].tolist() == [0.2, 0.2]
+
+
+def test_add_advancement_contact_probability_features_rejects_mismatched_index():
+    df = pd.DataFrame({"a": [1]}, index=[0])
+    contact_proba = pd.DataFrame(
+        {"out": [0.2], "single": [0.2], "double": [0.2], "triple": [0.2], "home_run": [0.2]},
+        index=[1],
+    )
+    with pytest.raises(ValueError, match="identical index"):
+        add_advancement_contact_probability_features(df, contact_proba)
+
+
+def test_select_advancement_features_drops_missing_and_sparse_columns():
+    df = pd.DataFrame(
+        {
+            "launch_speed": [95.0, 96.0, 97.0, 98.0],
+            "sprint_speed": [27.0, None, None, None],  # 25% present -> below threshold
+            "stand": ["R"] * 4,
+        }
+    )
+    numeric, categorical = select_advancement_features(
+        df,
+        numeric_candidates=["launch_speed", "sprint_speed", "hit_distance_sc"],
+        categorical_candidates=["stand", "if_fielding_alignment"],
+    )
+    assert "launch_speed" in numeric
+    assert "sprint_speed" not in numeric  # too sparse
+    assert "hit_distance_sc" not in numeric  # absent entirely
+    assert "stand" in categorical
+    assert "if_fielding_alignment" not in categorical  # absent entirely
+
+
+def test_select_advancement_features_never_include_leakage_columns():
+    df = pd.DataFrame({"launch_speed": [95.0], "des": ["Someone singles."], "stand": ["R"]})
+    with pytest.raises(LeakageError):
+        select_advancement_features(
+            df, numeric_candidates=["launch_speed", "des"], categorical_candidates=["stand"]
+        )

@@ -67,6 +67,28 @@ LEAKAGE_COLUMNS: frozenset[str] = frozenset(
         "post_home_score",
         "post_bat_score",
         "post_fld_score",
+        # Version 0.9: `des` is the free-text field `mlb_luck_score.
+        # eligibility.parse_batter_advancement_des` parses to build the
+        # `batter_final_base` target -- it and every parser audit-trail
+        # column derived from it directly reveal that target, exactly like
+        # `events`/`outcome_class` reveal the Version 0.1 target. Never a
+        # model input (task safeguard #7). `hit_type_implied_floor_base` is
+        # DELIBERATELY NOT included here -- unlike the columns above, it does
+        # not reveal the target: it is the batter's HIT TYPE (single/double/
+        # triple), which only establishes the FLOOR of possible final bases
+        # (genuine advancement/retirement beyond that floor remains
+        # uncertain) and is determined by the batted ball itself, not by
+        # whether the batter later advances further or is thrown out -- the
+        # same "pre-outcome, not leakage" status `bb_type` already has for
+        # the Version 0.1 contact model (see this frozenset's docstring).
+        "des",
+        "batter_final_base",
+        "advancement_matched_clause",
+        "advancement_parse_status",
+        "advancement_parse_failure_reason",
+        "advancement_caused_by_error",
+        "is_true_inside_the_park_home_run",
+        "reviewed_or_overturned",
     }
 )
 

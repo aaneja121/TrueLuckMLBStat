@@ -148,7 +148,11 @@ def test_eligible_rows_get_calibrated_status_when_overall_calibrated(trained_mod
     ).all()
 
 
-def test_eligible_rows_get_insufficient_evidence_status_for_limited_evidence(trained_models):
+def test_eligible_rows_get_provisional_status_for_limited_evidence(trained_models):
+    # calibrated_with_limited_subgroup_evidence collapses to the SAME
+    # provisional status as not_calibrated (see gated_outfield_report's
+    # boolean-gate precedent) -- most subgroups genuinely are calibrated
+    # here, so "insufficient_evidence" would understate it.
     df, contact_trained, infield_trained = trained_models
     report = build_infield_ball_component_report(
         df,
@@ -158,7 +162,7 @@ def test_eligible_rows_get_insufficient_evidence_status_for_limited_evidence(tra
     )
     eligible_mask = df["infield_opportunity_eligible"].astype(bool)
     assert (
-        report.loc[eligible_mask, "infield_opportunity_status"] == "insufficient_evidence"
+        report.loc[eligible_mask, "infield_opportunity_status"] == "provisional_infield_opportunity"
     ).all()
 
 

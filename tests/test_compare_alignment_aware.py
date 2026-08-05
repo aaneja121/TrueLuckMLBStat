@@ -619,7 +619,12 @@ def test_positioning_attribution_never_uses_leakage_columns_in_its_module():
 
     source = inspect.getsource(pa)
     for leaked_col in LEAKAGE_COLUMNS:
-        assert leaked_col not in source
+        # Quoted-literal check (e.g. df["des"]), not a bare substring search
+        # -- short column names like "des" are common substrings of ordinary
+        # English words ("provides", "described", ...) that would otherwise
+        # false-positive.
+        assert f'"{leaked_col}"' not in source
+        assert f"'{leaked_col}'" not in source
 
 
 def test_positioning_effect_not_added_to_raw_contact_luck_by_default():

@@ -12,6 +12,7 @@ conservative: ambiguous or rare situations are flagged rather than guessed.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import pandas as pd
@@ -758,3 +759,644 @@ def summarize_infield_exclusions(df: pd.DataFrame) -> InfieldExclusionCounts:
             }
 
     return InfieldExclusionCounts(by_season=by_season, total=total)
+
+
+# ---------------------------------------------------------------------------
+# Version 0.9: batter-runner advancement eligibility and labeling
+# ---------------------------------------------------------------------------
+#
+# The TARGET for this phase -- the batter-runner's final base at the end of
+# the continuous play arising from their own batted ball -- is NOT a
+# Statcast column. `events` records only the batter's HIT TYPE (single/
+# double/triple/home_run), which is the base they were credited with on the
+# batted ball itself, not necessarily where they ended up: a real, verified
+# 2021-2024 example is a batter credited with a "single" who is later thrown
+# out stretching for second (`events` stays "single"; `des` narrates the
+# out), or a batter credited with a "double"/"triple" who scores anyway on a
+# subsequent throwing/fielding error (`events` stays "double"/"triple"; only
+# `des` reveals the extra advancement). This is why this label MUST be
+# reconstructed from the free-text `des` field, not read off a controlled
+# column, unlike every other outcome-class mapping in this file.
+#
+# The parsing method (validated against the real, already-downloaded
+# 2021-2024 dataset before being written here -- see README.md "Batter
+# -runner advancement (Version 0.9)" for the exact real coverage numbers):
+#
+#   1. Every `des` string for an eligible play begins with the batter's OWN
+#      name, followed by a hit-type verb ("<Name> singles on a...", "<Name>
+#      reaches on a fielding error by...", etc.) -- extracting the name from
+#      this leading clause via regex succeeds on essentially 100% of real
+#      eligible rows and requires no external batter-ID-to-name lookup.
+#   2. A small number of real rows (roughly 0.8% of the eligible population)
+#      have a review/challenge PREAMBLE before that leading clause (e.g.
+#      "Blue Jays challenged (tag play), call on the field was overturned:
+#      <Name> singles..."), sometimes doubled ("X challenged (...): X
+#      challenged (...): <Name> singles..."). An EARLIER version of this
+#      parser did not strip this preamble, which silently corrupted the
+#      extracted batter name (it absorbed the whole preamble) and therefore
+#      silently mislabeled these rows as `held_at_first`/`advanced_to_
+#      second`/etc. instead of their true, often more-advanced or retired,
+#      outcome -- caught only by comparing label counts before and after
+#      adding `_strip_review_preamble` (`retired_while_advancing` moved from
+#      734 to 887 real rows once fixed). `reviewed_or_overturned` is kept as
+#      an INFORMATIONAL flag (same convention as Version 0.8's identically
+#      -named column) -- these rows are NOT excluded, since Statcast's `des`
+#      already reflects the final, corrected ruling.
+#   3. With the batter's name in hand, the REST of `des` is searched for
+#      that exact name (regex-escaped, so punctuation in real names --
+#      periods, apostrophes, hyphens, suffixes -- is handled automatically)
+#      against four specific clause patterns: retired while advancing
+#      ("<Name> out at 2nd/3rd/home..."), error-driven advancement ("<Name>
+#      advances to 2nd/3rd/home, on a throwing/fielding error by..."),
+#      simple advancement ("<Name> to 2nd/3rd."), and scoring ("<Name>
+#      scores."). If NONE of these match, the batter is assumed to have
+#      stayed at the hit-implied base (verified correct against a manual
+#      stratified sample -- see README.md).
+#   4. Every batter-name occurrence in the remainder of `des` MUST be
+#      accounted for by one of these four patterns; if the name appears
+#      again in a form none of them recognize, the row is `unsupported_
+#      play_sequence`, NEVER silently defaulted to "stayed at the
+#      hit-implied base". Genuinely contradictory matches (e.g. both
+#      "retired" and "scores" for the same name) are `ambiguous`. Both,
+#      like every other unresolved status, are EXCLUDED from the eligible/
+#      labeled population, never force-labeled -- see `add_advancement_
+#      eligibility`.
+#
+# KNOWN, ACCEPTED LIMITATION: if two DIFFERENT physical players share an
+# EXACT full name within the same play's `des` text (astronomically rare --
+# not observed in the real 2021-2024 validation sample), this parser cannot
+# disambiguate them from text alone and could attribute one player's clause
+# to the other. This is documented here rather than defended against with
+# extra machinery, matching this module's general philosophy of flagging
+# genuine ambiguity as `ambiguous`/`unsupported_play_sequence` rather than
+# guessing -- if this ever manifests in a future real-data validation pass,
+# treat it as a `parse_failure`-class bug, not a modeling nuance.
+#
+# LABELING DESIGN NOTE on `INSIDE_THE_PARK_HOME_RUN`: this label is used for
+# EVERY case where the batter-runner reaches home plate during the
+# continuous play -- both a genuine inside-the-park home run (`events ==
+# "home_run"` with "inside-the-park" in `des`) AND the rarer case of a
+# batter credited with a lesser hit (single/double/triple) who nonetheless
+# scores via a subsequent fielding/throwing error (`events` stays e.g.
+# "triple"; real 2021-2024 example: "Jose Iglesias triples (2)... Jose
+# Iglesias scores. Throwing error by second baseman Javier Baez."). Both are
+# the SAME terminal state from the batter-runner's own perspective (reached
+# home safely, ball never left the field of play) even though they have
+# DIFFERENT `events` values -- `is_true_inside_the_park_home_run` is kept as
+# a separate informational column so the two real phenomena remain
+# distinguishable for anyone who needs that finer distinction. Plain
+# over-the-fence home runs (`events == "home_run"` without "inside-the-park"
+# in `des`) are explicitly EXCLUDED from the eligible population (`REASON_
+# TRIVIAL_NO_ADVANCEMENT_OPPORTUNITY`): once a ball clears the fence, the
+# batter-runner's advancement to home is certain and entirely
+# defense-independent -- there is no genuine "opportunity" for a model to
+# estimate, and including these rows would only add trivial, uninformative
+# mass to the target distribution.
+#
+# ELIGIBILITY SCOPE for this first Version 0.9 candidate (per the task):
+# fair OUTFIELD air balls (REUSES `OUTFIELD_AIR_BALL_TYPES` -- the SAME
+# `fly_ball`/`line_drive` scope Version 0.7A already established, not a new
+# convention) where the batter-runner safely reaches at least first
+# (`events` in `ADVANCEMENT_SAFE_EVENTS`). Infield hits are explicitly
+# DEFERRED (per the task: "overthrows and hurried throws complicate
+# attribution") -- ground balls are excluded here entirely, not silently
+# included. Preexisting-runner advancement is NOT modeled by this parser at
+# all -- only the BATTER's own final base.
+
+#: Reuses `OUTFIELD_AIR_BALL_TYPES` verbatim -- the same bb_type scope
+#: Version 0.7A already established for "this was an outfield play."
+ADVANCEMENT_ELIGIBLE_BB_TYPES: frozenset[str] = OUTFIELD_AIR_BALL_TYPES
+
+#: `events` values where the batter-runner is known to have reached base
+#: safely (on the batted ball itself, before any parsing) -- `field_error`
+#: is included because "reaches on a throwing/fielding error" is a clean
+#: safe-arrival case for this labeling question (contrast with Version 0.1's
+#: `map_outcome_class`, which leaves `field_error` unmapped because the
+#: batter's resulting BASE for RUN-VALUE purposes can't be reliably
+#: determined there -- a different question than "did they reach base,"
+#: which `des` answers directly for this phase).
+ADVANCEMENT_SAFE_EVENTS: frozenset[str] = frozenset(
+    {"single", "double", "triple", "home_run", "field_error"}
+)
+
+HELD_AT_FIRST = "held_at_first"
+ADVANCED_TO_SECOND = "advanced_to_second"
+ADVANCED_TO_THIRD = "advanced_to_third"
+INSIDE_THE_PARK_HOME_RUN = "inside_the_park_home_run"
+RETIRED_WHILE_ADVANCING = "retired_while_advancing"
+ADVANCEMENT_LABELS: tuple[str, ...] = (
+    HELD_AT_FIRST,
+    ADVANCED_TO_SECOND,
+    ADVANCED_TO_THIRD,
+    INSIDE_THE_PARK_HOME_RUN,
+    RETIRED_WHILE_ADVANCING,
+)
+
+#: Task safeguard #1's required parse-status vocabulary.
+PARSE_STATUS_UNAMBIGUOUS = "parsed_unambiguous"
+PARSE_STATUS_AMBIGUOUS = "ambiguous"
+PARSE_STATUS_NO_BATTER_MATCH = "no_batter_match"
+PARSE_STATUS_UNSUPPORTED_SEQUENCE = "unsupported_play_sequence"
+PARSE_STATUS_PARSE_FAILURE = "parse_failure"
+
+#: Bumped whenever the parsing RULES below change -- stored on every row
+#: (task safeguard #2) so any future re-run can tell which parser version
+#: produced a given label without re-deriving it from git history.
+ADVANCEMENT_PARSER_VERSION = "v1"
+
+REASON_NOT_ADVANCEMENT_SAFE_EVENT = "not_advancement_safe_event"
+REASON_TRIVIAL_NO_ADVANCEMENT_OPPORTUNITY = "trivial_no_advancement_opportunity"
+REASON_UNRESOLVED_DES_PARSE = "unresolved_des_parse"
+
+_KIND_INSIDE_PARK_HR = "inside_the_park_hr"
+_KIND_TRIVIAL_HR = "trivial_hr"
+_KIND_HIT = "hit"
+_KIND_HIT_IMMEDIATE_ERROR_ADVANCE = "hit_immediate_error_advance"
+
+#: Ordered: more specific phrases first (e.g. "hits an inside-the-park
+#: grand slam" before "hits a grand slam" before "homers") so the FIRST
+#: pattern that matches is always the most specific real one, never a
+#: coincidental prefix match. Verified against every real `des` verb
+#: phrasing observed in the 2021-2024 eligible-scope population (see
+#: README.md).
+_LEADING_VERB_PATTERNS: tuple[tuple[str, str, int | None, bool], ...] = (
+    # (regex, kind, floor_base, reach_on_error)
+    (r"hits an inside-the-park grand slam", _KIND_INSIDE_PARK_HR, None, False),
+    (r"hits an inside-the-park home run", _KIND_INSIDE_PARK_HR, None, False),
+    (r"hits a grand slam", _KIND_TRIVIAL_HR, None, False),
+    (r"hits a home run", _KIND_TRIVIAL_HR, None, False),
+    (r"homers", _KIND_TRIVIAL_HR, None, False),
+    (r"hits a ground-rule double", _KIND_HIT, 2, False),
+    (r"doubles", _KIND_HIT, 2, False),
+    (r"triples", _KIND_HIT, 3, False),
+    (r"singles", _KIND_HIT, 1, False),
+    (r"reaches on an? [a-z]+(?: [a-z]+)? error", _KIND_HIT, 1, True),
+    # No separate "reaches on error" clause -- the error-driven advance IS
+    # the leading clause (e.g. "X advances to 2nd, on a fielding error by
+    # Y."). `floor_base` is resolved from the captured base group instead.
+    (
+        r"advances to (?:2nd|3rd|home), on an? [a-z]+(?: [a-z]+)? error",
+        _KIND_HIT_IMMEDIATE_ERROR_ADVANCE,
+        None,
+        True,
+    ),
+)
+_COMPILED_LEADING_PATTERNS: tuple[tuple[re.Pattern[str], str, int | None, bool], ...] = tuple(
+    (re.compile(rf"^(?P<name>.*?) (?P<verb>{regex})"), kind, floor_base, reach_on_error)
+    for regex, kind, floor_base, reach_on_error in _LEADING_VERB_PATTERNS
+)
+
+_BASE_WORD_TO_NUM: dict[str, int] = {"1st": 1, "2nd": 2, "3rd": 3, "home": 4}
+#: Used only by `summarize_advancement_parse_coverage`'s multi-throw-relay
+#: proxy -- NOT part of the label-parsing regexes above.
+_FIELDING_POSITION_WORDS = (
+    r"(?:pitcher|catcher|first baseman|second baseman|third baseman|shortstop"
+    r"|left fielder|center fielder|right fielder)"
+)
+_NUM_TO_LABEL: dict[int, str] = {
+    1: HELD_AT_FIRST,
+    2: ADVANCED_TO_SECOND,
+    3: ADVANCED_TO_THIRD,
+    4: INSIDE_THE_PARK_HOME_RUN,
+}
+
+#: Strips a leading MLB Gameday review/challenge preamble (e.g. "Blue Jays
+#: challenged (tag play), call on the field was overturned: ", "Umpire
+#: reviewed (home run), call on the field was upheld: ", or the terser
+#: "Cubs challenged (home-plate collision): ") so it never contaminates the
+#: batter-name extraction below. See module comment for why this matters.
+_REVIEW_PREAMBLE_RE = re.compile(
+    r"^.*?(?:challenged?|reviewed) \([^)]*\)(?:, call on the field was (?:upheld|overturned))?: "
+)
+#: Real doubled-challenge plays exist (a play challenged on two separate
+#: grounds); capped at 5 iterations purely as a runaway-loop guard, not a
+#: real-data-derived limit.
+_MAX_REVIEW_PREAMBLE_STRIPS = 5
+
+
+def _strip_review_preamble(des: str) -> tuple[str, bool]:
+    """Strip (possibly repeated) review/challenge preambles from `des`.
+
+    Returns:
+        `(stripped_des, reviewed_or_overturned)`.
+    """
+    stripped = False
+    for _ in range(_MAX_REVIEW_PREAMBLE_STRIPS):
+        m = _REVIEW_PREAMBLE_RE.match(des)
+        if not m:
+            break
+        des = des[m.end() :]
+        stripped = True
+    return des, stripped
+
+
+@dataclass(frozen=True)
+class AdvancementParseResult:
+    """Everything `parse_batter_advancement_des` determines for one `des` string."""
+
+    label: str | None
+    parse_status: str
+    matched_clause: str | None
+    failure_reason: str | None
+    hit_type_implied_floor_base: int | None
+    advancement_caused_by_error: bool
+    is_true_inside_the_park_home_run: bool
+    reviewed_or_overturned: bool
+
+
+def parse_batter_advancement_des(des: object) -> AdvancementParseResult:
+    """Parse one play's `des` text into a Version 0.9 batter-runner advancement label.
+
+    See the "Version 0.9" module comment above for the full method and its
+    real-data validation. NEVER force-labels an ambiguous or unrecognized
+    play -- `label` is `None` unless `parse_status ==
+    PARSE_STATUS_UNAMBIGUOUS`.
+
+    Args:
+        des: The play's free-text description (expected to be a non-empty
+            `str`; anything else yields `PARSE_STATUS_NO_BATTER_MATCH`).
+
+    Returns:
+        An `AdvancementParseResult`. `matched_clause` and `failure_reason`
+        are populated for auditability (task safeguard #2) regardless of
+        outcome.
+    """
+    if not isinstance(des, str) or not des.strip():
+        return AdvancementParseResult(
+            None,
+            PARSE_STATUS_NO_BATTER_MATCH,
+            None,
+            "empty_or_non_string_des",
+            None,
+            False,
+            False,
+            False,
+        )
+
+    try:
+        des_for_matching, reviewed_or_overturned = _strip_review_preamble(des)
+
+        m = None
+        kind: str | None = None
+        floor_base: int | None = None
+        reach_on_error = False
+        for compiled, k, fb, roe in _COMPILED_LEADING_PATTERNS:
+            m = compiled.match(des_for_matching)
+            if m:
+                kind, floor_base, reach_on_error = k, fb, roe
+                break
+        if m is None or kind is None:
+            return AdvancementParseResult(
+                None,
+                PARSE_STATUS_NO_BATTER_MATCH,
+                None,
+                "leading_clause_not_matched",
+                None,
+                False,
+                False,
+                reviewed_or_overturned,
+            )
+
+        name = m.group("name").strip()
+        if not name:
+            return AdvancementParseResult(
+                None,
+                PARSE_STATUS_NO_BATTER_MATCH,
+                None,
+                "empty_batter_name",
+                None,
+                False,
+                False,
+                reviewed_or_overturned,
+            )
+
+        if kind == _KIND_INSIDE_PARK_HR:
+            return AdvancementParseResult(
+                INSIDE_THE_PARK_HOME_RUN,
+                PARSE_STATUS_UNAMBIGUOUS,
+                m.group(0),
+                None,
+                None,
+                False,
+                True,
+                reviewed_or_overturned,
+            )
+
+        if kind == _KIND_TRIVIAL_HR:
+            return AdvancementParseResult(
+                None,
+                PARSE_STATUS_UNAMBIGUOUS,
+                m.group(0),
+                REASON_TRIVIAL_NO_ADVANCEMENT_OPPORTUNITY,
+                None,
+                False,
+                False,
+                reviewed_or_overturned,
+            )
+
+        if kind == _KIND_HIT_IMMEDIATE_ERROR_ADVANCE:
+            base_match = re.search(r"advances to (2nd|3rd|home)", m.group(0))
+            assert base_match is not None  # guaranteed by the pattern that matched
+            floor_base = _BASE_WORD_TO_NUM[base_match.group(1)]
+        assert floor_base is not None  # every remaining kind sets it
+
+        # Scan the remainder of `des` for every clause mentioning this exact
+        # batter name (kind in {_KIND_HIT, _KIND_HIT_IMMEDIATE_ERROR_ADVANCE}).
+        name_re = re.escape(name)
+        remainder = des_for_matching[m.end() :]
+
+        retired_re = re.compile(
+            rf"\b{name_re} (?:is |was )?(?:out|thrown out|tagged out|caught) at (1st|2nd|3rd|home)"
+        )
+        error_advance_re = re.compile(
+            rf"\b{name_re} advances to (2nd|3rd|home), on an? [a-z]+(?: [a-z]+)? error"
+        )
+        simple_advance_re = re.compile(rf"\b{name_re} to (2nd|3rd)\b")
+        scores_re = re.compile(rf"\b{name_re} scores\b")
+
+        retired_match = retired_re.search(remainder)
+        error_matches = list(error_advance_re.finditer(remainder))
+        simple_matches = list(simple_advance_re.finditer(remainder))
+        scores_match = scores_re.search(remainder)
+
+        total_name_mentions = len(re.findall(rf"\b{name_re}\b", remainder))
+        consumed_mentions = (
+            (1 if retired_match else 0)
+            + len(error_matches)
+            + len(simple_matches)
+            + (1 if scores_match else 0)
+        )
+        # Real 2021-2024 `des` text also reports an error as its OWN trailing
+        # sentence ("... Randy Arozarena scores. Fielding error by third
+        # baseman Jose Ramirez."), not always tied to a "<name> advances to
+        # Nth, on error by" clause specifically -- this flag is informational
+        # only (never a model input), so a play-level "an error happened
+        # somewhere in this continuous play" signal is what matters, not
+        # attributing it to one specific base-advance.
+        standalone_error_clause = bool(re.search(r"\berror by\b", remainder))
+        advancement_caused_by_error = (
+            reach_on_error or bool(error_matches) or standalone_error_clause
+        )
+
+        if retired_match:
+            if scores_match:
+                return AdvancementParseResult(
+                    None,
+                    PARSE_STATUS_AMBIGUOUS,
+                    remainder,
+                    "retired_and_scores_both_matched",
+                    floor_base,
+                    advancement_caused_by_error,
+                    False,
+                    reviewed_or_overturned,
+                )
+            return AdvancementParseResult(
+                RETIRED_WHILE_ADVANCING,
+                PARSE_STATUS_UNAMBIGUOUS,
+                retired_match.group(0),
+                None,
+                floor_base,
+                advancement_caused_by_error,
+                False,
+                reviewed_or_overturned,
+            )
+
+        if consumed_mentions < total_name_mentions:
+            return AdvancementParseResult(
+                None,
+                PARSE_STATUS_UNSUPPORTED_SEQUENCE,
+                remainder,
+                "unaccounted_batter_name_mention",
+                floor_base,
+                advancement_caused_by_error,
+                False,
+                reviewed_or_overturned,
+            )
+
+        max_base = floor_base
+        matched_text: str | None = None
+        if scores_match:
+            max_base = 4
+            matched_text = scores_match.group(0)
+        for mm in error_matches + simple_matches:
+            base = _BASE_WORD_TO_NUM.get(mm.group(1))
+            if base is not None and base > max_base:
+                max_base = base
+                matched_text = mm.group(0)
+
+        if max_base < floor_base:
+            return AdvancementParseResult(
+                None,
+                PARSE_STATUS_AMBIGUOUS,
+                remainder,
+                "advanced_base_below_floor",
+                floor_base,
+                advancement_caused_by_error,
+                False,
+                reviewed_or_overturned,
+            )
+
+        return AdvancementParseResult(
+            _NUM_TO_LABEL[max_base],
+            PARSE_STATUS_UNAMBIGUOUS,
+            matched_text or m.group(0),
+            None,
+            floor_base,
+            advancement_caused_by_error,
+            False,
+            reviewed_or_overturned,
+        )
+
+    except Exception as exc:  # noqa: BLE001 - defensive catch-all, never crash a batch parse
+        return AdvancementParseResult(
+            None, PARSE_STATUS_PARSE_FAILURE, None, str(exc), None, False, False, False
+        )
+
+
+def add_advancement_eligibility(df: pd.DataFrame) -> pd.DataFrame:
+    """Add Version 0.9 batter-runner advancement eligibility, label, and parse-audit columns.
+
+    Args:
+        df: A DataFrame with `bb_type`, `events`, and `des`.
+
+    Returns:
+        A copy of `df` with:
+            - `advancement_eligible`: True only if `bb_type` is in
+              `ADVANCEMENT_ELIGIBLE_BB_TYPES`, `events` is in
+              `ADVANCEMENT_SAFE_EVENTS`, and `des` parses with
+              `PARSE_STATUS_UNAMBIGUOUS`.
+            - `advancement_exclusion_reason`: reason string if not eligible,
+              else `None`.
+            - `batter_final_base`: one of `ADVANCEMENT_LABELS` for eligible
+              rows, else `None`. THIS IS THE TARGET LABEL -- never a model
+              input (task safeguard #7).
+            - `hit_type_implied_floor_base`: 1/2/3 (nullable `Int64`) for
+              rows that reached the des-parsing stage with a real hit-type
+              floor, else null.
+            - `advancement_caused_by_error`, `is_true_inside_the_park_home_
+              run`, `reviewed_or_overturned`: informational booleans (see
+              module comment) -- never model inputs.
+            - `advancement_parse_status`, `advancement_matched_clause`,
+              `advancement_parse_failure_reason`, `advancement_parser_
+              version`: full audit trail (task safeguard #2) for every row
+              that reached the parsing stage, regardless of outcome.
+    """
+    required = ("bb_type", "events", "des")
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"add_advancement_eligibility requires column(s) {missing}")
+
+    out = df.copy()
+
+    is_air_ball = out["bb_type"].isin(ADVANCEMENT_ELIGIBLE_BB_TYPES)
+    is_safe_event = out["events"].isin(ADVANCEMENT_SAFE_EVENTS)
+    parse_scope = is_air_ball & is_safe_event
+
+    n = len(out)
+    label = pd.Series([None] * n, index=out.index, dtype=object)
+    floor_base = pd.Series(pd.NA, index=out.index, dtype="Int64")
+    caused_by_error = pd.Series(False, index=out.index, dtype=bool)
+    is_true_itp_hr = pd.Series(False, index=out.index, dtype=bool)
+    reviewed_or_overturned = pd.Series(False, index=out.index, dtype=bool)
+    parse_status = pd.Series([None] * n, index=out.index, dtype=object)
+    matched_clause = pd.Series([None] * n, index=out.index, dtype=object)
+    failure_reason = pd.Series([None] * n, index=out.index, dtype=object)
+    parser_version = pd.Series([None] * n, index=out.index, dtype=object)
+
+    scoped_idx = out.index[parse_scope]
+    for idx in scoped_idx:
+        result = parse_batter_advancement_des(out.at[idx, "des"])
+        label.at[idx] = result.label
+        floor_base.at[idx] = result.hit_type_implied_floor_base
+        caused_by_error.at[idx] = result.advancement_caused_by_error
+        is_true_itp_hr.at[idx] = result.is_true_inside_the_park_home_run
+        reviewed_or_overturned.at[idx] = result.reviewed_or_overturned
+        parse_status.at[idx] = result.parse_status
+        matched_clause.at[idx] = result.matched_clause
+        failure_reason.at[idx] = result.failure_reason
+        parser_version.at[idx] = ADVANCEMENT_PARSER_VERSION
+
+    advancement_eligible = parse_scope & (parse_status == PARSE_STATUS_UNAMBIGUOUS) & label.notna()
+
+    reason = pd.Series([None] * n, index=out.index, dtype=object)
+    reason = reason.where(is_air_ball, REASON_NOT_OUTFIELD_AIR_BALL)
+    reason = reason.where(~(is_air_ball & ~is_safe_event), REASON_NOT_ADVANCEMENT_SAFE_EVENT)
+    reason = reason.where(
+        ~(parse_scope & (failure_reason == REASON_TRIVIAL_NO_ADVANCEMENT_OPPORTUNITY)),
+        REASON_TRIVIAL_NO_ADVANCEMENT_OPPORTUNITY,
+    )
+    reason = reason.where(
+        ~(
+            parse_scope
+            & (failure_reason != REASON_TRIVIAL_NO_ADVANCEMENT_OPPORTUNITY)
+            & (parse_status != PARSE_STATUS_UNAMBIGUOUS)
+        ),
+        REASON_UNRESOLVED_DES_PARSE,
+    )
+    reason = reason.where(~advancement_eligible, None)
+
+    out["advancement_eligible"] = advancement_eligible
+    out["advancement_exclusion_reason"] = reason
+    out["batter_final_base"] = label.where(advancement_eligible, None)
+    out["hit_type_implied_floor_base"] = floor_base
+    out["advancement_caused_by_error"] = caused_by_error
+    out["is_true_inside_the_park_home_run"] = is_true_itp_hr
+    out["reviewed_or_overturned"] = reviewed_or_overturned
+    out["advancement_parse_status"] = parse_status
+    out["advancement_matched_clause"] = matched_clause
+    out["advancement_parse_failure_reason"] = failure_reason
+    out["advancement_parser_version"] = parser_version
+
+    return out
+
+
+@dataclass(frozen=True)
+class AdvancementExclusionCounts:
+    """Row counts by `advancement_exclusion_reason` (plus "eligible") -- task safeguard #3's
+    required "report their counts."
+    """
+
+    by_season: dict[int, dict[str, int]]
+    total: dict[str, int]
+
+
+def summarize_advancement_exclusions(df: pd.DataFrame) -> AdvancementExclusionCounts:
+    """Row counts by `advancement_exclusion_reason`, per season and overall.
+
+    Args:
+        df: A DataFrame already passed through `add_advancement_eligibility`,
+            with a `season` column.
+
+    Returns:
+        `AdvancementExclusionCounts` -- `by_season[season][reason_or_
+        "eligible"] = count`, and the same totals across all seasons in
+        `.total`.
+    """
+    working = df.copy()
+    label = working["advancement_exclusion_reason"].astype(object)
+    label = label.where(~working["advancement_eligible"].astype(bool), "eligible")
+    working["_label"] = label
+
+    total: dict[str, int] = {
+        str(k): int(v) for k, v in working["_label"].value_counts(dropna=False).items()
+    }
+    by_season: dict[int, dict[str, int]] = {}
+    if "season" in working.columns:
+        for season_value in working["season"].dropna().unique():
+            group = working[working["season"] == season_value]
+            by_season[int(season_value)] = {
+                str(k): int(v) for k, v in group["_label"].value_counts(dropna=False).items()
+            }
+
+    return AdvancementExclusionCounts(by_season=by_season, total=total)
+
+
+def summarize_advancement_parse_coverage(df: pd.DataFrame) -> dict[str, dict[str, int]]:
+    """Parse-status counts broken out by `batter_final_base` label (task safeguard #4).
+
+    Reports coverage/status separately for each of `ADVANCEMENT_LABELS` (the
+    successfully-labeled rows) plus one `"reached_on_error"` breakdown (rows
+    with `advancement_caused_by_error` True, cutting across labels) and one
+    `"multi_clause_or_multi_throw"` breakdown (rows whose full `des` mentions
+    at least THREE distinct fielding positions in a "to <position>" chain --
+    the initial fielder plus at least two subsequent relay throws, e.g. "...
+    left fielder Dominic Smith to catcher Patrick Mazeika to second baseman
+    Jose Peraza." A `>=2` threshold would just mean "there was one throw
+    after the initial fielding," true of nearly every retired-while
+    -advancing play; `>=3` isolates genuinely multi-throw relay sequences --
+    verified against real 2021-2024 data: 643 of 107,721 parsed-scope rows).
+
+    Args:
+        df: A DataFrame already passed through `add_advancement_eligibility`.
+
+    Returns:
+        `{group_label: {parse_status_or_reason: count}}`. Groups for
+        successful labels are counted among `advancement_eligible` rows
+        only (all `PARSE_STATUS_UNAMBIGUOUS` by construction); the reported
+        `parse_status` counts for the FULL parsed-scope population (task
+        safeguard #4's "coverage") are also included under the
+        `"__all_parsed_scope__"` key.
+    """
+    working = df[
+        df["bb_type"].isin(ADVANCEMENT_ELIGIBLE_BB_TYPES)
+        & df["events"].isin(ADVANCEMENT_SAFE_EVENTS)
+    ].copy()
+
+    report: dict[str, dict[str, int]] = {
+        "__all_parsed_scope__": {
+            str(k): int(v)
+            for k, v in working["advancement_parse_status"].value_counts(dropna=False).items()
+        }
+    }
+    for label_value in ADVANCEMENT_LABELS:
+        subset = working[working["batter_final_base"] == label_value]
+        report[label_value] = {"n_rows": int(len(subset))}
+
+    reached_on_error = working[working["advancement_caused_by_error"].astype(bool)]
+    report["reached_on_error"] = {"n_rows": int(len(reached_on_error))}
+
+    relay_throw_count = working["des"].astype(str).str.count(rf"\bto {_FIELDING_POSITION_WORDS}\b")
+    multi_throw = working[relay_throw_count >= 3]
+    report["multi_clause_or_multi_throw"] = {"n_rows": int(len(multi_throw))}
+
+    return report

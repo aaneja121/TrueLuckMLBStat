@@ -915,6 +915,277 @@ def select_infield_opportunity_features(
     return numeric_features, categorical_features
 
 
+# ---------------------------------------------------------------------------
+# Version 0.9: batter-runner advancement features
+# ---------------------------------------------------------------------------
+#
+# Target: `mlb_luck_score.eligibility.ADVANCEMENT_TARGET_COLUMN` (the target
+# NAME is defined in `eligibility.py`, alongside the des-parsing that
+# produces it -- this module owns FEATURE definitions only). Three
+# candidates share an IDENTICAL feature set except for `sprint_speed` and
+# model class, per the task's "use identical rows for controlled
+# comparison" instruction:
+#
+#   - `advancement_context_v09`: `ADVANCEMENT_CONTEXT_NUMERIC_FEATURES` /
+#     `ADVANCEMENT_CONTEXT_CATEGORICAL_FEATURES`, multinomial logistic
+#     regression. Everything EXCEPT the batter's own speed -- isolates how
+#     much contact/context alone explains.
+#   - `advancement_speed_v09`: the SAME features PLUS `sprint_speed`, same
+#     model class -- isolates the MARGINAL value of adding sprint speed.
+#   - `advancement_nonlinear_v09_candidate`: the SAME features as `speed_
+#     v09` (context + sprint_speed), but `HistGradientBoostingClassifier`
+#     instead of logistic regression -- the SAME "model CLASS comparison on
+#     an identical feature set" pattern Version 0.7C/0.8 already established
+#     (`mlb_luck_score.models.compare_near_wall_models`/`compare_infield_
+#     opportunity`), not a new convention.
+#
+# See `mlb_luck_score.models.compare_advancement_models` module docstring
+# for the full real-data audit of which "likely pre-outcome inputs" from the
+# task are available vs. NOT defensibly buildable (a throwing-distance
+# proxy and a "was the ball fielded cleanly BEFORE the advancement decision"
+# indicator were both investigated and NOT built, for the same reason
+# Version 0.7A/0.8 skipped their own position/timing proxies -- no citable
+# public data or physics exists to build them without inventing an
+# assumption).
+
+#: The existing, UNCHANGED Version 0.2 5-class contact model's OWN predicted
+#: probabilities for this play, as 5 separate numeric features -- a
+#: genuinely pre-outcome, model-derived quantity (how hard-hit/likely
+#: -extra-base this contact looked BEFORE anything about fielding/
+#: advancement happened), not a leakage column. Deliberately NOT computed by
+#: `add_advancement_features` below (unlike every other feature in this
+#: module, computing these requires a FITTED contact model as an input, not
+#: a pure data transform) -- `mlb_luck_score.models.compare_advancement_
+#: models` attaches these columns via `mlb_luck_score.models.
+#: train_contact_model.predict_proba_ordered` before feature selection.
+ADVANCEMENT_CONTACT_PROBABILITY_FEATURES: tuple[str, ...] = (
+    "contact_p_out",
+    "contact_p_single",
+    "contact_p_double",
+    "contact_p_triple",
+    "contact_p_home_run",
+)
+
+#: `advancement_context_v09` numeric feature set. `estimated_hang_time_s`/
+#: `landing_x_ft`/`landing_y_ft` are the SAME physics estimates Version
+#: 0.7A already uses (`mlb_luck_score.data.outfield_physics`); wall-
+#: proximity columns are the SAME Version 0.4 geometry-join columns Version
+#: 0.7A/0.7C/0.8 all reuse. `on_1b_occupied`/`on_2b_occupied`/`on_3b_
+#: occupied` are pre-contact game-state indicators (double-play-depth /
+#: no-doubles-defense positioning depends on existing baserunners) computed
+#: by `add_advancement_features`, not raw columns -- NOT used to model
+#: those OTHER runners' own advancement (out of scope per the task), only
+#: as context for the BATTER's advancement decision. None of these are
+#: computed from the play's OWN outcome, so none are target-leakage
+#: columns.
+ADVANCEMENT_CONTEXT_NUMERIC_FEATURES: tuple[str, ...] = (
+    *ADVANCEMENT_CONTACT_PROBABILITY_FEATURES,
+    "launch_speed",
+    "launch_angle",
+    "spray_angle_approx",
+    "hit_distance_sc",
+    "estimated_hang_time_s",
+    "landing_x_ft",
+    "landing_y_ft",
+    "wall_distance_in_spray_direction",
+    "absolute_distance_to_wall",
+    "wall_height_in_spray_direction",
+    "outs_when_up",
+    "on_1b_occupied",
+    "on_2b_occupied",
+    "on_3b_occupied",
+)
+#: `assigned_outfield_position` (7/8/9, from `mlb_luck_score.eligibility.
+#: add_outfield_opportunity_eligibility` -- Version 0.9 reuses that function
+#: for position assignment rather than recomputing it, since Version 0.9's
+#: eligible scope is a SUBSET of Version 0.7A's outfield-air-ball scope) is
+#: CATEGORICAL, not numeric -- same "position codes are labels" reasoning as
+#: every other version in this codebase.
+#: Canonical `hit_type_implied_floor_base` (1/2/3) -> readable category
+#: mapping -- the SINGLE definition reused by both `add_advancement_
+#: features` (below) and `mlb_luck_score.models.compare_advancement_models`'
+#: empirical baseline, so the two never drift apart.
+HIT_TYPE_GROUP_LABELS: dict[int, str] = {1: "single_or_error", 2: "double", 3: "triple"}
+
+#: `hit_type_group` (from `mlb_luck_score.eligibility.add_advancement_
+#: eligibility`'s `hit_type_implied_floor_base`, cast to a readable
+#: CATEGORICAL label -- see `add_advancement_features`) is the batter's own
+#: HIT TYPE (single-or-reached-on-error / double / triple). Genuinely
+#: informative and NOT leakage -- see `mlb_luck_score.config.
+#: LEAKAGE_COLUMNS`'s docstring for why: it only establishes the FLOOR of
+#: possible final bases, determined by the batted ball itself, not by
+#: whether the batter later advances further or is retired. Materially more
+#: informative than the contact model's own `contact_p_single`/`contact_p_
+#: double`/`contact_p_triple` PREDICTIONS (real 2021-2022 data: mean
+#: `contact_p_triple` is nearly identical for double-floor rows (0.018) and
+#: triple-floor rows (0.021) -- the actual ruled hit type is a sharper,
+#: more definitive signal than the contact model's pre-fielding estimate).
+ADVANCEMENT_CONTEXT_CATEGORICAL_FEATURES: tuple[str, ...] = (
+    "hit_type_group",
+    "assigned_outfield_position",
+    "of_fielding_alignment",
+    "stand",
+)
+
+#: `advancement_speed_v09` -- IDENTICAL to `advancement_context_v09` plus
+#: `sprint_speed` (season-level Baseball Savant leaderboard, same source as
+#: Version 0.8 -- see `mlb_luck_score.data.download_sprint_speed`/
+#: `join_sprint_speed`). Categorical set is unchanged.
+ADVANCEMENT_SPEED_NUMERIC_FEATURES: tuple[str, ...] = (
+    *ADVANCEMENT_CONTEXT_NUMERIC_FEATURES,
+    "sprint_speed",
+)
+ADVANCEMENT_SPEED_CATEGORICAL_FEATURES: tuple[str, ...] = ADVANCEMENT_CONTEXT_CATEGORICAL_FEATURES
+
+#: `advancement_nonlinear_v09_candidate` uses the IDENTICAL feature set as
+#: `advancement_speed_v09` -- only the model class differs (see module
+#: comment above). Named separately so a future reader doesn't have to
+#: infer that from `mlb_luck_score.models.compare_advancement_models`.
+ADVANCEMENT_NONLINEAR_NUMERIC_FEATURES: tuple[str, ...] = ADVANCEMENT_SPEED_NUMERIC_FEATURES
+ADVANCEMENT_NONLINEAR_CATEGORICAL_FEATURES: tuple[str, ...] = ADVANCEMENT_SPEED_CATEGORICAL_FEATURES
+
+
+def add_advancement_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute Version 0.9 batter-runner advancement features.
+
+    A no-op (returns `df` unchanged) if `df` has no `launch_speed`/
+    `launch_angle`/`hit_distance_sc`/`spray_angle_approx` columns. Must be
+    called AFTER `mlb_luck_score.eligibility.add_advancement_eligibility`
+    (for `batter_final_base`) AND `mlb_luck_score.eligibility.
+    add_outfield_opportunity_eligibility` (for `assigned_outfield_position`
+    -- Version 0.9 REUSES that function rather than recomputing position
+    assignment; both are safe to run on the same DataFrame since Version
+    0.9's eligible scope is a subset of Version 0.7A's).
+
+    Adds:
+        - `estimated_hang_time_s`, `landing_x_ft`, `landing_y_ft`: the SAME
+          physics estimates `add_outfield_opportunity_features` computes
+          (recomputed independently here so this function has no hard
+          dependency on that one having been called first).
+        - `on_1b_occupied`, `on_2b_occupied`, `on_3b_occupied`: `1` if
+          `on_1b`/`on_2b`/`on_3b` is non-null, else `0`.
+        - `assigned_outfield_position` is cast to plain `object` dtype with
+          `None` for missing (same `SimpleImputer`-compatibility fix as
+          `add_outfield_opportunity_features`) -- a no-op if that column
+          isn't present.
+        - `hit_type_group`: `hit_type_implied_floor_base` (1/2/3) mapped to
+          `HIT_TYPE_GROUP_LABELS` -- a no-op if that column isn't present
+          (i.e. `add_advancement_eligibility` hasn't been run first).
+    """
+    required = ("launch_speed", "launch_angle", "hit_distance_sc", "spray_angle_approx")
+    if not all(col in df.columns for col in required):
+        return df
+
+    out = df.copy()
+    hang_times = []
+    landing_xs = []
+    landing_ys = []
+    launch_speed = out["launch_speed"].astype(float)
+    launch_angle = out["launch_angle"].astype(float)
+    hit_distance = out["hit_distance_sc"].astype(float)
+    spray_angle = out["spray_angle_approx"].astype(float)
+    for speed, angle, distance, spray in zip(
+        launch_speed, launch_angle, hit_distance, spray_angle, strict=True
+    ):
+        hang_times.append(estimate_hang_time_seconds(speed, angle))
+        x, y = estimate_landing_coordinates_ft(distance, spray)
+        landing_xs.append(x)
+        landing_ys.append(y)
+    out["estimated_hang_time_s"] = hang_times
+    out["landing_x_ft"] = landing_xs
+    out["landing_y_ft"] = landing_ys
+
+    for base_col, occupied_col in (
+        ("on_1b", "on_1b_occupied"),
+        ("on_2b", "on_2b_occupied"),
+        ("on_3b", "on_3b_occupied"),
+    ):
+        out[occupied_col] = out[base_col].notna().astype(int) if base_col in out.columns else 0
+
+    if "assigned_outfield_position" in out.columns:
+        out["assigned_outfield_position"] = out["assigned_outfield_position"].apply(
+            lambda v: None if pd.isna(v) else str(int(v))
+        )
+
+    if "hit_type_implied_floor_base" in out.columns:
+        out["hit_type_group"] = out["hit_type_implied_floor_base"].map(HIT_TYPE_GROUP_LABELS)
+
+    return out
+
+
+def add_advancement_contact_probability_features(
+    df: pd.DataFrame, contact_proba: pd.DataFrame
+) -> pd.DataFrame:
+    """Attach the existing contact model's predicted probabilities as `ADVANCEMENT_
+    CONTACT_PROBABILITY_FEATURES` columns.
+
+    Args:
+        df: Any DataFrame (typically `advancement_eligible` rows).
+        contact_proba: `mlb_luck_score.models.train_contact_model.
+            predict_proba_ordered`'s output for the SAME rows, in the SAME
+            order (columns in `mlb_luck_score.config.CLASS_ORDER`:
+            `out`/`single`/`double`/`triple`/`home_run`).
+
+    Returns:
+        A copy of `df` with `contact_p_out`/`contact_p_single`/`contact_p_
+        double`/`contact_p_triple`/`contact_p_home_run` added.
+    """
+    if len(df) != len(contact_proba) or not df.index.equals(contact_proba.index):
+        raise ValueError(
+            "df and contact_proba must have the identical index/row order -- they must "
+            "describe the SAME plays."
+        )
+    out = df.copy()
+    out["contact_p_out"] = contact_proba["out"]
+    out["contact_p_single"] = contact_proba["single"]
+    out["contact_p_double"] = contact_proba["double"]
+    out["contact_p_triple"] = contact_proba["triple"]
+    out["contact_p_home_run"] = contact_proba["home_run"]
+    return out
+
+
+def select_advancement_features(
+    df: pd.DataFrame,
+    *,
+    numeric_candidates: Sequence[str],
+    categorical_candidates: Sequence[str],
+    min_non_null_fraction: float = MIN_NON_NULL_FRACTION,
+) -> tuple[list[str], list[str]]:
+    """Choose Version 0.9 advancement features actually usable in `df`, from a candidate list.
+
+    Same drop-if-missing-or-too-sparse logic as `select_opportunity_
+    features`/`select_infield_opportunity_features` -- unlike those,
+    `numeric_candidates`/`categorical_candidates` must be passed explicitly
+    (there is no single Version 0.9 "default" feature set -- see
+    `ADVANCEMENT_CONTEXT_NUMERIC_FEATURES`/`ADVANCEMENT_SPEED_NUMERIC_
+    FEATURES`/`ADVANCEMENT_NONLINEAR_NUMERIC_FEATURES`).
+
+    Returns:
+        (numeric_features, categorical_features) actually usable.
+    """
+
+    def _keep(col: str) -> bool:
+        if col not in df.columns:
+            logger.info("Advancement feature '%s' not present in data; excluding.", col)
+            return False
+        non_null_fraction = df[col].notna().mean() if len(df) else 0.0
+        if non_null_fraction < min_non_null_fraction:
+            logger.info(
+                "Advancement feature '%s' is only %.1f%% non-null (< %.0f%% threshold); excluding.",
+                col,
+                non_null_fraction * 100,
+                min_non_null_fraction * 100,
+            )
+            return False
+        return True
+
+    numeric_features = [c for c in numeric_candidates if _keep(c)]
+    categorical_features = [c for c in categorical_candidates if _keep(c)]
+
+    assert_no_leakage(numeric_features + categorical_features)
+    return numeric_features, categorical_features
+
+
 class LeakageError(ValueError):
     """Raised when a proposed feature set includes a target-leakage column."""
 
