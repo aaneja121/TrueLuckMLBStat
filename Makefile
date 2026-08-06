@@ -9,7 +9,8 @@
 	compare-opportunity-models notebook-outfield-opportunity \
 	compare-near-wall-models compare-near-wall-calibration-gate \
 	download-sprint-speed join-sprint-speed compare-infield-opportunity \
-	notebook-infield-opportunity compare-advancement-models notebook-advancement
+	notebook-infield-opportunity compare-advancement-models notebook-advancement \
+	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -335,3 +336,35 @@ compare-advancement-models:
 
 notebook-advancement:
 	$(PY) -m jupyter notebook notebooks/11_advancement_execution_analysis.ipynb
+
+# Version 0.11 end-to-end player-season aggregation: trains the SAME four
+# component models as `make run-attribution-ledger`-style usage of
+# mlb_luck_score.scoring.run_attribution_ledger (Version 0.10, frozen --
+# never refit/recalibrated/tuned here), builds the play-level attribution
+# ledger, then layers confidence records, additive season aggregation,
+# game_pk-clustered bootstrap intervals, and qualification status on top.
+# Writes player_season_attribution_v011.json and
+# season_aggregation_v011_report.json. Never touches 2025 -- see module
+# docstring. Reads (does not regenerate) opportunity_model_comparison_
+# detail.json / infield_opportunity_detail.json / advancement_detail.json
+# for each domain's real calibration status -- run compare-opportunity-
+# models / compare-infield-opportunity / compare-advancement-models first
+# if those are missing or stale.
+run-season-aggregation:
+	$(PY) -m mlb_luck_score.scoring.run_season_aggregation \
+		--input data/processed/cleaned_development_data_with_sprint_speed.parquet \
+		--output-dir outputs/tables
+
+# Version 0.11 Phase 6: descriptive-only stability/sensitivity analysis over
+# the SAME real 2021-2024 output `run-season-aggregation` already produced
+# (retrains nothing) -- split-half/odd-even reliability, bootstrap interval
+# width vs. sample size, qualification-threshold sensitivity, and
+# provisional-pathway-exclusion sensitivity. Writes
+# aggregation_stability_v011_report.json.
+evaluate-aggregation-stability:
+	$(PY) -m mlb_luck_score.models.evaluate_aggregation_stability \
+		--input data/processed/cleaned_development_data_with_sprint_speed.parquet \
+		--output-dir outputs/tables
+
+notebook-season-aggregation:
+	$(PY) -m jupyter notebook notebooks/12_confidence_and_season_aggregation.ipynb

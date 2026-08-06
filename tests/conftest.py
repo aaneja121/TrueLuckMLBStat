@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -87,3 +88,113 @@ def raw_statcast_rows() -> list[dict]:
 @pytest.fixture
 def raw_statcast_df(raw_statcast_rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(raw_statcast_rows)
+
+
+# ---------------------------------------------------------------------------
+# Version 0.11 shared fixture: a full Version 0.10 ledger (reusing test_
+# attribution_ledger.py's synthetic-data builders and model-training steps
+# verbatim, not duplicating them) with synthetic batter identifiers assigned
+# on top, plus its Version 0.11 confidence/aggregation layers. Session
+# -scoped -- training four models is the expensive part, and nothing in the
+# Version 0.11 test suite mutates this fixture's outputs.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def v011_full_ledger() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    from mlb_luck_score.eligibility import (
+        add_advancement_eligibility,
+        add_infield_opportunity_eligibility,
+        add_outfield_opportunity_eligibility,
+        compute_eligibility,
+    )
+    from mlb_luck_score.features.build_contact_features import (
+        INFIELD_OPPORTUNITY_TARGET_COLUMN,
+        add_advancement_contact_probability_features,
+        add_advancement_features,
+        add_opportunity_features_by_domain,
+    )
+    from mlb_luck_score.models.train_advancement_model import train_advancement_model
+    from mlb_luck_score.models.train_contact_model import predict_proba_ordered, train_model
+    from mlb_luck_score.models.train_opportunity_model import train_opportunity_model
+    from mlb_luck_score.scoring.attribution_ledger import build_attribution_ledger
+    from test_attribution_ledger import (  # noqa: PLC0415 -- deferred, test-only import
+        ADVANCEMENT_CATEGORICAL,
+        ADVANCEMENT_NUMERIC,
+        _synthetic_ground_ball_df,
+        _synthetic_outfield_df,
+    )
+
+    outfield_df = _synthetic_outfield_df()
+    ground_df = _synthetic_ground_ball_df()
+    df = pd.concat([outfield_df, ground_df], ignore_index=True)
+
+    rng = np.random.default_rng(0)
+    df["batter"] = rng.integers(1000, 1010, size=len(df))
+
+    df = compute_eligibility(df)
+    df = add_outfield_opportunity_eligibility(df)
+    df = add_infield_opportunity_eligibility(df)
+    df = add_advancement_eligibility(df)
+    df = add_opportunity_features_by_domain(df)
+    df = add_advancement_features(df)
+
+    contact_elig = df[df["eligible_for_training"].fillna(False)]
+    contact_trained = train_model(contact_elig, class_weight=None)
+    contact_feature_cols = contact_trained.numeric_features + contact_trained.categorical_features
+    contact_proba_all = predict_proba_ordered(contact_trained, df[contact_feature_cols])
+    df = add_advancement_contact_probability_features(df, contact_proba_all)
+
+    outfield_elig = df[df["outfield_opportunity_eligible"].astype(bool)]
+    outfield_trained = train_opportunity_model(outfield_elig, class_weight=None)
+
+    infield_elig = df[df["infield_opportunity_eligible"].astype(bool)]
+    infield_trained = train_opportunity_model(
+        infield_elig,
+        numeric_features=[
+            "launch_speed",
+            "launch_angle",
+            "spray_angle_approx",
+            "hit_distance_sc",
+            "sprint_speed",
+            "outs_when_up",
+            "on_1b_occupied",
+        ],
+        categorical_features=[
+            "stand",
+            "if_fielding_alignment",
+            "assigned_infield_position",
+            "surface_type",
+        ],
+        class_weight=None,
+        target_column=INFIELD_OPPORTUNITY_TARGET_COLUMN,
+    )
+
+    advancement_elig = df[df["advancement_eligible"].astype(bool)]
+    advancement_trained = train_advancement_model(
+        advancement_elig,
+        numeric_features=ADVANCEMENT_NUMERIC,
+        categorical_features=ADVANCEMENT_CATEGORICAL,
+    )
+
+    ledger = build_attribution_ledger(
+        df,
+        contact_trained,
+        outfield_trained=outfield_trained,
+        infield_trained=infield_trained,
+        advancement_trained=advancement_trained,
+        outfield_confidence_status="calibrated",
+        infield_confidence_status="calibrated_with_limited_subgroup_evidence",
+        advancement_confidence_status="calibrated_with_limited_subgroup_evidence",
+    )
+
+    from mlb_luck_score.scoring.component_confidence import build_play_level_confidence
+
+    confidence = build_play_level_confidence(
+        df,
+        ledger,
+        outfield_model_status="calibrated",
+        infield_model_status="calibrated_with_limited_subgroup_evidence",
+        advancement_model_status="calibrated_with_limited_subgroup_evidence",
+    )
+    return df, ledger, confidence

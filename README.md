@@ -1836,6 +1836,172 @@ conditioning on everything known).
 - Plain over-the-fence home runs are excluded from the eligible population by design (no
   genuine advancement opportunity exists once a ball clears the fence).
 
+## Play-level attribution ledger (Version 0.10)
+
+`mlb_luck_score.scoring.attribution_ledger` reconciles Version 0.2's raw contact luck,
+Version 0.7B/0.8's defensive execution, and Version 0.9's advancement execution into ONE
+run-value accounting identity per play, via a telescoping chain of successive conditional
+expectations (`E0` -> `Eo` -> `Ea` -> `Rf`) so every unit of "surprise" is attributed to
+exactly one stage, never re-attributed to a later one. This is an audit/reconciliation
+tool -- it does NOT publish a combined score. Weather (Version 0.5/0.5.1) and alignment
+(Version 0.6) are excluded entirely (neither passed adoption).
+
+`mlb_luck_score.scoring.run_attribution_ledger` runs this end to end on real,
+already-downloaded 2021-2024 data: `baseline_v02` trained on 2021-2023, `measured_
+contact_only_v07` (uniform, no near-wall gating -- Version 0.7 is frozen) trained on
+2021-2023, the Version 0.8 infield model and Version 0.9 advancement model reusing their
+own real winner-selection procedures, scored on the held-out 2024 season. Real result:
+the accounting identity holds EXACTLY for all 122,493 resolved rows of 123,980 scored
+2024 plays -- maximum absolute reconciliation error `2.22e-16` (float64 machine epsilon).
+Domain routing is confirmed mutually exclusive (zero rows eligible for both outfield and
+infield opportunity domains). No materially large residuals (0 rows at or above the
+2.0-run provisional threshold). See `outputs/tables/attribution_ledger_v010_real_data_
+report.json` for the full breakdown (pathway counts, field-error handling, residual
+distribution).
+
+`mlb_luck_score.features.build_contact_features.add_opportunity_features_by_domain` is
+the hardened, PREFERRED way to compute outfield+infield opportunity features on one
+combined DataFrame: it routes each row to at most one domain-specific builder (they now
+write to DIFFERENT target columns, `outfield_converted_to_out`/`infield_converted_to_out`,
+eliminating a real collision bug the two builders used to share), fails fast on a row
+eligible for both domains simultaneously, and reassembles in the original row order. Run
+`make run-attribution-ledger` to regenerate the real-data report.
+
+## Confidence, uncertainty, and season aggregation (Version 0.11)
+
+Turns the Version 0.10 play-level ledger into a statistically honest season-level
+reporting layer. Freezes Versions 0.2-0.10 completely -- nothing in this phase refits,
+recalibrates, or tunes any component model; every module here is a read-only
+interpretation/aggregation layer over the frozen ledger's already-computed predictions.
+Deliberately does NOT produce the final public-facing composite score -- that is an
+explicit next phase.
+
+### Confidence taxonomy (Phase 1-2)
+
+`mlb_luck_score.scoring.component_confidence` defines FOUR separate, independent
+taxonomies rather than collapsing everything into one confidence number -- reporting
+"high confidence" for a row in an uncertain subgroup merely because a model's aggregate
+metrics look good is exactly what this design prevents:
+
+- **A. Model-status confidence**: `calibrated` / `calibrated_with_limited_subgroup_
+  evidence` / `provisional` / `not_calibrated` / `unavailable`.
+- **B. Row-level data quality**: `complete_measured_inputs` / `estimated_inputs` /
+  `fallback_inputs` / `missing_inputs` / `excluded_play`.
+- **C. Statistical support**: `strong` / `moderate` / `limited` / `insufficient`.
+- **D. Domain status**: `contact` / `open_field_outfield` / `provisional_near_wall` /
+  `provisional_infield` / `provisional_advancement` / `unavailable_or_excluded`.
+
+`confidence_tier` (`high`/`medium`/`low`/`unavailable`) is a fifth, DERIVED field -- a
+small, documented, deterministic lookup over (A, C), never a numeric probability.
+`build_play_level_confidence` builds one row per (play, component) -- `contact`,
+`outfield_defense`, `infield_defense`, `advancement` -- with explicit, machine-readable
+reason codes (`near_wall_provisional`, `missing_geometry`, `infield_limited_subgroup_
+evidence`, `advancement_rare_class_limited`, plus every `mlb_luck_score.eligibility`
+exclusion reason reused verbatim). Near-wall vs. open-field domain status is decomposed
+PER ROW by reusing `mlb_luck_score.models.outfield_gating.assign_outfield_opportunity_
+gate` unchanged; the OTHER real subgroup issue found in Version 0.7A (`opportunity_time_
+q2`/`q3` ECE) is deliberately NOT decomposed per row (would risk drifting from `compare_
+opportunity_models.py`'s own quartile definition) -- reported only in aggregate.
+
+### Additive season aggregation (Phase 3)
+
+`mlb_luck_score.scoring.aggregate_attribution` aggregates ONLY quantities that are
+additive in run-value units. Version 0.10's own identity has exactly three additive
+terms (`unexplained_residual` + `defensive_execution_contribution` +
+`advancement_execution_contribution`); there is no independently-additive "contact" term.
+This module satisfies the requested four-way split WITHOUT inventing a new double-count,
+by PARTITIONING the existing `unexplained_residual` column (never altering any row's
+value) into `contact_component` (rows where neither a defense nor advancement model
+applies at all) and `unexplained_residual_component` (every other resolved row) -- so the
+reported identity
+
+```
+season_observed_minus_expected
+  = season_contact_component + season_unexplained_residual_component
+    + season_defensive_execution_component + season_advancement_component
+```
+
+reduces algebraically to Version 0.10's own, unchanged. `assert_additive_only` hard
+-rejects known non-additive quantities (`contact_result_surprise`, probabilities, status
+strings) from ever being summed as if numeric. Per-batter-season output also includes
+eligible-play/game counts, per-100-eligible-play rates, pathway/provisional/unavailable
+component counts, `missing_input_frequency`, `component_coverage_fraction`, and `share_of_
+value_from_provisional_components` (bounded in [0, 1] by construction).
+
+### Uncertainty intervals (Phase 4)
+
+`mlb_luck_score.scoring.aggregation_uncertainty` produces game_pk-CLUSTERED percentile
+bootstrap intervals -- the resampling unit is the GAME (every play from a resampled game
+moves together), and each batter-season resamples from THAT BATTER's own games only.
+**Interval method: percentile**, chosen and documented before any real result was
+examined, for consistency with every other bootstrap already in this codebase (`compare_
+opportunity_models`, `compare_near_wall_calibration_gate`, `compare_infield_opportunity`,
+`compare_advancement_models` all use the same method) and because BCa's jackknife
+acceleration cost scales with average games-per-batter with no house precedent to justify
+it. These are SAMPLING-VARIABILITY intervals conditional on the frozen models -- they do
+NOT include model-specification, measurement, or labeling uncertainty. Default 1000
+replications, deterministic seed 42, documented in `BootstrapDesign`.
+
+### Qualification rules (Phase 5)
+
+`mlb_luck_score.scoring.qualification` defines qualification status using PREDETERMINED
+thresholds (three documented sets: `primary`/`strict`/`lenient`, loosely modeled on MLB's
+own games-played qualification convention) fixed BEFORE this pipeline was ever run
+against real data -- never searched for values that produce an appealing 2024
+leaderboard. Five statuses in fixed precedence order: `not_reportable` (zero eligible
+plays) > `small_sample` (below the volume bar) > `insufficient_component_coverage`
+(enough plays, but too much of the profile falls outside both opportunity models) >
+`provisionally_qualified` (enough plays and coverage, but too much value/too many inputs
+are provisional/missing) > `qualified`. Players below `qualified` still get their computed
+values reported -- only the main rankings exclude them.
+
+### Stability and sensitivity (Phase 6)
+
+`mlb_luck_score.models.evaluate_aggregation_stability` is a descriptive DEVELOPMENT
+analysis over 2021-2024 only (not an untouched validation) -- calendar first/second-half
+and odd/even-`game_pk` split-half reliability, bootstrap interval width vs. sample size,
+qualification-threshold ranking sensitivity, provisional-pathway-exclusion sensitivity
+(with the specific biggest-moving players reported), and player-season-level component
+covariance.
+
+### Real 2021-2024 result
+
+Run `make run-season-aggregation` then `make evaluate-aggregation-stability` to
+(re)generate `outputs/tables/player_season_attribution_v011.json`, `season_aggregation_
+v011_report.json`, and `aggregation_stability_v011_report.json`. See notebook
+`12_confidence_and_season_aggregation.ipynb` for an inspection walkthrough. As of this
+writing, on the held-out 2024 season (123,980 scored plays, 647 batter-seasons):
+
+- **Season identity holds exactly** for every batter-season row (re-verified after
+  aggregation, as required).
+- **Qualification** (`primary` thresholds): 216 `qualified`, 431 `small_sample`, 0
+  `provisionally_qualified`, 0 `insufficient_component_coverage`, 0 `not_reportable` --
+  every player who clears the volume bar also clears coverage/provisional-share/
+  missing-input thresholds this season. Threshold sensitivity is real: `strict`
+  qualifies only 2 players, `lenient` qualifies 378; the top-25 (by `observed_minus_
+  expected_per_100`) overlaps `primary` by 0% under `strict` (too few qualifiers to
+  overlap) and 32% under `lenient`.
+- **Interval width shrinks monotonically with sample size**, as it should: median 95%
+  interval width for `observed_minus_expected_per_100` goes from ~26.1 runs (median 8
+  games) down to ~7.2 runs (median 146 games) across five games-played bins.
+- **Split-half reliability is LOW**: Pearson r = 0.050 (calendar first-half vs.
+  second-half) and 0.097 (odd vs. even `game_pk`), among players with >= 20 eligible
+  plays in both halves. This is a genuinely informative, expected-shape result for a
+  metric explicitly designed to isolate LUCK (variance from expectation) rather than
+  skill -- low half-to-half persistence is consistent with the metric capturing what it
+  claims to, not a defect. It also means single-half or small-sample per-100 values
+  should be read with real caution, exactly what the qualification/interval-width
+  machinery above is for.
+- **Provisional-pathway sensitivity**: excluding provisional/limited-evidence component
+  value gives a Spearman rank correlation of 0.598 against the full metric across all
+  647 batter-seasons -- a real, moderate effect, concentrated overwhelmingly among
+  players with the FEWEST eligible plays (the biggest movers when provisional value is
+  excluded all have single-digit eligible-batted-ball counts).
+- **Component covariance**: `total_unexplained_residual_component_runs` correlates
+  negatively with both `total_contact_component_runs` (r = -0.37) and `total_defensive_
+  execution_component_runs` (r = -0.48) at the player-season level -- descriptive only,
+  no causal claim.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
