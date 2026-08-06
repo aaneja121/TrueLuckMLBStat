@@ -41,3 +41,20 @@ artifacts/final_evaluation/*
 !data/final_evaluation/.gitkeep
 !outputs/final_evaluation/.gitkeep
 !artifacts/final_evaluation/.gitkeep
+
+# Version 1.1 prospective 2026 scoring namespace -- isolated from the
+# development caches and the sealed Version 1.0 namespace above (see
+# CLAUDE.md "Version 1.1: prospective 2026 scoring"). Real 2026 raw data and
+# every snapshot run's outputs/artifacts must never be committed. This is
+# also load-bearing for the working-tree-clean guard
+# (prospective.prospective_ingestion.run_prospective_guards): `git status
+# --porcelain` never lists an ignored file, so a snapshot run writing here
+# never falsely dirties the tree for a SUBSEQUENT run.
+data/prospective/*
+outputs/prospective/*
+!artifacts/prospective/
+artifacts/prospective/*
+
+!data/prospective/.gitkeep
+!outputs/prospective/.gitkeep
+!artifacts/prospective/.gitkeep

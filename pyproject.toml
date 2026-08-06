@@ -54,10 +54,11 @@ known-first-party = ["mlb_luck_score"]
 testpaths = ["tests"]
 addopts = "-ra"
 filterwarnings = ["ignore::DeprecationWarning"]
-# Lets tests import the top-level evaluation/ scripts (Version 1.0's final
-# -evaluation harness -- a plain script directory, not part of the installed
+# Lets tests import the top-level evaluation/ and prospective/ scripts
+# (Version 1.0's final-evaluation harness and Version 1.1's prospective
+# -scoring harness -- plain script directories, not part of the installed
 # mlb_luck_score package) without sys.path hacks in every test file.
-pythonpath = ["evaluation"]
+pythonpath = ["evaluation", "prospective"]
 
 [tool.mypy]
 # NOTE: intentionally NOT pinning python_version here. Numpy's bundled type

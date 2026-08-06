@@ -2125,6 +2125,91 @@ guards, 2025 never read):
   -- per the task's explicit instruction, the review tables above are development
   diagnostics only.
 
+## Version 1.1: prospective 2026 scoring
+
+Version 1.0 (`evaluation/run_v1_final_evaluation.py`) is the sealed, one-time final
+evaluation against 2025 -- see CLAUDE.md "The one narrow exception: the sealed Version
+1.0 final evaluation" for that protocol. Version 1.1 (`prospective/
+run_v1_1_2026_scoring.py`) is a DIFFERENT kind of tool: a repeatable, scoring-only
+pipeline that applies the exact frozen Version 1.0 system to 2026 season-to-date data,
+producing a new immutable dated snapshot each time it is run. See CLAUDE.md "Version
+1.1: prospective 2026 scoring" for the full policy (2025/2026 isolation, the
+no-tuning-on-2026 rule, and what a future model change must look like).
+
+**What each snapshot run does**, unchanged from Version 1.0's own component choices:
+trains the contact, outfield-opportunity, and infield-opportunity models fresh on
+`TRAIN_SEASONS` (2021-2023) via the same frozen `train_model`/`train_opportunity_model`/
+`run_infield_model_selection`/`run_advancement_model_selection`/
+`run_near_wall_model_selection` functions Version 0.10-1.0 already use, then scores the
+requested 2026 window through the frozen eligibility rules, attribution ledger,
+confidence framework, additive season aggregation, bootstrap intervals, qualification
+thresholds, and public-score/leaderboard contract (Versions 0.2-0.12, unmodified).
+
+**Namespaces**: `data/prospective/2026/`, `outputs/prospective/v1_1/<snapshot>/`,
+`artifacts/prospective/v1_1/<snapshot>/` -- fully isolated from both the development
+caches (`data/raw`, `data/processed`, `outputs/tables`) and the sealed Version 1.0
+namespaces (`data/final_evaluation/2025`, `outputs/final_evaluation/v1`, `artifacts/
+final_evaluation/v1`, which the prospective runner refuses to read as anything other
+than an optional, read-only seal-integrity check).
+
+**CLI**:
+
+```bash
+.venv/bin/python prospective/run_v1_1_2026_scoring.py \
+    --data-through 2026-04-15 \
+    [--snapshot-label mid-april] \
+    [--force-redownload]
+```
+
+Deliberately exposes no model-selection, calibration, feature-selection, or
+threshold-tuning flag. A completed snapshot directory is never overwritten; rerunning
+the same `--data-through` date with identical inputs and code is accepted as a
+deterministic no-op, and a rerun that differs raises a conflict error rather than
+silently replacing the prior result -- this holds regardless of `--force-redownload`,
+which only refreshes the shared, mutable raw cache before a NEW snapshot is built and
+can never touch an already-completed one.
+
+Two guards run before any 2026 data is touched. First, the working tree must be clean
+-- a dirty tracked file OR an untracked-but-not-ignored file (e.g. an uncommitted new
+script) blocks the run, so a snapshot's manifest always names a commit its code can
+actually be reproduced from; files under the prospective namespaces above are
+gitignored specifically so a prior snapshot's own outputs never falsely trip this.
+Second, the requested `--data-through` date must be fully complete -- every scheduled
+game on that date must be Final (checked against the MLB Stats API); a postponed or
+cancelled game is excluded from that requirement (recorded separately), but a
+suspended game is treated exactly like an in-progress one and blocks the date. Both
+guards fail loudly rather than silently adjusting anything -- see CLAUDE.md "Version
+1.1" for the full detail and rationale.
+
+**Outputs per snapshot**: `public_score.csv`/`.parquet`/`.json`, `favorable_
+leaderboard.json`, `unfavorable_leaderboard.json`, `scorecard.json`,
+`coverage_and_schema_report.json`, `component_status_summary.json`, `name_
+resolution_report.json` (under `outputs/prospective/v1_1/<snapshot>/`), plus
+`manifest.json` and `integrity_hashes.json` (under `artifacts/prospective/v1_1/
+<snapshot>/`). Notebook `15_prospective_snapshot_review.ipynb` is a read-only reviewer
+for an already-completed snapshot -- it performs no fitting, scoring, downloading, or
+file mutation.
+
+**Player names**: the public score schema's `batter_name` column (present since Version
+0.12 but always null before Version 1.1) is filled via a presentation-only, post-hoc
+overlay keyed on MLBAM `batter_id`, sourced from the public MLB Stats API `/people`
+endpoint (`mlb_luck_score.data.download_player_names`). Names are never used as model
+features and never affect a score, interval, rank, or qualification status -- see
+CLAUDE.md for the exact guarantee.
+
+**Status as of this writing**: constructed and offline-tested only. No real 2026 data
+has been ingested. The real 2026 season-opening date is now VERIFIED --
+`prospective.prospective_config.PROSPECTIVE_2026_SEASON_START_DATE = date(2026, 3, 25)`,
+`PROSPECTIVE_2026_SEASON_START_VERIFIED = True` -- via a maintainer-provided citation of
+MLB's official 2026 schedule (Opening Night: New York Yankees at San Francisco Giants,
+2026-03-25; the official schedule confirms that game was played). The source citation
+and verification date are recorded in `PROSPECTIVE_2026_SEASON_START_SOURCE`/
+`PROSPECTIVE_2026_SEASON_START_VERIFIED_AT`. As of 2026-08-06, the working-tree and
+data-through-date-completeness guards above are both built and offline-tested, but no
+real snapshot has yet been run -- the first real invocation should use a `--data-through`
+date confirmed complete on MLB's official schedule (e.g. not the current day if that
+day's slate is still underway).
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit

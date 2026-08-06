@@ -79,6 +79,138 @@ loosen any guard above, or to make 2025 reachable from a second code path -- tre
 as a new, separate decision requiring the user's explicit sign-off, not a natural
 extension of this one.
 
+## Version 1.1: prospective 2026 scoring
+
+Version 1.1 (`prospective/run_v1_1_2026_scoring.py`) applies the exact frozen Version
+1.0 system -- contact model, outfield/infield opportunity models, advancement model,
+attribution ledger, confidence framework, qualification thresholds, and public-score
+contract -- to 2026 season-to-date data, producing immutable dated snapshots. It is
+**scoring-only**: nothing in Versions 0.2-1.0 is modified, retrained, recalibrated, or
+retuned by this version, and none of the season-list/model-selection guards those
+versions rely on are loosened by anything below.
+
+1. **2025 remains sealed final-evaluation data.** It cannot enter development, and it
+   cannot enter Version 1.1 either -- the prospective runner may perform ONE optional,
+   read-only integrity check that the Version 1.0 seal (`artifacts/final_evaluation/
+   v1/seal.json`) still exists and parses as a well-formed `EvaluationSeal`
+   (`prospective.prospective_manifest.verify_v1_seal_unchanged`), and must never read
+   2025 data as a model input. That check is non-fatal by design -- 2026 scoring does
+   not depend on 2025 data at all, so a seal problem is a finding for a human reviewer,
+   never a reason to block a 2026 snapshot.
+2. **2026 is prospective scoring data**, not development data. See `mlb_luck_score.
+   config.PROSPECTIVE_SEASONS`. It stays out of `MLB_REGULAR_SEASON_DATE_RANGES` and
+   `DEVELOPMENT_SEASONS` -- exactly like 2025's omission, this is a second layer of
+   defense (alongside namespace isolation) against a development runner accidentally
+   discovering or training on 2026 rows.
+3. **Version 1.1 may score new 2026 observations but may never tune against them.** No
+   code path in `prospective/` may retrain, recalibrate, reselect a feature, or
+   re-choose a qualification/calibration threshold based on what a 2026 result looks
+   like. The four component models are retrained FRESH each snapshot run, but only on
+   `TRAIN_SEASONS` (2021-2023, unchanged) -- identical to how Version 1.0 trained for
+   the 2025 final evaluation (`prospective.prospective_scoring.train_and_score_2026`
+   mirrors `evaluation.run_v1_final_evaluation.train_and_score_2025` exactly). This
+   codebase does not persist trained model objects between runs (see `evaluation.
+   v1_final_evaluation_manifest`'s "What 'frozen artifact' means here"), so "frozen
+   model" means the frozen SOURCE CODE and frozen `TRAIN_SEASONS` data, re-run
+   deterministically (fixed seeds) each time -- never a literal cached model file.
+4. **Any future model change requires**, before it may touch a real 2026 observation:
+   a separately named development version (e.g. Version 1.2), development using
+   2021-2024 only (2025 and 2026 both stay untouched during that development), and an
+   explicit freeze date recorded before evaluating any 2026 observation made after that
+   date. A change developed AFTER 2026 data has already been produced by Version 1.1
+   must not be tuned against, or selected using, any 2026 result already observed.
+5. **Previously observed 2026 data cannot later be presented as untouched validation
+   data.** Once a prospective snapshot has scored a given `--data-through` date, that
+   slice of 2026 is no longer a pristine, never-analyzed season for any future
+   development decision -- treat it the same way CLAUDE.md's "Version 0.7 is now
+   FROZEN" rule treats repeatedly-inspected 2024 near-wall results: informative for
+   monitoring, but not evidence for a NEW model/feature/threshold decision without
+   explicit maintainer sign-off that the season is being treated as non-pristine for
+   that specific change.
+
+### Namespaces and the dedicated entry point
+
+Every 2026 raw/derived file lives under `data/prospective/2026/`, `outputs/
+prospective/v1_1/`, and `artifacts/prospective/v1_1/` (`prospective.prospective_
+config`) -- never `data/raw`, `data/processed`, `outputs/tables`, or `artifacts/`, so no
+development runner can discover 2026 data by accident. The prospective runner refuses
+(`SealedNamespaceAccessError`) any path resolving inside `data/final_evaluation/2025`,
+`outputs/final_evaluation/v1`, or `artifacts/final_evaluation/v1`.
+
+`prospective/run_v1_1_2026_scoring.py` exposes exactly three flags: `--data-through`
+(required), `--snapshot-label` (optional), and `--force-redownload` (refreshes only the
+shared, mutable 2026 raw cache before building a NEW snapshot -- never touches an
+already-completed snapshot directory). It deliberately exposes NO model-selection,
+calibration, feature-selection, or threshold-tuning flag; the qualification threshold
+set is hardcoded to the same `"primary"` default Version 0.12 uses.
+
+Unlike Version 1.0's one-time sealed evaluation, this tool is meant to run repeatedly
+across a season, so it uses a different immutability mechanism instead of a seal
+-and-defect-fix-acknowledgement ceremony: each `--data-through` date gets its own
+immutable snapshot directory (never overwritten); a rerun with identical inputs and
+code is accepted as a deterministic no-op (`SnapshotManifest.
+deterministic_content_hash()`, which deliberately excludes wall-clock fields); a rerun
+that differs raises `SnapshotConflictError` rather than silently overwriting. This
+holds regardless of `--force-redownload` -- that flag only refreshes the shared,
+mutable raw cache under `data/prospective/2026/` before a NEW snapshot is built; it has
+no code path that can write into an already-completed snapshot's `outputs/`/`artifacts/`
+directory (see `tests/test_prospective_force_redownload_immutability.py`).
+
+**A dirty working tree BLOCKS every real snapshot run** (`prospective.
+prospective_ingestion.run_prospective_guards`, reusing Version 1.0's `assert_clean_
+working_tree` unchanged, raising `WorkingTreeNotCleanError`) -- this is a hard block,
+not merely a recorded flag. A snapshot generated from uncommitted code could differ
+from the commit its own manifest names, making it impossible to reproduce exactly. This
+covers BOTH a dirty tracked file (staged or unstaged) AND an untracked-but-not-ignored
+file (a stray new `.py`/config/test file counts) -- `git status --porcelain` treats
+both as dirty, and reports neither for a properly gitignored path. Files under
+`data/prospective/2026/`, `outputs/prospective/v1_1/`, and `artifacts/prospective/v1_1/`
+are gitignored (see `.gitignore`'s "Version 1.1 prospective 2026 scoring namespace"
+section) specifically so a prior snapshot's own output files can never falsely dirty
+the tree for a later run. (`SnapshotManifest.working_tree_clean`/`prospective_manifest.
+is_working_tree_clean` remain a separate, non-raising low-level recorder -- the actual
+enforcement is in `run_prospective_guards`, one layer up; see `tests/
+test_prospective_working_tree_guard.py`.)
+
+**A `--data-through` date with any game not yet final is refused**
+(`prospective.prospective_ingestion.assert_data_through_date_is_complete`, checked via
+the MLB Stats API `/schedule` endpoint's per-game status before ingestion). A postponed
+or cancelled game never happened, so it is excluded from the "must be final"
+requirement (recorded separately for provenance, never silently dropped). A SUSPENDED
+game is the one case that needed an explicit rule: it has real partial play but no
+final, reconciled outcome, so it is deliberately treated exactly like an in-progress
+game -- it blocks the date, exactly like "In Progress"/"Warmup"/"Scheduled"/any
+unrecognized status (fail-safe: an unrecognized status is never assumed final). This
+guard FAILS rather than silently walking backward to "the preceding fully completed
+date" -- the caller must explicitly choose an earlier `--data-through` and rerun; see
+`tests/test_prospective_date_completeness_guard.py`.
+
+The real 2026 season-opening date is VERIFIED:
+`prospective.prospective_config.PROSPECTIVE_2026_SEASON_START_DATE = date(2026, 3, 25)`,
+`PROSPECTIVE_2026_SEASON_START_VERIFIED = True`. Source: MLB's official 2026
+championship-season schedule -- the season began Wednesday, March 25, 2026, with
+Opening Night (New York Yankees at San Francisco Giants); the official schedule
+confirms that game was played. This was confirmed via an explicit maintainer-provided
+citation of the official MLB schedule (verified-at date recorded in
+`PROSPECTIVE_2026_SEASON_START_VERIFIED_AT`, alongside the source citation in
+`PROSPECTIVE_2026_SEASON_START_SOURCE`) -- Claude Code did not independently fetch or
+cross-check a live schedule source for this date (this repository's tooling never
+generates or guesses a schedule URL on its own). If this date is ever wrong or needs
+revision for a future season, update the date, the source citation, and the
+verification date together -- never change one without the others, following the exact
+precedent `FINAL_EVALUATION_2025_DATE_RANGE` sets for the Tokyo Series exception.
+
+### Player name resolution is presentation-only
+
+`prospective.prospective_player_names.apply_player_name_overlay` fills the `batter_name`
+column the frozen public-score schema already defines but every earlier version leaves
+null (via `mlb_luck_score.data.download_player_names.fetch_player_names`, the public MLB
+Stats API `/people` endpoint). It runs strictly AFTER `build_public_score_table`/
+`assign_official_ranks` and is asserted, at runtime, to change no column other than
+`batter_name` -- it never becomes a model feature, never affects a score, rank, or
+qualification status, and an unresolved name stays null with a reason code recorded in a
+separate `name_resolution_report.json` sidecar, never a new column on the frozen schema.
+
 ## Avoid target leakage
 
 Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,
