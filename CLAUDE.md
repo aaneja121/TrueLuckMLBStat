@@ -211,6 +211,16 @@ Stats API `/people` endpoint). It runs strictly AFTER `build_public_score_table`
 qualification status, and an unresolved name stays null with a reason code recorded in a
 separate `name_resolution_report.json` sidecar, never a new column on the frozen schema.
 
+**v1.1.1 presentation patch**: the real 2026-08-05 snapshot (immutable, never modified by
+this patch) shipped with `favorable_leaderboard.json`/`unfavorable_leaderboard.json`
+showing `batter_name = null` for every row even though `public_score.json` had resolved
+names -- the leaderboards were sliced off `public_score_table` BEFORE the name overlay
+ran, so they never picked up the later-applied names. Purely a presentation bug: scores,
+ranks, intervals, and qualification status were never affected. Fixed in
+`prospective/run_v1_1_2026_scoring.py` by moving the overlay before the leaderboard
+slicing, so `public_score.*` and both leaderboard exports are always sliced from the SAME
+already-overlaid table. See `tests/test_prospective_leaderboard_name_propagation.py`.
+
 ## Avoid target leakage
 
 Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,

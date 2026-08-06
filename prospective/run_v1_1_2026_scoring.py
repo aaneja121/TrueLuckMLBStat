@@ -28,6 +28,20 @@ this relies on.
 
 There is deliberately NO model-selection, calibration, feature-selection, or
 threshold-tuning flag here -- see CLAUDE.md.
+
+## v1.1.1 presentation patch (post-2026-08-05 snapshot)
+
+The first real snapshot (`--data-through 2026-08-05`, sealed/immutable, NEVER
+modified by this patch) shipped with a presentation bug: `public_score.*`
+correctly showed resolved player names, but both `favorable_leaderboard.json`
+and `unfavorable_leaderboard.json` showed `batter_name = null` for every row.
+Root cause: the leaderboards were sliced off `public_score_table` BEFORE the
+name overlay ran, so they never picked up the later-applied names. Scores,
+ranks, intervals, and qualification status were never affected -- this was a
+presentation-only bug. Fixed by moving the name overlay before the
+leaderboard slicing (see `run_prospective_snapshot` below); every snapshot
+generated after this patch lands includes the fix. See `tests/
+test_prospective_leaderboard_name_propagation.py` for the regression tests.
 """
 
 from __future__ import annotations
@@ -248,11 +262,23 @@ def run_prospective_snapshot(
 
     public_score_table = build_public_score_table(artifacts)
     public_score_table = assign_official_ranks(public_score_table)
-    favorable = most_favorable_leaderboard(public_score_table)
-    unfavorable = least_favorable_leaderboard(public_score_table)
 
+    # v1.1.1 presentation patch: the name overlay MUST run before the
+    # leaderboards are sliced off of public_score_table -- building
+    # `favorable`/`unfavorable` from the table BEFORE applying the overlay
+    # (the v1.1.0 bug) leaves both leaderboard exports with batter_name=null
+    # even though public_score.* already has resolved names, since
+    # `most_favorable_leaderboard`/`least_favorable_leaderboard` return NEW
+    # DataFrames sliced from whatever table they're given -- they do not
+    # retroactively pick up a later overlay applied only to `public_score_
+    # table`. Both leaderboards are now sliced from the SAME already
+    # -overlaid table `public_score.*` is written from, so all three outputs
+    # are guaranteed consistent by construction, not by convention.
     names_df = fetch_player_names(public_score_table["batter_id"].astype(int).tolist())
     public_score_table, name_report = apply_player_name_overlay(public_score_table, names_df)
+
+    favorable = most_favorable_leaderboard(public_score_table)
+    unfavorable = least_favorable_leaderboard(public_score_table)
 
     score_card = _build_score_card(public_score_table)
     coverage_and_schema_report = {
