@@ -27,3 +27,17 @@ outputs/tables/*
 !artifacts/.gitkeep
 !outputs/figures/.gitkeep
 !outputs/tables/.gitkeep
+
+# Version 1.0 final-evaluation namespace -- isolated from the development
+# caches above by design (see CLAUDE.md "The one narrow exception: the
+# sealed Version 1.0 final evaluation"). The 2025 raw/derived data and every
+# run output/artifact this produces must never be committed, exactly like
+# the development caches.
+data/final_evaluation/*
+outputs/final_evaluation/*
+!artifacts/final_evaluation/
+artifacts/final_evaluation/*
+
+!data/final_evaluation/.gitkeep
+!outputs/final_evaluation/.gitkeep
+!artifacts/final_evaluation/.gitkeep

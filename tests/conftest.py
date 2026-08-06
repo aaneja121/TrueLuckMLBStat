@@ -2,9 +2,35 @@
 
 from __future__ import annotations
 
+import socket
+
 import numpy as np
 import pandas as pd
 import pytest
+
+
+class BlockedNetworkAccessError(RuntimeError):
+    """Raised by the autouse `_block_real_network_access` fixture below."""
+
+
+@pytest.fixture(autouse=True)
+def _block_real_network_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    """This repository's test suite must remain fully offline (see CLAUDE.md
+    "Before finishing any change"). Blocks any attempt to open a real
+    network socket so a forgotten mock in a new test -- especially the
+    Version 1.0 evaluation-guard tests, which mock network-facing ingestion
+    functions extensively -- fails loudly and immediately instead of
+    silently reaching the network.
+    """
+
+    def _blocked(self: socket.socket, *args: object, **kwargs: object) -> None:
+        raise BlockedNetworkAccessError(
+            "Real network access attempted during the offline test suite -- mock the "
+            "network-facing function instead of letting it run for real."
+        )
+
+    monkeypatch.setattr(socket.socket, "connect", _blocked)
+    monkeypatch.setattr(socket.socket, "connect_ex", _blocked)
 
 
 def _row(

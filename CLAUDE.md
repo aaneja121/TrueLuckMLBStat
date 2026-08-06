@@ -24,6 +24,61 @@ in `mlb_luck_score.config.MLB_REGULAR_SEASON_DATE_RANGES` as a second layer of
 protection. If you ever add a new season to that dict or to `DEVELOPMENT_SEASONS`,
 2025 must never be one of them.
 
+### The one narrow exception: the sealed Version 1.0 final evaluation
+
+2025 remains permanently prohibited for development, tuning, iteration, and feature
+selection -- nothing below weakens that. It may enter this repository's workflow
+**exactly once**, through the dedicated, sealed Version 1.0 final-evaluation entry point
+(`evaluation/run_v1_final_evaluation.py`), for the single genuine final evaluation the
+user has explicitly asked for. Once that run completes and is sealed, its 2025 output is
+evaluation data, not development data -- see the Version 1.0 post-evaluation sealing rule
+in that module's docstring for what a permitted defect-fix rerun looks like versus a
+forbidden post-hoc retune. This exception is intentionally narrow and operational, not a
+general loosening:
+
+1. **Never** add 2025 to `MLB_REGULAR_SEASON_DATE_RANGES`, `DEVELOPMENT_SEASONS`, any
+   development-data downloader (`download_development_data`, `clean_development_data`,
+   or any future equivalent), or any general-purpose CLI flag. These stay exactly as
+   documented above, unconditionally.
+2. The frozen 2025 regular-season date range is defined **locally**, inside the Version
+   1.0 evaluation code, under an explicit name such as `FINAL_EVALUATION_2025_DATE_RANGE`
+   -- never in `mlb_luck_score.config` and never re-exported through normal development
+   configuration.
+3. The dedicated entry point may call `download_statcast_range` (or an equivalent
+   low-level fetch) directly for that range, but only after it has itself verified, in
+   order: a clean working tree, a frozen commit hash recorded, a pre-evaluation manifest
+   built and validated, every frozen artifact hash verified against that manifest, no
+   prior sealed final evaluation already exists, and explicit final-evaluation
+   authorization is active for that run.
+4. `assert_seasons_allowed(..., allow_final_evaluation=True)` remains the enforcement
+   point, but that authorization must be reachable **only** from the dedicated Version
+   1.0 orchestration path -- no development runner, notebook, or general script may set
+   `allow_final_evaluation=True`.
+5. 2025 raw data and every downstream artifact from this run live in a namespace
+   separate from development caches (e.g. `data/final_evaluation/2025/`,
+   `outputs/final_evaluation/v1/`, `artifacts/final_evaluation/v1/`) -- never mixed into
+   `data/raw`, `data/interim`, `data/processed`, or `artifacts/` where an ordinary
+   development runner could discover it by accident.
+6. This ingestion must record provenance: the exact start/end dates fetched, the data
+   source, a retrieval timestamp, hashes of the raw files, row counts, date coverage, and
+   any missing dates -- the same evidentiary bar as the park-geometry/weather provenance
+   rules elsewhere in this file.
+7. Fail-fast guards (see `tests/` for the Version 1.0 evaluation-guard suite) must prove:
+   development downloaders still reject 2025; development runners cannot locate or
+   process the final-evaluation cache; only the dedicated entry point can authorize 2025;
+   the final evaluation cannot be re-run after sealing without the explicit
+   defect-fix-archival path; and building or testing the orchestration code itself never
+   triggers real 2025 access (synthetic fixtures only, exactly as for every other module).
+8. The complete evaluation protocol (manifest, system checks, distribution-shift
+   analysis, report assembly, sealing) must be built and tested against synthetic data,
+   then committed with a clean working tree, before any real 2025 download occurs. That
+   committed commit hash is what the manifest records as the pre-evaluation commit.
+
+If you are ever asked to extend this exception -- to run a second final evaluation, to
+loosen any guard above, or to make 2025 reachable from a second code path -- treat that
+as a new, separate decision requiring the user's explicit sign-off, not a natural
+extension of this one.
+
 ## Avoid target leakage
 
 Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,
