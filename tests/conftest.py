@@ -131,6 +131,9 @@ def v011_full_ledger() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
     rng = np.random.default_rng(0)
     df["batter"] = rng.integers(1000, 1010, size=len(df))
+    df["game_date"] = pd.Timestamp("2024-04-01") + pd.to_timedelta(
+        rng.integers(0, 175, size=len(df)), unit="D"
+    )
 
     df = compute_eligibility(df)
     df = add_outfield_opportunity_eligibility(df)
@@ -198,3 +201,41 @@ def v011_full_ledger() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         advancement_model_status="calibrated_with_limited_subgroup_evidence",
     )
     return df, ledger, confidence
+
+
+@pytest.fixture(scope="session")
+def v012_public_score_artifacts(v011_full_ledger):
+    """A full `mlb_luck_score.scoring.run_season_aggregation.
+    SeasonAggregationArtifacts` built on top of `v011_full_ledger`, with a
+    `lenient` qualification pass (the synthetic fixture is far too small to
+    clear `primary`'s volume bar) so Version 0.12 tests have at least some
+    `qualified` rows to exercise ranking/leaderboard logic against.
+    """
+    from mlb_luck_score.scoring.aggregate_attribution import aggregate_to_batter_season
+    from mlb_luck_score.scoring.aggregation_uncertainty import bootstrap_batter_season_intervals
+    from mlb_luck_score.scoring.qualification import assign_qualification_status
+    from mlb_luck_score.scoring.run_season_aggregation import SeasonAggregationArtifacts
+
+    df, ledger, confidence = v011_full_ledger
+    summary = aggregate_to_batter_season(df, ledger, confidence)
+    boot = bootstrap_batter_season_intervals(df, ledger, n_reps=200, seed=42)
+    player_season = summary.merge(boot, on=["batter", "season"], how="left")
+    player_season["qualification_status"] = assign_qualification_status(
+        player_season, thresholds="lenient"
+    ).to_numpy()
+
+    report = {
+        "model_selection_winners": {
+            "outfield": "measured_contact_only_v07",
+            "infield": "infield_hgb_v08",
+            "advancement": "advancement_speed_v09",
+        },
+        "season_identity_holds_for_every_row": True,
+    }
+    return SeasonAggregationArtifacts(
+        scoring_df=df,
+        ledger=ledger,
+        confidence=confidence,
+        player_season=player_season,
+        report=report,
+    )

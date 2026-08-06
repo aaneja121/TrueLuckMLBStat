@@ -2002,6 +2002,129 @@ writing, on the held-out 2024 season (123,980 scored plays, 647 batter-seasons):
   execution_component_runs` (r = -0.48) at the player-season level -- descriptive only,
   no causal claim.
 
+## Public Contact Luck score, leaderboard, and presentation contract (Version 0.12)
+
+Freezes Versions 0.2-0.11 completely -- no model, ledger component, confidence rule,
+bootstrap procedure, or qualification threshold was refit, recalibrated, tuned, or
+altered to produce this phase. This is the first phase that defines a PUBLIC-FACING
+contract (schema, ranking, language) on top of the frozen Version 0.11 season
+aggregation; it deliberately does not create a Version 1.0 final score.
+
+### Naming note
+
+The task asked for `scoring/public_score.py`, but that name is already taken by the
+genuinely live, tested, FROZEN Version 0.1 legacy tanh-based score mapping
+(`raw_luck_to_public_score`, imported by `mlb_luck_score.models.predict_outcomes` and
+covered by `tests/test_scoring.py`). Overwriting it would have destroyed real, in-use
+code. The Version 0.12 assembly module is named `mlb_luck_score.scoring.
+public_score_table` instead; the legacy module was not touched.
+
+### Official score definition (task decisions 1-3, 9, 10)
+
+- **Official metric**: `Contact Luck Runs per 100 Eligible Batted Balls`
+  (`contact_luck_runs_per_100`, Version 0.11's `observed_minus_expected_per_100`
+  renamed for the public contract).
+- **Also reported**: `Total Contact Luck Runs` (`total_contact_luck_runs`), the additive
+  season total -- reportable whenever `eligible_batted_balls > 0` regardless of any
+  component's provisional status, because it is an EXACT observed-minus-expected
+  accounting total. Provisional status affects how the component DECOMPOSITION should
+  be read, not whether the total exists.
+- **Direction**: positive = more favorable realized outcomes than expected; negative =
+  less favorable.
+- Any percentile/index is secondary, non-additive, and never substituted for the
+  runs-per-100 value.
+
+### `batter_name` is not populated
+
+`mlb_luck_score.scoring.public_score_schema` includes `batter_name` ("if available from
+a reviewed ID join") because the task asked for it conditionally. It is NOT available:
+the raw Statcast `player_name` column is the PITCHER's name, not the batter's (verified
+directly against the real data), and there is no reviewed batter-id-to-name join
+anywhere in this repository. `batter_name` is always `None` -- left null rather than
+populated with a silently wrong name.
+
+### Leaderboard eligibility and ranking policy (Phase 2)
+
+Only rows whose frozen Version 0.11 `qualification_status` is `qualified` may carry an
+official rank (`official_rank_eligible`). **Ranking method: competition ranking**
+(`.rank(method="min")`) -- ties share the same rank, and the next distinct value skips
+ahead by the number of tied rows, matching the convention most public sports
+leaderboards already use. **Tie-break for display order**: `batter_id` ascending,
+deterministic. Both chosen and documented in `mlb_luck_score.scoring.leaderboard`'s
+module docstring BEFORE any real leaderboard output was inspected. Ranking is on
+`contact_luck_runs_per_100` alone -- interval endpoints are never used to reorder
+players. Two leaderboards are produced: "Most favorable realized luck" and "Least
+favorable outcomes relative to expectation" (never described as "worst players").
+Non-qualified rows retain their computed values (where Version 0.11 permits reporting
+them) but never receive a rank.
+
+### Interval presentation (Phase 3)
+
+`lower_95_interval`/`upper_95_interval` are on the SAME per-100 scale as the point
+estimate and are always populated together with it -- never behind a flag or optional
+expansion. `interval_interpretation` (`entirely_above_zero` / `overlaps_zero` /
+`entirely_below_zero`) is descriptive only and is computed for every row with a
+non-null interval, including non-qualified ones -- a row is never suppressed for
+crossing zero.
+
+### Component presentation (Phase 5)
+
+The additive decomposition (contact / unexplained residual / defensive execution /
+advancement) may be displayed with its run total, per-100 value, and status/reason
+codes (`mlb_luck_score.scoring.public_score_table.describe_components`) -- but there is
+NO official leaderboard for any individual component. `mlb_luck_score.scoring.
+leaderboard` deliberately implements no ranking function for provisional near-wall,
+provisional infield, provisional advancement, or any not-calibrated component.
+
+### Optional display index (Phase 4)
+
+`mlb_luck_score.scoring.public_score_table.compute_development_percentile` implements
+the OPTIONAL candidate (a frozen-development-distribution percentile among qualified
+batter-seasons, rank-based, non-additive, preserving reference seasons/population/
+transformation version/tie behavior/out-of-range handling) but it is **NOT adopted**
+and **NOT included in the default public table** -- runs per 100 remains the only
+official score, per the task's preferred default.
+
+### Public language (Phase 6)
+
+Centralized in `mlb_luck_score.scoring.public_labels` -- the exact required
+definitions, the "least favorable" (never "worst players") framing, the retrospective
+-not-a-projection limitation sentence, and a banned-phrase checker (`deserved hits`,
+`true talent luck`, `guaranteed regression`, `should have produced`, `defense
+-independent` unless justified, `statistically significant player`).
+
+### Real 2021-2024 result
+
+Run `make run-public-score` to (re)generate `outputs/tables/public_score_v012.{csv,
+parquet,json}`, the favorable/unfavorable leaderboard JSON files, `public_score_v012_
+scorecard.json`, and `public_score_v012_review_tables.json`. See notebook
+`13_public_score_review.ipynb` for an inspection walkthrough. As of this writing (2024
+season, 647 player-season rows, 216 `qualified`, 0 escaped `--allow-final-evaluation`
+guards, 2025 never read):
+
+- **Schema validation passes** for the full 647-row table (no duplicate batter-seasons,
+  no missing identifiers, no non-finite official values, `official_rank_eligible`
+  consistent with `qualification_status` for every row).
+- **Zero single-digit-sample players are ever officially ranked** -- the minimum
+  `eligible_batted_balls` among ranked rows is 217 (qualification's own 200-play floor,
+  as expected).
+- **203 of 216 qualified rows (94.0%) have a 95% interval that crosses zero** -- for the
+  large majority of qualified players this season, realized Contact Luck Runs per 100
+  is not distinguishable from zero at typical sample sizes. This is reported honestly
+  and is exactly what the interval is for; it is not a reason to suppress those rows
+  (Phase 3's explicit instruction), and per Phase 6's low split-half reliability finding
+  (Version 0.11), it is the expected shape for a metric describing realized luck rather
+  than persistent skill.
+- **Provisional-component sensitivity is real for specific individual players**: the
+  development-only ranking comparison (with vs. without provisional-component value)
+  shows rank deltas as large as 183 positions for individual qualified players, even
+  though the AGGREGATE rank correlation across all 647 rows was 0.598 (Version 0.11).
+  Component values remain displayable with their status/reason codes; no official
+  component leaderboard was created for any provisional or not-calibrated component.
+- **No threshold or model was adjusted** in response to how the 2024 leaderboard looked
+  -- per the task's explicit instruction, the review tables above are development
+  diagnostics only.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit

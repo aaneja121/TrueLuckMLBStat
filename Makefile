@@ -10,7 +10,8 @@
 	compare-near-wall-models compare-near-wall-calibration-gate \
 	download-sprint-speed join-sprint-speed compare-infield-opportunity \
 	notebook-infield-opportunity compare-advancement-models notebook-advancement \
-	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation
+	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation \
+	run-public-score notebook-public-score
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -368,3 +369,21 @@ evaluate-aggregation-stability:
 
 notebook-season-aggregation:
 	$(PY) -m jupyter notebook notebooks/12_confidence_and_season_aggregation.ipynb
+
+# Version 0.12: freezes Versions 0.2-0.11 completely. Calls mlb_luck_score.
+# scoring.run_season_aggregation.build_player_season_report (Version 0.11,
+# unchanged) to get the frozen player-season artifacts, then assembles the
+# public player-season schema (mlb_luck_score.scoring.public_score_table --
+# named to avoid colliding with the live, tested Version 0.1 legacy
+# public_score.py), assigns competition ranks to QUALIFIED rows only
+# (mlb_luck_score.scoring.leaderboard), and writes the public CSV/Parquet/
+# JSON tables, both leaderboards, a compact score card, and Phase 8's
+# development-only 2024 review tables. Never touches 2025 -- no
+# `--allow-final-evaluation`-style flag exists here, on purpose.
+run-public-score:
+	$(PY) -m mlb_luck_score.scoring.run_public_score \
+		--input data/processed/cleaned_development_data_with_sprint_speed.parquet \
+		--output-dir outputs/tables
+
+notebook-public-score:
+	$(PY) -m jupyter notebook notebooks/13_public_score_review.ipynb
