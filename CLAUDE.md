@@ -221,6 +221,52 @@ ranks, intervals, and qualification status were never affected. Fixed in
 slicing, so `public_score.*` and both leaderboard exports are always sliced from the SAME
 already-overlaid table. See `tests/test_prospective_leaderboard_name_propagation.py`.
 
+**v1.1.2 operational correctness fix: coverage-aware raw Statcast caching.** The
+2026-08-06 snapshot and the first 2026-08-08 attempt (both immutable, never modified by
+this patch) silently scored STALE data: `data/prospective/2026/statcast_2026_regular_
+season.parquet` was downloaded once on 2026-08-06 and reused for every later run because
+the old guard (`ingest_2026_raw_statcast`) only checked whether the raw cache file
+EXISTED, never whether its coverage actually reached the requested `--data-through` date.
+The fix -- do NOT reintroduce a "does the file exist" check anywhere in this pipeline
+without pairing it with the coverage check below:
+
+- Every raw Statcast cache write now also writes a provenance sidecar
+  (`prospective.prospective_ingestion.RawStatcastCacheProvenance`, persisted next to the
+  parquet file as `*.provenance.json`): `requested_start_date`, `requested_end_date`,
+  `observed_min_game_date`, `observed_max_game_date`, `observed_game_dates` (the FULL set,
+  not just min/max -- see below for why), `retrieved_at`, `row_count`, `sha256`.
+- `evaluate_raw_statcast_cache` is the single decision point for reuse vs. refresh. It
+  refuses to reuse the cache (refreshing instead) if: the raw file or its provenance
+  sidecar is missing; the provenance sidecar is malformed; the sidecar's recorded sha256
+  no longer matches the actual raw file; or ANY completed MLB game date (checked via a
+  fresh MLB Stats API `/schedule` range fetch, `fetch_schedule_game_statuses_range`) from
+  `requested_start_date` through `requested_end_date` is absent from the cache's own
+  `observed_game_dates`. This is deliberately NOT `max(game_date)` comparison alone --
+  comparing only the max/tail date is exactly what let the real incident happen: a later
+  date being present can hide an earlier internal gap. A date with zero completed games
+  (an off day, the All-Star break, or a postponed/cancelled game) is never treated as
+  missing. `--force-redownload` still forces a refresh unconditionally, but per the task
+  that produced this fix, it is NOT required for ordinary forward-moving `--data-through`
+  requests -- the cache now refreshes itself automatically when its verified coverage
+  doesn't reach the request. Cache AGE is never consulted for validity, only coverage.
+- `assert_scoring_dataset_satisfies_coverage_contract` adds a SECOND, fully independent
+  fail-fast check immediately before scoring (in `run_v1_1_2026_scoring.run_prospective_
+  snapshot`, right before `train_and_score_2026`), re-derived directly from the actual
+  `scoring_df` with its own fresh schedule fetch. It never reads or trusts the earlier
+  `CacheCoverageValidation` result -- this is intentional so a bug (or an incorrectly
+  mocked cache decision, e.g. in a test) upstream can never silently let stale data reach
+  the model. If you ever add another data source with similar cache-then-reuse semantics,
+  apply the SAME two-layer pattern (a coverage-provenance-based reuse decision, PLUS an
+  independent final assertion on the actual data about to be used) -- do not go back to
+  "does the file exist."
+- Every snapshot manifest now records: whether the raw Statcast cache was reused or
+  refreshed, its cached provenance before that decision, the final raw-data provenance,
+  the full coverage-validation result (including any missing completed game dates found),
+  and the final pre-scoring coverage check's own result (`coverage_and_schema_report` in
+  `run_v1_1_2026_scoring.py`, which flows into the manifest's `schema_checks`).
+
+See `tests/test_prospective_statcast_cache_coverage.py` for the regression tests.
+
 ## Avoid target leakage
 
 Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,

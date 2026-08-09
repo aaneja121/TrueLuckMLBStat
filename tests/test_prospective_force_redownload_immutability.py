@@ -86,6 +86,17 @@ def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, *, distinguishing_value: flo
     monkeypatch.setattr(
         runner, "assert_data_through_date_is_complete", lambda *a, **kw: _FakeCompletenessResult()
     )
+    # v1.1.2: the final independent pre-scoring coverage check also hits the
+    # network by default -- stub it here too, same as the other guards.
+    monkeypatch.setattr(
+        runner,
+        "assert_scoring_dataset_satisfies_coverage_contract",
+        lambda *a, **kw: {
+            "verified_at": "2026-01-01T00:00:00+00:00",
+            "observed_game_date_count": 0,
+            "missing_completed_game_dates": [],
+        },
+    )
 
     monkeypatch.setattr(
         runner,
@@ -98,6 +109,24 @@ def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, *, distinguishing_value: flo
             "raw_file_sha256": f"raw-hash-{distinguishing_value}",
             "row_count": 100,
             "observed_date_coverage": ["2026-03-25", "2026-04-15"],
+            "cache_coverage_validation": {
+                "decision": "refreshed",
+                "reason": "no_cached_raw_file",
+                "cached_provenance": None,
+                "missing_completed_game_dates": [],
+                "checked_at": "2026-01-01T00:00:00+00:00",
+            },
+            "cached_provenance_before_decision": None,
+            "final_raw_data_provenance": {
+                "requested_start_date": "2026-03-25",
+                "requested_end_date": "2026-04-15",
+                "observed_min_game_date": "2026-03-25",
+                "observed_max_game_date": "2026-04-15",
+                "observed_game_dates": ["2026-03-25", "2026-04-15"],
+                "retrieved_at": "2026-01-01T00:00:00+00:00",
+                "row_count": 100,
+                "sha256": f"raw-hash-{distinguishing_value}",
+            },
         },
     )
     monkeypatch.setattr(

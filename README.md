@@ -2197,18 +2197,33 @@ endpoint (`mlb_luck_score.data.download_player_names`). Names are never used as 
 features and never affect a score, interval, rank, or qualification status -- see
 CLAUDE.md for the exact guarantee.
 
-**Status as of this writing**: constructed and offline-tested only. No real 2026 data
-has been ingested. The real 2026 season-opening date is now VERIFIED --
-`prospective.prospective_config.PROSPECTIVE_2026_SEASON_START_DATE = date(2026, 3, 25)`,
-`PROSPECTIVE_2026_SEASON_START_VERIFIED = True` -- via a maintainer-provided citation of
-MLB's official 2026 schedule (Opening Night: New York Yankees at San Francisco Giants,
-2026-03-25; the official schedule confirms that game was played). The source citation
-and verification date are recorded in `PROSPECTIVE_2026_SEASON_START_SOURCE`/
-`PROSPECTIVE_2026_SEASON_START_VERIFIED_AT`. As of 2026-08-06, the working-tree and
-data-through-date-completeness guards above are both built and offline-tested, but no
-real snapshot has yet been run -- the first real invocation should use a `--data-through`
-date confirmed complete on MLB's official schedule (e.g. not the current day if that
-day's slate is still underway).
+**v1.1.2 operational correctness fix**: `data/prospective/2026/statcast_2026_regular_
+season.parquet` was downloaded once (2026-08-06) and then silently reused across three
+later `--data-through` requests whose actual coverage had already moved past it -- the
+old guard only checked whether the file existed, never whether its coverage reached the
+request. Every one of those snapshots is left exactly as it was (immutable, never
+modified) but is now known to have scored the same underlying 2026-03-25..2026-08-05 data
+regardless of its own `--data-through` label. Fixed by making cache reuse
+coverage-provenance-based (a persisted sidecar recording every observed game date, not
+just min/max) plus a second, fully independent pre-scoring assertion that never trusts
+the earlier reuse decision -- see CLAUDE.md "Version 1.1.2" for the complete incident
+writeup and `tests/test_prospective_statcast_cache_coverage.py` for the regression tests.
+`--force-redownload` is no longer required for ordinary forward-moving snapshots; the
+cache now refreshes itself automatically when it doesn't cover what was requested.
+
+**Status as of this writing**: `outputs/prospective/v1_1/2026-08-05/` is the first real,
+genuinely-covered snapshot. `2026-08-06/` and the first `2026-08-08/` both exist as
+immutable historical records but reflect the pre-v1.1.2 staleness bug (their own
+`scorecard.json.data_through_date` honestly shows `2026-08-05`, since the public-score
+schema's own date field is always derived from the actual scored data, never the
+requested cutoff). `2026-08-08__refreshed/` is the first snapshot generated with a
+genuinely refreshed cache (621 rows, 108 qualified, vs. the earlier 617/103). The real
+2026 season-opening date is VERIFIED -- `prospective.prospective_config.PROSPECTIVE_2026_
+SEASON_START_DATE = date(2026, 3, 25)`, `PROSPECTIVE_2026_SEASON_START_VERIFIED = True` --
+via a maintainer-provided citation of MLB's official 2026 schedule (Opening Night: New
+York Yankees at San Francisco Giants, 2026-03-25; the official schedule confirms that
+game was played), recorded in `PROSPECTIVE_2026_SEASON_START_SOURCE`/`PROSPECTIVE_2026_
+SEASON_START_VERIFIED_AT`.
 
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 

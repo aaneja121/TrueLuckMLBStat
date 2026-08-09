@@ -20,11 +20,17 @@ this relies on.
                                  2026 data this snapshot scores.
     --snapshot-label            (optional) -- a short label appended to the
                                  snapshot directory name.
-    --force-redownload          (optional) -- refresh the SHARED, MUTABLE raw
-                                 cache under data/prospective/2026/ before
-                                 building a NEW snapshot. Can never touch or
-                                 invalidate an already-completed snapshot
-                                 directory.
+    --force-redownload          (optional) -- explicitly force a refresh of
+                                 the SHARED, MUTABLE raw cache under
+                                 data/prospective/2026/ before building a NEW
+                                 snapshot, for a manual source correction.
+                                 Since v1.1.2 this is NOT required for
+                                 ordinary forward-moving requests -- the
+                                 cache refreshes itself automatically when
+                                 its verified coverage doesn't reach the
+                                 requested --data-through date. Can never
+                                 touch or invalidate an already-completed
+                                 snapshot directory.
 
 There is deliberately NO model-selection, calibration, feature-selection, or
 threshold-tuning flag here -- see CLAUDE.md.
@@ -42,6 +48,31 @@ presentation-only bug. Fixed by moving the name overlay before the
 leaderboard slicing (see `run_prospective_snapshot` below); every snapshot
 generated after this patch lands includes the fix. See `tests/
 test_prospective_leaderboard_name_propagation.py` for the regression tests.
+
+## v1.1.2 operational correctness fix: coverage-aware raw Statcast caching
+
+The 2026-08-06 and first 2026-08-08 snapshots (both sealed/immutable, NEVER
+modified by this patch) silently scored STALE data: `data/prospective/2026/
+statcast_2026_regular_season.parquet` was downloaded once on 2026-08-06 and
+reused for every subsequent run because the old guard only checked whether
+the file EXISTED, never whether its coverage actually reached the requested
+`--data-through` date. `prospective.prospective_ingestion.evaluate_raw_
+statcast_cache` fixes this: the cache now carries a persisted provenance
+sidecar (`*.provenance.json` -- requested range, every observed game date,
+row count, sha256) and is only reused when that provenance PROVES coverage
+through the requested cutoff, with no completed MLB game date missing
+anywhere in the season (not just at the tail -- a later date being present
+can otherwise hide an earlier internal gap). `--force-redownload` is
+preserved for manual source correction but is no longer required for
+ordinary forward progression: the cache refreshes itself automatically.
+`prospective.prospective_ingestion.assert_scoring_dataset_satisfies_
+coverage_contract` adds a second, fully independent fail-fast check
+immediately before scoring, re-derived from the actual `scoring_df` with a
+fresh schedule fetch -- it does not trust the earlier cache-validation
+decision, so a bug (or an incorrectly mocked decision) upstream cannot
+silently let stale data reach the model. See `tests/
+test_prospective_statcast_cache_coverage.py` for the regression tests and
+CLAUDE.md "Version 1.1.2" for the full incident writeup.
 """
 
 from __future__ import annotations
@@ -57,6 +88,7 @@ from typing import Any
 import pandas as pd
 from prospective_config import (
     PROJECT_ROOT,
+    PROSPECTIVE_2026_SEASON_START_DATE,
     PROSPECTIVE_ARTIFACTS_DIR,
     PROSPECTIVE_OUTPUTS_DIR,
     _assert_within_namespace,
@@ -65,6 +97,7 @@ from prospective_config import (
 from prospective_ingestion import (
     ProspectiveError,
     assert_data_through_date_is_complete,
+    assert_scoring_dataset_satisfies_coverage_contract,
     build_2026_scoring_dataset,
     ingest_2026_game_metadata,
     ingest_2026_raw_statcast,
@@ -256,6 +289,17 @@ def run_prospective_snapshot(
     full_development_df = pd.read_parquet(DEVELOPMENT_INPUT_PATH)
     training_df = full_development_df[full_development_df["season"].isin(TRAIN_SEASONS)].copy()
 
+    # v1.1.2 rule 9: final, independent fail-fast check -- does not trust the
+    # earlier cache-validation decision (ingest_2026_raw_statcast may have
+    # been given a stubbed/mocked completed_dates_fetch_fn upstream, or a
+    # future bug could make that decision wrong) -- re-derives coverage
+    # directly from the actual scoring_df about to be passed downstream.
+    final_coverage_check = assert_scoring_dataset_satisfies_coverage_contract(
+        scoring_df,
+        season_start_date=PROSPECTIVE_2026_SEASON_START_DATE.isoformat(),
+        data_through_date=data_through_date,
+    )
+
     artifacts, _trained = train_and_score_2026(
         training_df, scoring_df, threshold_set=DEFAULT_THRESHOLD_SET
     )
@@ -285,6 +329,15 @@ def run_prospective_snapshot(
         "statcast_schema_check": statcast_provenance["schema_check"],
         "missing_dates_within_range": statcast_provenance["missing_dates_within_range"],
         "data_through_completeness": completeness_result.to_dict(),
+        # v1.1.2: raw Statcast cache coverage-validation record -- whether
+        # the cache was reused or refreshed, why, its provenance before and
+        # after the decision, and the final independent pre-scoring check.
+        "raw_statcast_cache_coverage_validation": statcast_provenance["cache_coverage_validation"],
+        "raw_statcast_cached_provenance_before_decision": statcast_provenance[
+            "cached_provenance_before_decision"
+        ],
+        "raw_statcast_final_provenance": statcast_provenance["final_raw_data_provenance"],
+        "final_pre_scoring_coverage_check": final_coverage_check,
         "venue_join": join_provenance["venue_join"],
         "geometry_join": join_provenance["geometry_join"],
         "sprint_speed_join": join_provenance["sprint_speed_join"],

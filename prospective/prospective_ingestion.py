@@ -31,6 +31,7 @@ documented postponed/suspended-game rule.
 
 from __future__ import annotations
 
+import json
 import logging
 import secrets
 from collections.abc import Callable
@@ -82,6 +83,7 @@ from mlb_luck_score.data.download_sprint_speed import (
 from mlb_luck_score.data.download_statcast import (
     DEFAULT_CHUNK_DAYS,
     DEFAULT_MAX_RETRIES,
+    build_date_chunks,
     download_statcast_range,
     save_dataframe,
 )
@@ -335,6 +337,340 @@ def assert_data_through_date_is_complete(
 
 
 # ---------------------------------------------------------------------------
+# Version 1.1.2: coverage-aware raw Statcast cache validation
+#
+# Incident this fixes: `data/prospective/2026/statcast_2026_regular_season.
+# parquet` was downloaded once and then silently reused across three later
+# `--data-through` requests (2026-08-06, the first 2026-08-08 attempt) whose
+# ACTUAL coverage had moved on -- the old guard only asked "does the file
+# exist", never "does it actually cover what was requested". Every
+# function below exists so existence of the cache file is NEVER, by itself,
+# sufficient to trust it -- see CLAUDE.md "Version 1.1.2" for the full
+# incident writeup and the numbered rules this implements.
+# ---------------------------------------------------------------------------
+
+
+def fetch_schedule_game_statuses_range(
+    start_date: str,
+    end_date: str,
+    *,
+    chunk_days: int = _GAME_METADATA_DEFAULT_CHUNK_DAYS,
+    max_retries: int = _GAME_METADATA_DEFAULT_MAX_RETRIES,
+    backoff_seconds: float = _GAME_METADATA_DEFAULT_BACKOFF_SECONDS,
+) -> list[dict[str, Any]]:
+    """Fetch every game's status across `[start_date, end_date]` (inclusive),
+    chunked via the MLB Stats API `/schedule` endpoint -- generalizes
+    `fetch_schedule_game_statuses` (single date) to a full range. Used ONLY
+    by the cache-coverage validator and the final pre-scoring coverage
+    assertion below -- NEVER a source of Statcast play-level data itself.
+    """
+    start, end = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    games: list[dict[str, Any]] = []
+    for chunk in build_date_chunks(start, end, chunk_days):
+        data = _get_json_with_retries(
+            f"{MLB_STATS_API_BASE_URL}/schedule",
+            params={
+                "sportId": 1,
+                "gameType": "R",
+                "startDate": chunk.start.isoformat(),
+                "endDate": chunk.end.isoformat(),
+            },
+            max_retries=max_retries,
+            backoff_seconds=backoff_seconds,
+        )
+        for day in data.get("dates", []):
+            day_date = day.get("date")
+            for game in day.get("games", []):
+                games.append(
+                    {
+                        "game_pk": game.get("gamePk"),
+                        "game_date": day_date,
+                        "status_detailed_state": (game.get("status") or {}).get("detailedState"),
+                    }
+                )
+    return games
+
+
+def completed_mlb_game_dates(
+    start_date: str,
+    end_date: str,
+    *,
+    fetch_fn: Callable[[str, str], list[dict[str, Any]]] = fetch_schedule_game_statuses_range,
+) -> set[str]:
+    """The set of date strings within `[start_date, end_date]` that have AT
+    LEAST ONE game with a status in `COMPLETED_GAME_STATUS_VALUES`. A date
+    with zero games, or only postponed/cancelled/non-final games, is
+    deliberately EXCLUDED -- rule 5: a date with no completed games is never
+    a missing-data failure. This is DELIBERATELY more thorough than
+    comparing `max(game_date)` alone (rule 4) -- it returns every individual
+    qualifying date, so a caller can detect an INTERNAL gap (an earlier date
+    missing from the cache even though a later date is present).
+    """
+    games = fetch_fn(start_date, end_date)
+    return {
+        g["game_date"]
+        for g in games
+        if g.get("game_date") and g.get("status_detailed_state") in COMPLETED_GAME_STATUS_VALUES
+    }
+
+
+def _raw_statcast_provenance_path(raw_path: Path) -> Path:
+    return raw_path.parent / f"{raw_path.stem}.provenance.json"
+
+
+class RawStatcastProvenanceError(ProspectiveError):
+    """Raised by `read_raw_statcast_provenance` when the sidecar exists but
+    cannot be parsed. Never swallowed by that function itself -- callers
+    that want a refresh-on-malformed policy (`evaluate_raw_statcast_cache`)
+    catch it explicitly.
+    """
+
+
+@dataclass(frozen=True)
+class RawStatcastCacheProvenance:
+    """Coverage provenance for the raw 2026 Statcast cache, persisted as a
+    JSON sidecar next to the cached parquet file (`_raw_statcast_provenance_
+    path`). `observed_game_dates` is the FULL set of distinct dates present
+    in the cache, not just min/max -- rule 4 explicitly forbids validating
+    coverage with `max(game_date)` alone, since a later date being present
+    can otherwise hide an earlier internal gap.
+    """
+
+    requested_start_date: str
+    requested_end_date: str
+    observed_min_game_date: str | None
+    observed_max_game_date: str | None
+    observed_game_dates: list[str]
+    retrieved_at: str
+    row_count: int
+    sha256: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RawStatcastCacheProvenance:
+        return cls(**data)
+
+
+def build_raw_statcast_provenance(
+    raw_path: Path, *, requested_start_date: str, requested_end_date: str, retrieved_at: str
+) -> RawStatcastCacheProvenance:
+    raw = pd.read_parquet(raw_path)
+    observed_dates = (
+        sorted({d.isoformat() for d in pd.to_datetime(raw["game_date"]).dt.date.unique()})
+        if len(raw)
+        else []
+    )
+    return RawStatcastCacheProvenance(
+        requested_start_date=requested_start_date,
+        requested_end_date=requested_end_date,
+        observed_min_game_date=observed_dates[0] if observed_dates else None,
+        observed_max_game_date=observed_dates[-1] if observed_dates else None,
+        observed_game_dates=observed_dates,
+        retrieved_at=retrieved_at,
+        row_count=int(len(raw)),
+        sha256=compute_file_sha256(raw_path),
+    )
+
+
+def write_raw_statcast_provenance(
+    provenance: RawStatcastCacheProvenance, provenance_path: Path
+) -> None:
+    provenance_path.parent.mkdir(parents=True, exist_ok=True)
+    provenance_path.write_text(json.dumps(provenance.to_dict(), indent=2))
+
+
+def read_raw_statcast_provenance(provenance_path: Path) -> RawStatcastCacheProvenance | None:
+    """`None` only when the sidecar file does not exist at all -- a sidecar
+    that exists but cannot be parsed raises `RawStatcastProvenanceError`
+    rather than being silently treated as absent (rule 3).
+    """
+    if not provenance_path.exists():
+        return None
+    try:
+        data = json.loads(provenance_path.read_text())
+        return RawStatcastCacheProvenance.from_dict(data)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise RawStatcastProvenanceError(
+            f"Raw statcast provenance sidecar at {provenance_path} exists but could not be "
+            f"parsed into a RawStatcastCacheProvenance: {exc}"
+        ) from exc
+
+
+#: `CacheCoverageValidation.decision` values (rule 10: manifest records
+#: "whether the cache was reused or refreshed").
+CACHE_DECISION_REUSED = "reused"
+CACHE_DECISION_REFRESHED = "refreshed"
+
+#: `CacheCoverageValidation.reason` values (rule 10: "refresh reason when
+#: applicable", also used for the reuse case).
+REFRESH_REASON_FORCE_REDOWNLOAD = "force_redownload_requested"
+REFRESH_REASON_NO_CACHE_FILE = "no_cached_raw_file"
+REFRESH_REASON_NO_PROVENANCE = "no_provenance_sidecar"
+REFRESH_REASON_MALFORMED_PROVENANCE = "provenance_sidecar_malformed"
+REFRESH_REASON_HASH_MISMATCH = "raw_file_hash_does_not_match_provenance"
+REFRESH_REASON_FORWARD_COVERAGE = "requested_data_through_beyond_cached_coverage"
+REFRESH_REASON_COVERAGE_GAP = "completed_mlb_game_dates_missing_from_cached_coverage"
+REUSE_REASON_VERIFIED = "cached_coverage_verified_sufficient"
+
+
+@dataclass(frozen=True)
+class CacheCoverageValidation:
+    decision: str
+    reason: str
+    cached_provenance: dict[str, Any] | None
+    missing_completed_game_dates: list[str]
+    checked_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def evaluate_raw_statcast_cache(
+    *,
+    raw_path: Path,
+    provenance_path: Path,
+    requested_start_date: str,
+    requested_end_date: str,
+    force_redownload: bool = False,
+    completed_dates_fetch_fn: Callable[
+        [str, str], list[dict[str, Any]]
+    ] = fetch_schedule_game_statuses_range,
+) -> CacheCoverageValidation:
+    """Decide whether the cached raw Statcast file may be REUSED or must be
+    REFRESHED. Existence of the file is NEVER sufficient on its own.
+
+    Decision order (numbered rules from the Version 1.1.2 task):
+      7. `force_redownload=True` -> REFRESH unconditionally.
+      3. No cache file, no provenance sidecar, a malformed sidecar, or a
+         sidecar whose recorded sha256 no longer matches the actual raw
+         file -> REFRESH, never silently reused.
+      2/4/5. A single unified check: every completed MLB game date from
+         `requested_start_date` through `requested_end_date` (not just the
+         tail -- rule 4) must be present in the cache's own `observed_game_
+         dates`. A date with zero completed games is never counted as a
+         missing date (rule 5). Deliberately NOT a separate "is requested_
+         end_date > observed_max_game_date" shortcut: that naive comparison
+         is WRONG whenever the requested cutoff date itself has zero
+         completed games (postponed slate, a genuine off day) -- the cache's
+         real `observed_max_game_date` legitimately lags the calendar in
+         that case even though coverage is complete. Any date missing this
+         way STILL triggers REFRESH -- reported as `REFRESH_REASON_FORWARD_
+         COVERAGE` if every missing date is newer than the cache's own
+         `observed_max_game_date` (the ordinary "cache needs to catch up"
+         case), or `REFRESH_REASON_COVERAGE_GAP` if any missing date is
+         older (an internal gap, hidden behind a newer date that IS
+         present -- the actual real-world incident this fixes).
+      1/6. Otherwise (no completed date is missing) -> REUSE.
+      8. Cache AGE is never consulted here -- only coverage.
+    """
+    checked_at = datetime.now(UTC).isoformat()
+
+    if force_redownload:
+        return CacheCoverageValidation(
+            CACHE_DECISION_REFRESHED, REFRESH_REASON_FORCE_REDOWNLOAD, None, [], checked_at
+        )
+
+    if not raw_path.exists():
+        return CacheCoverageValidation(
+            CACHE_DECISION_REFRESHED, REFRESH_REASON_NO_CACHE_FILE, None, [], checked_at
+        )
+
+    if not provenance_path.exists():
+        return CacheCoverageValidation(
+            CACHE_DECISION_REFRESHED, REFRESH_REASON_NO_PROVENANCE, None, [], checked_at
+        )
+
+    try:
+        provenance = read_raw_statcast_provenance(provenance_path)
+    except RawStatcastProvenanceError:
+        return CacheCoverageValidation(
+            CACHE_DECISION_REFRESHED, REFRESH_REASON_MALFORMED_PROVENANCE, None, [], checked_at
+        )
+    if provenance is None:  # pragma: no cover -- existence just checked above
+        return CacheCoverageValidation(
+            CACHE_DECISION_REFRESHED, REFRESH_REASON_NO_PROVENANCE, None, [], checked_at
+        )
+
+    actual_hash = compute_file_sha256(raw_path)
+    if actual_hash != provenance.sha256:
+        return CacheCoverageValidation(
+            CACHE_DECISION_REFRESHED,
+            REFRESH_REASON_HASH_MISMATCH,
+            provenance.to_dict(),
+            [],
+            checked_at,
+        )
+
+    completed_dates = completed_mlb_game_dates(
+        requested_start_date, requested_end_date, fetch_fn=completed_dates_fetch_fn
+    )
+    missing = sorted(completed_dates - set(provenance.observed_game_dates))
+    if missing:
+        cached_max = provenance.observed_max_game_date or ""
+        reason = (
+            REFRESH_REASON_FORWARD_COVERAGE
+            if all(d > cached_max for d in missing)
+            else REFRESH_REASON_COVERAGE_GAP
+        )
+        return CacheCoverageValidation(
+            CACHE_DECISION_REFRESHED, reason, provenance.to_dict(), missing, checked_at
+        )
+
+    return CacheCoverageValidation(
+        CACHE_DECISION_REUSED, REUSE_REASON_VERIFIED, provenance.to_dict(), [], checked_at
+    )
+
+
+class CoverageContractViolationError(ProspectiveError):
+    """Raised by the final, independent pre-scoring coverage check -- see
+    `assert_scoring_dataset_satisfies_coverage_contract`.
+    """
+
+
+def assert_scoring_dataset_satisfies_coverage_contract(
+    scoring_df: pd.DataFrame,
+    *,
+    season_start_date: str,
+    data_through_date: str,
+    completed_dates_fetch_fn: Callable[
+        [str, str], list[dict[str, Any]]
+    ] = fetch_schedule_game_statuses_range,
+) -> dict[str, Any]:
+    """Rule 9: immediately before model scoring, independently re-verify
+    that the ACTUAL dataset about to be scored covers every completed MLB
+    game date through the requested cutoff -- derived FROM `scoring_df`
+    itself, with a FRESH schedule fetch. Deliberately does NOT read or trust
+    any earlier `CacheCoverageValidation` result: this is a genuine second,
+    independent check, so a bug (or an incorrectly mocked cache decision
+    upstream, e.g. in a test) cannot silently let stale data reach scoring.
+    """
+    if scoring_df.empty:
+        observed_dates: set[str] = set()
+    else:
+        observed_dates = {
+            d.isoformat() for d in pd.to_datetime(scoring_df["game_date"]).dt.date.unique()
+        }
+    completed_dates = completed_mlb_game_dates(
+        season_start_date, data_through_date, fetch_fn=completed_dates_fetch_fn
+    )
+    missing = sorted(completed_dates - observed_dates)
+    if missing:
+        raise CoverageContractViolationError(
+            "Final pre-scoring coverage check failed: the scoring dataset is missing "
+            f"{len(missing)} completed MLB game date(s) through {data_through_date}: {missing} "
+            "-- refusing to score. This check is independent of, and does not trust, any "
+            "earlier cache-validation decision."
+        )
+    return {
+        "verified_at": datetime.now(UTC).isoformat(),
+        "observed_game_date_count": len(observed_dates),
+        "missing_completed_game_dates": [],
+    }
+
+
+# ---------------------------------------------------------------------------
 # 2026 ingestion
 # ---------------------------------------------------------------------------
 
@@ -348,6 +684,9 @@ def ingest_2026_raw_statcast(
     chunk_days: int = DEFAULT_CHUNK_DAYS,
     max_retries: int = DEFAULT_MAX_RETRIES,
     overwrite: bool = False,
+    completed_dates_fetch_fn: Callable[
+        [str, str], list[dict[str, Any]]
+    ] = fetch_schedule_game_statuses_range,
 ) -> dict[str, Any]:
     """Download raw 2026 Statcast rows via `download_statcast_range` directly
     -- never via `mlb_luck_score.data.download_development_data`, which has
@@ -362,11 +701,18 @@ def ingest_2026_raw_statcast(
     without updating this default -- under the current, verified
     configuration it never fires.
 
+    Version 1.1.2: whether the existing cache file may be REUSED is decided
+    by `evaluate_raw_statcast_cache` -- coverage, not mere file existence,
+    determines validity (see that function's docstring for the exact
+    decision rules). `overwrite` (`--force-redownload`) still forces a
+    refresh but is no longer required for an ordinary forward-moving
+    request; the cache now refreshes itself automatically in that case.
+
     Raises:
-        ProspectiveConfigurationError: if a REAL download (no existing cache,
-            or `overwrite=True`) would be attempted while `season_start_date`
-            matches the configured default AND `PROSPECTIVE_2026_SEASON_
-            START_VERIFIED` is False.
+        ProspectiveConfigurationError: if a REAL download (cache refresh)
+            would be attempted while `season_start_date` matches the
+            configured default AND `PROSPECTIVE_2026_SEASON_START_VERIFIED`
+            is False.
     """
     _require_authorization(authorization, "ingest_2026_raw_statcast")
     _assert_within_namespace(
@@ -374,6 +720,7 @@ def ingest_2026_raw_statcast(
     )
 
     path = development_raw_path(output_dir, PROSPECTIVE_SEASON)
+    provenance_path = _raw_statcast_provenance_path(path)
     date_range = (season_start_date, data_through_date)
     start, end = date.fromisoformat(season_start_date), date.fromisoformat(data_through_date)
     if end < start:
@@ -383,9 +730,20 @@ def ingest_2026_raw_statcast(
         )
     retrieved_at = datetime.now(UTC).isoformat()
 
-    if path.exists() and not overwrite:
-        logger.info("2026 raw statcast cache already exists at %s; skipping download.", path)
+    cache_validation = evaluate_raw_statcast_cache(
+        raw_path=path,
+        provenance_path=provenance_path,
+        requested_start_date=season_start_date,
+        requested_end_date=data_through_date,
+        force_redownload=overwrite,
+        completed_dates_fetch_fn=completed_dates_fetch_fn,
+    )
+
+    if cache_validation.decision == CACHE_DECISION_REUSED:
+        logger.info("Reusing verified raw statcast cache at %s (%s)", path, cache_validation.reason)
+        final_provenance_dict = cache_validation.cached_provenance
     else:
+        logger.info("Refreshing raw statcast cache at %s (%s)", path, cache_validation.reason)
         if (
             season_start_date == PROSPECTIVE_2026_SEASON_START_DATE.isoformat()
             and not PROSPECTIVE_2026_SEASON_START_VERIFIED
@@ -404,6 +762,14 @@ def ingest_2026_raw_statcast(
                 "empty file."
             )
         save_dataframe(df, path)
+        new_provenance = build_raw_statcast_provenance(
+            path,
+            requested_start_date=season_start_date,
+            requested_end_date=data_through_date,
+            retrieved_at=retrieved_at,
+        )
+        write_raw_statcast_provenance(new_provenance, provenance_path)
+        final_provenance_dict = new_provenance.to_dict()
 
     raw = pd.read_parquet(path)
     schema_check = assert_raw_statcast_schema_compatible(raw)
@@ -424,6 +790,9 @@ def ingest_2026_raw_statcast(
         ),
         "missing_dates_within_range": missing_dates,
         "schema_check": schema_check,
+        "cache_coverage_validation": cache_validation.to_dict(),
+        "cached_provenance_before_decision": cache_validation.cached_provenance,
+        "final_raw_data_provenance": final_provenance_dict,
     }
 
 
