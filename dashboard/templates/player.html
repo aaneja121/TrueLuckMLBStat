@@ -53,7 +53,7 @@
     <div class="stat-value">{{ player.games }}</div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Provisional-component share</div>
+    <div class="stat-label">Share from provisional components</div>
     <div class="stat-value">{{ "%.0f%%"|format((player.provisional_share or 0) * 100) }}</div>
   </div>
 </div>
@@ -80,19 +80,34 @@
   </tbody>
 </table>
 
-<h3>Component model status &amp; reason codes</h3>
+<h3>Component status</h3>
 <table class="component-table">
-  <thead><tr><th>Component</th><th>Model status</th><th>Reason codes</th></tr></thead>
+  <thead><tr><th>Component</th><th>Status</th></tr></thead>
   <tbody>
     {% for row in component_status_rows %}
     <tr>
       <td>{{ row.label }}</td>
-      <td>{{ row.model_status_values | join(", ") }}</td>
-      <td>{{ row.reason_codes | join(", ") }}</td>
+      <td>{{ row.status_summary }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+
+<details class="technical-disclosure">
+  <summary>View technical reason codes</summary>
+  <table class="component-table">
+    <thead><tr><th>Component</th><th>Model status</th><th>Reason codes</th></tr></thead>
+    <tbody>
+      {% for row in component_status_rows %}
+      <tr>
+        <td>{{ row.label }}</td>
+        <td>{{ row.model_status_values | join(", ") }}</td>
+        <td>{{ row.reason_codes | join(", ") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
 
 <h2>Season-to-date trend</h2>
 {% if trend_svg %}

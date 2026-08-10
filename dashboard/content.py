@@ -37,6 +37,7 @@ __all__ = [
     "build_unfavorable_leaderboard",
     "find_player_record",
     "load_snapshot_payloads",
+    "summarize_component_status",
 ]
 
 
@@ -170,6 +171,52 @@ class ComponentBreakdown:
     advancement_per_100: float | None
     share_of_value_from_provisional_components: float | None
     component_status_reason_codes: dict[str, Any] = field(default_factory=dict)
+
+
+_COMPONENT_STATUS_LABELS = {
+    "calibrated": "Calibrated",
+    "not_calibrated": "Not calibrated",
+    "provisional": "Provisional",
+    "calibrated_with_limited_subgroup_evidence": "Limited subgroup evidence",
+    "unavailable": "Unavailable",
+}
+
+# Explicit, documented precedence for picking ONE plain-language status to
+# headline a component on the player page, when a player's own plays
+# collectively touched more than one raw `model_status_values` entry for
+# that component (the frozen public-score schema records every distinct
+# status seen across a player's plays, not a single verdict). "unavailable"
+# is listed last because it only describes plays a component didn't apply
+# to at all (not a calibration verdict), so it is shown only when it is the
+# SOLE status present. Among substantive statuses, "provisional" is listed
+# first because it names a known, actively-tracked specialist-model caveat
+# (see CLAUDE.md's Version 0.7 near-wall treatment) that is more specific
+# and more relevant to a public reader than the blunter "not_calibrated".
+# The full raw list is never hidden -- see the player page's "View
+# technical reason codes" disclosure -- this only decides what shows first.
+_COMPONENT_STATUS_PRECEDENCE = (
+    "provisional",
+    "calibrated_with_limited_subgroup_evidence",
+    "not_calibrated",
+    "calibrated",
+    "unavailable",
+)
+
+
+def summarize_component_status(model_status_values: list[str]) -> str:
+    """Pick one plain-language label for a component's status, per the
+    precedence documented at `_COMPONENT_STATUS_PRECEDENCE`. Never used to
+    change a score, rank, or qualification decision -- display only.
+    """
+    values = set(model_status_values)
+    if not values:
+        return "Unknown"
+    for candidate in _COMPONENT_STATUS_PRECEDENCE:
+        if candidate in values:
+            return _COMPONENT_STATUS_LABELS[candidate]
+    # An unrecognized status value -- fail soft rather than crash on a
+    # future schema addition this dashboard version doesn't know about yet.
+    return sorted(values)[0].replace("_", " ").capitalize()
 
 
 @dataclass(frozen=True)

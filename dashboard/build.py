@@ -125,6 +125,7 @@ def _player_view(
     component_status_rows = [
         {
             "label": _COMPONENT_LABELS.get(key, key),
+            "status_summary": c.summarize_component_status(value.get("model_status_values", [])),
             "model_status_values": value.get("model_status_values", []),
             "reason_codes": value.get("reason_codes", []),
         }

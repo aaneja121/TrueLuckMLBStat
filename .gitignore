@@ -58,3 +58,6 @@ artifacts/prospective/*
 !data/prospective/.gitkeep
 !outputs/prospective/.gitkeep
 !artifacts/prospective/.gitkeep
+
+# macOS
+.DS_Store
