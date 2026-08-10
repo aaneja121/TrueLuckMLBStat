@@ -61,3 +61,8 @@ artifacts/prospective/*
 
 # macOS
 .DS_Store
+
+# Cloudflare Wrangler local cache/state (account ID, project name -- no
+# secrets; the actual auth token lives outside the repo in the user's
+# global Wrangler config).
+.wrangler/

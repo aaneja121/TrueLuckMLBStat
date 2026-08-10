@@ -54,6 +54,39 @@ def _one_snapshot(tmp_path: Path) -> sd.DiscoveredSnapshot:
     return latest
 
 
+class TestSummarizeComponentStatus:
+    """The real per-player status combinations observed on 2026-08-09 for
+    Pete Crow-Armstrong -- see the maintainer's requested plain-language
+    labels for these exact combinations.
+    """
+
+    def test_calibrated_wins_over_unavailable(self) -> None:
+        assert c.summarize_component_status(["calibrated", "unavailable"]) == "Calibrated"
+
+    def test_provisional_wins_over_not_calibrated_and_unavailable(self) -> None:
+        assert (
+            c.summarize_component_status(["not_calibrated", "provisional", "unavailable"])
+            == "Provisional"
+        )
+
+    def test_limited_subgroup_evidence_wins_over_unavailable(self) -> None:
+        assert (
+            c.summarize_component_status(
+                ["calibrated_with_limited_subgroup_evidence", "unavailable"]
+            )
+            == "Limited subgroup evidence"
+        )
+
+    def test_unavailable_shown_only_when_sole_status(self) -> None:
+        assert c.summarize_component_status(["unavailable"]) == "Unavailable"
+
+    def test_empty_list_is_unknown_not_a_crash(self) -> None:
+        assert c.summarize_component_status([]) == "Unknown"
+
+    def test_unrecognized_status_fails_soft(self) -> None:
+        assert c.summarize_component_status(["some_future_status"]) == "Some future status"
+
+
 class TestLeaderboards:
     def test_only_qualified_players_are_ranked(self, tmp_path: Path) -> None:
         payloads = c.load_snapshot_payloads(_one_snapshot(tmp_path))

@@ -164,8 +164,42 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
+        # Raw codes still exist -- inside the technical disclosure, not the
+        # primary table.
         assert "near_wall_provisional" in html
         assert "calibrated_with_limited_subgroup_evidence" in html
+        assert '<details class="technical-disclosure">' in html
+        assert "View technical reason codes" in html
+
+    def test_component_status_shows_plain_language_summary_first(self, tmp_path: Path) -> None:
+        out_root, art_root = _seed_two_snapshots(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            build_timestamp="2026-01-02T12:00:00+00:00",
+        )
+        html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
+        primary_table_html = html.split('<details class="technical-disclosure">', 1)[0]
+        assert "Provisional" in primary_table_html
+        assert "Limited subgroup evidence" in primary_table_html
+        # The raw status token must not leak into the primary (non-disclosure)
+        # table -- only the plain-language summary belongs there.
+        assert "calibrated_with_limited_subgroup_evidence" not in primary_table_html
+
+    def test_share_from_provisional_components_label_is_plain_language(
+        self, tmp_path: Path
+    ) -> None:
+        out_root, art_root = _seed_two_snapshots(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            build_timestamp="2026-01-02T12:00:00+00:00",
+        )
+        html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
+        assert "Share from provisional components" in html
+        assert "Provisional-component share" not in html
 
     def test_trend_chart_present_across_two_stored_snapshots(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
