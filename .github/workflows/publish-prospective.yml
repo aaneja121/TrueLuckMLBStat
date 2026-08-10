@@ -1,0 +1,227 @@
+name: Publish prospective snapshot
+
+# Contact Luck operational loop:
+#   completed MLB slate
+#     -> prospective/run_v1_1_2026_scoring.py   (immutable snapshot -- owns
+#        ALL correctness/safety guards: clean working tree, date
+#        completeness, coverage validation, conflict detection)
+#     -> scripts/archive_snapshot.py             (durable Cloudflare R2
+#        archive -- see "Durable archival" in README.md. Runs BEFORE the
+#        dashboard build; if it fails, the dashboard is never built and
+#        nothing is ever deployed.)
+#     -> dashboard/build.py                     (static site)
+#     -> wrangler pages deploy                  (Cloudflare Pages)
+#
+# This workflow is a thin trigger around scripts/publish_snapshot.sh, which
+# remains the ONLY orchestration entry point (see that script's own header
+# comment) -- nothing here reimplements, duplicates, or bypasses its
+# guards. If any stage inside publish_snapshot.sh fails, this workflow
+# fails the same way a local run would, with the same exit code, and later
+# stages never run (the script itself is `set -euo pipefail`; this
+# workflow calls it as a single atomic step rather than splitting its
+# internal stages into separate YAML steps, so there is no way for the
+# workflow to accidentally run the dashboard build after a failed
+# snapshot/archive, or deploy after a failed build).
+#
+# INITIAL ROLLOUT: scheduled runs default to a dry run (--skip-deploy) so
+# scheduled scoring + dashboard generation can be validated for a while
+# before unattended production deploys are enabled. See "Enabling
+# production scheduled deploys" below and in README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_through:
+        description: >-
+          Data-through date (YYYY-MM-DD). Leave blank to auto-resolve
+          yesterday in America/New_York.
+        required: false
+        type: string
+      deploy:
+        description: >-
+          Deploy to Cloudflare Pages after building. Unchecked (default) =
+          dry run, equivalent to --skip-deploy.
+        required: false
+        type: boolean
+        default: false
+
+  schedule:
+    # 13:00 UTC daily.
+    #
+    # DST TRADEOFF: GitHub Actions cron is fixed UTC and does NOT shift
+    # with daylight saving. 13:00 UTC is:
+    #   - 09:00 America/New_York during EDT (UTC-4, roughly mid-March to
+    #     early November -- most of the MLB regular season)
+    #   - 08:00 America/New_York during EST (UTC-5, the rest of the year)
+    # Either wall-clock time is a conservative morning buffer after even a
+    # late West Coast extra-inning game. The actual --data-through date is
+    # resolved separately in America/New_York (see the "Resolve" step
+    # below, and scripts/resolve_data_through_date.sh), so this cron time
+    # only needs to be "safely after games usually end," not exact -- if a
+    # slate isn't actually complete yet for some other reason,
+    # run_v1_1_2026_scoring.py's own date-completeness guard rejects the
+    # run rather than scoring partial data. See "Failure behavior" in
+    # README.md.
+    - cron: '0 13 * * *'
+
+concurrency:
+  # Only one publish (scheduled or manual) may run at a time. A second
+  # trigger while one is in flight QUEUES rather than cancelling the first
+  # or running concurrently -- cancel-in-progress:false means "wait your
+  # turn," never "interrupt a run that might be mid-deploy." This is what
+  # stops two runs from racing to create competing snapshots/deployments.
+  group: publish-prospective
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Generous: a cold cache (no prior data/prospective/2026/ raw Statcast
+    # cache -- see "Risks" in the delivery notes) can mean a full-season
+    # download before scoring even starts.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve trigger, date, and deploy mode
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_DATE: ${{ inputs.data_through }}
+          MANUAL_DEPLOY: ${{ inputs.deploy }}
+          # The ONE switch that turns scheduled runs from dry-run into real
+          # production deploys -- see "Enabling production scheduled
+          # deploys" in README.md. Unset/anything-other-than-"true" means
+          # dry run; this is the safe default.
+          SCHEDULED_AUTO_DEPLOY: ${{ vars.PROSPECTIVE_AUTO_DEPLOY }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TRIGGER_DESC="workflow_dispatch (manual)"
+            INPUT_DATE="$MANUAL_DATE"
+            DEPLOY_REQUESTED="$MANUAL_DEPLOY"
+          else
+            TRIGGER_DESC="schedule (cron)"
+            INPUT_DATE=""
+            DEPLOY_REQUESTED="$SCHEDULED_AUTO_DEPLOY"
+          fi
+
+          if [ -n "$INPUT_DATE" ]; then
+            DATA_THROUGH="$INPUT_DATE"
+          else
+            DATA_THROUGH="$(scripts/resolve_data_through_date.sh)"
+          fi
+
+          if [ "$DEPLOY_REQUESTED" = "true" ]; then
+            MODE="DEPLOY (production: score -> archive -> build -> deploy)"
+          else
+            # Conservative initial rollout (see README.md "Durable
+            # archival"): dry runs pass BOTH --skip-archive and
+            # --skip-deploy, so scheduled/manual dry runs touch neither R2
+            # nor Cloudflare Pages until real R2 archival has been
+            # validated independently. scripts/publish_snapshot.sh itself
+            # refuses --skip-archive without --skip-deploy, so these two
+            # states (both flags, or neither) are the only ones this
+            # workflow ever produces.
+            MODE="DRY RUN (score -> build -> stop; no archive, no deploy)"
+          fi
+
+          {
+            echo "data_through=$DATA_THROUGH"
+            echo "deploying=$DEPLOY_REQUESTED"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "================================================================"
+          echo " Contact Luck -- prospective publish"
+          echo "================================================================"
+          echo "Trigger:        $TRIGGER_DESC"
+          echo "Data through:   $DATA_THROUGH"
+          echo "Git SHA:        ${{ github.sha }}"
+          echo "Mode:           $MODE"
+          echo "CF project:     contact-luck"
+          echo "Archive bucket: ${{ vars.PROSPECTIVE_ARCHIVE_BUCKET }}"
+          echo "================================================================"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build .venv (as scripts/publish_snapshot.sh expects)
+        run: |
+          set -euo pipefail
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e ".[dashboard,archive]"
+
+      # Only needed when actually deploying -- scripts/publish_snapshot.sh
+      # never invokes `npx wrangler` at all in --skip-deploy mode, so dry
+      # runs need neither Node.js nor Cloudflare credentials.
+      - name: Set up Node.js (for wrangler)
+        if: steps.resolve.outputs.deploying == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run scripts/publish_snapshot.sh
+        env:
+          DATA_THROUGH: ${{ steps.resolve.outputs.data_through }}
+          DEPLOYING: ${{ steps.resolve.outputs.deploying }}
+          # All six of these are unused/harmless in dry-run mode -- passing
+          # --skip-archive --skip-deploy means neither wrangler nor boto3
+          # ever makes a real network call. Only consumed when actually
+          # deploying.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # R2 shares the same Cloudflare account as Pages -- no separate
+          # account-id secret needed. R2_BUCKET_NAME is a repository
+          # VARIABLE (vars.*), not a secret: a bucket name isn't sensitive.
+          R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ vars.PROSPECTIVE_ARCHIVE_BUCKET }}
+        run: |
+          set -euo pipefail
+          # --yes is always passed: a no-op whenever the confirmation
+          # prompt is never reached (skip-archive+skip-deploy, or
+          # skip-deploy alone), and REQUIRED in real deploy mode so the
+          # script never blocks on a `read` with no attached terminal.
+          ARGS=(--data-through "$DATA_THROUGH")
+          if [ "$DEPLOYING" != "true" ]; then
+            # See the "Resolve" step above: conservative initial rollout,
+            # dry runs touch neither R2 nor Cloudflare Pages.
+            ARGS+=(--skip-archive --skip-deploy)
+          fi
+          ARGS+=(--yes)
+          scripts/publish_snapshot.sh "${ARGS[@]}"
+
+      # Dry-run only: in a real deploy, the live site itself is the
+      # inspectable result. These are for manual review of a dry run and
+      # are explicitly NOT an official prospective snapshot -- the
+      # snapshot directories this run produced exist only on this ephemeral
+      # runner and are discarded when the job ends (see "Risks" in the
+      # delivery notes for what this means operationally).
+      - name: Upload dashboard build (dry run only)
+        if: always() && steps.resolve.outputs.deploying != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist-${{ steps.resolve.outputs.data_through }}
+          path: dashboard/dist
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload snapshot manifest (dry run only)
+        if: always() && steps.resolve.outputs.deploying != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-manifest-${{ steps.resolve.outputs.data_through }}
+          path: |
+            artifacts/prospective/v1_1/${{ steps.resolve.outputs.data_through }}/manifest.json
+            artifacts/prospective/v1_1/${{ steps.resolve.outputs.data_through }}/integrity_hashes.json
+          if-no-files-found: warn
+          retention-days: 14

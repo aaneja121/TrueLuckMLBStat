@@ -1,21 +1,55 @@
 #!/usr/bin/env bash
 #
 # Contact Luck operational loop: generate a new Version 1.1 prospective
-# snapshot for a completed MLB date, rebuild the Version 1.2 static
-# dashboard from it, and deploy the result to Cloudflare Pages.
+# snapshot for a completed MLB date, durably archive it, rebuild the
+# Version 1.2 static dashboard from it, and deploy the result to
+# Cloudflare Pages.
 #
 #     completed MLB slate
 #         -> prospective/run_v1_1_2026_scoring.py   (immutable snapshot)
+#         -> scripts/archive_snapshot.py             (durable R2 archive)
 #         -> dashboard/build.py                     (dashboard/dist/)
 #         -> wrangler pages deploy                  (static hosting)
 #
-# This script performs no modeling/scoring/build logic of its own -- it
-# only invokes the existing, already-guarded entry points and stops if any
-# of them fail. In particular it does NOT bypass, duplicate, or relax:
+# ORDERING: archive happens BEFORE the dashboard build, and the dashboard
+# is never built (let alone deployed) if archival fails. This is
+# deliberate -- the raw scoring output is the precious, hard-to-reproduce
+# artifact (re-scoring depends on the same historical Statcast data still
+# being fetchable later); the dashboard build is comparatively cheap and
+# frequently-iterated. Archiving first means an official snapshot survives
+# runner destruction even if something goes wrong in a LATER stage, and it
+# means "the public site must never deploy if durable archival failed" is
+# satisfied by simple sequential ordering under `set -e`, not by any
+# special-cased check.
+#
+# This script performs no modeling/scoring/build/archival logic of its
+# own -- it only invokes the existing, already-guarded entry points and
+# stops if any of them fail. In particular it does NOT bypass, duplicate,
+# or relax:
 #   - the prospective runner's clean-working-tree guard (commit or stash
 #     your changes first; this script will not do that for you)
 #   - the prospective runner's data-through-date-completeness guard
+#   - the archive's write-once/identity verification (never silently
+#     overwrites a differently-coded snapshot already in R2)
 #   - the dashboard's snapshot integrity/precedence rules
+#
+# --skip-archive and --skip-deploy are INDEPENDENTLY controllable, so real
+# R2 archival can be validated on its own before production deploys are
+# enabled -- see README.md "Durable archival" for the rollout plan this
+# supports. Their combinations:
+#
+#   (neither flag)                  score -> archive -> build -> deploy
+#   --skip-deploy                   score -> archive -> build -> stop
+#   --skip-archive --skip-deploy    score -> build -> stop
+#   --skip-archive (alone)          REFUSED -- see below.
+#
+# --skip-archive without --skip-deploy is deliberately refused: this
+# script will not deploy a dashboard built from a snapshot that was not
+# just durably archived. There is currently no override flag for this --
+# if you have a genuinely compelling reason to deploy without archiving,
+# that is a decision to make explicitly (e.g. by archiving separately via
+# scripts/archive_snapshot.py first), not something this script does
+# quietly.
 #
 # Usage:
 #   scripts/publish_snapshot.sh --data-through YYYY-MM-DD [options]
@@ -28,13 +62,24 @@
 #                           that already has a snapshot).
 #   --project-name NAME     Cloudflare Pages project name. Default:
 #                           contact-luck
-#   --skip-deploy           Generate the snapshot and rebuild the
-#                           dashboard, but do not deploy. Useful as a dry
-#                           run -- preview locally with:
+#   --archive-bucket NAME   R2 bucket for durable snapshot archival.
+#                           Default: $R2_BUCKET_NAME if set, else
+#                           contact-luck-prospective-archive.
+#   --skip-archive          Do not archive to R2. Refused unless
+#                           --skip-deploy is ALSO passed (see above).
+#   --skip-deploy           Rebuild the dashboard but do not deploy to
+#                           Cloudflare Pages. Archival still happens
+#                           unless --skip-archive is also passed. Preview
+#                           locally with:
 #                             cd dashboard/dist && python3 -m http.server 8000
 #   --yes                   Skip the interactive deploy confirmation
 #                           prompt (for non-interactive use).
 #   -h, --help              Show this help and exit.
+#
+# R2 credentials (only read/required unless --skip-archive): R2_ACCOUNT_ID,
+# R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY as environment variables -- see
+# scripts/archive_snapshot.py's module docstring and README.md's
+# "Durable archival" section for exactly what these need to be.
 #
 # Example:
 #   scripts/publish_snapshot.sh --data-through 2026-08-10
@@ -42,7 +87,7 @@
 set -euo pipefail
 
 usage() {
-  grep '^#' "${BASH_SOURCE[0]}" | sed -n '2,44p' | sed 's/^# \{0,1\}//'
+  grep '^#' "${BASH_SOURCE[0]}" | sed -n '2,85p' | sed 's/^# \{0,1\}//'
 }
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -52,6 +97,8 @@ PYTHON="$PROJECT_ROOT/.venv/bin/python"
 DATA_THROUGH=""
 SNAPSHOT_LABEL=""
 PROJECT_NAME="contact-luck"
+ARCHIVE_BUCKET="${R2_BUCKET_NAME:-contact-luck-prospective-archive}"
+SKIP_ARCHIVE=0
 SKIP_DEPLOY=0
 ASSUME_YES=0
 
@@ -68,6 +115,14 @@ while [[ $# -gt 0 ]]; do
     --project-name)
       PROJECT_NAME="$2"
       shift 2
+      ;;
+    --archive-bucket)
+      ARCHIVE_BUCKET="$2"
+      shift 2
+      ;;
+    --skip-archive)
+      SKIP_ARCHIVE=1
+      shift
       ;;
     --skip-deploy)
       SKIP_DEPLOY=1
@@ -95,31 +150,52 @@ if [[ -z "$DATA_THROUGH" ]]; then
   exit 1
 fi
 
-if [[ ! -x "$PYTHON" ]]; then
-  echo "error: $PYTHON not found -- run 'make setup' first" >&2
+if [[ "$SKIP_ARCHIVE" -eq 1 && "$SKIP_DEPLOY" -ne 1 ]]; then
+  echo "error: --skip-archive cannot be combined with a real deploy." >&2
+  echo "       This script refuses to deploy a dashboard built from a snapshot that was" >&2
+  echo "       not just durably archived. Pass --skip-deploy too if you want to skip" >&2
+  echo "       both (score -> build -> stop), or drop --skip-archive to archive normally" >&2
+  echo "       (score -> archive -> build -> deploy)." >&2
   exit 1
 fi
 
-echo "==> [1/3] Generating prospective snapshot for --data-through $DATA_THROUGH"
-SNAPSHOT_ARGS=(--data-through "$DATA_THROUGH")
-if [[ -n "$SNAPSHOT_LABEL" ]]; then
-  SNAPSHOT_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
-fi
-"$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}"
-
-echo "==> [2/3] Rebuilding the dashboard"
-"$PYTHON" dashboard/build.py
-
-if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
-  echo "==> [3/3] Skipping deploy (--skip-deploy)."
-  echo "    Preview locally with: cd dashboard/dist && python3 -m http.server 8000"
-  exit 0
+if [[ ! -x "$PYTHON" ]]; then
+  echo "error: $PYTHON not found -- run 'make setup' first" >&2
+  exit 1
 fi
 
 SNAPSHOT_DIR_NAME="$DATA_THROUGH"
 if [[ -n "$SNAPSHOT_LABEL" ]]; then
   SNAPSHOT_DIR_NAME="${DATA_THROUGH}__${SNAPSHOT_LABEL}"
 fi
+
+echo "==> [1/4] Generating prospective snapshot for --data-through $DATA_THROUGH"
+SNAPSHOT_ARGS=(--data-through "$DATA_THROUGH")
+if [[ -n "$SNAPSHOT_LABEL" ]]; then
+  SNAPSHOT_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
+fi
+"$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}"
+
+if [[ "$SKIP_ARCHIVE" -eq 1 ]]; then
+  echo "==> [2/4] Skipping durable archive (--skip-archive)."
+else
+  echo "==> [2/4] Archiving snapshot $SNAPSHOT_DIR_NAME to R2 bucket '$ARCHIVE_BUCKET'"
+  ARCHIVE_ARGS=(--data-through "$DATA_THROUGH")
+  if [[ -n "$SNAPSHOT_LABEL" ]]; then
+    ARCHIVE_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
+  fi
+  R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/archive_snapshot.py "${ARCHIVE_ARGS[@]}"
+fi
+
+echo "==> [3/4] Rebuilding the dashboard"
+"$PYTHON" dashboard/build.py
+
+if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
+  echo "==> [4/4] Skipping deploy (--skip-deploy)."
+  echo "    Preview locally with: cd dashboard/dist && python3 -m http.server 8000"
+  exit 0
+fi
+
 GIT_HEAD="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 echo
@@ -142,5 +218,5 @@ if [[ "$ASSUME_YES" -ne 1 ]]; then
   esac
 fi
 
-echo "==> [3/3] Deploying dashboard/dist to Cloudflare Pages project '$PROJECT_NAME'"
+echo "==> [4/4] Deploying dashboard/dist to Cloudflare Pages project '$PROJECT_NAME'"
 npx wrangler pages deploy dashboard/dist --project-name="$PROJECT_NAME" --commit-dirty=true
