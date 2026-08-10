@@ -2225,6 +2225,97 @@ York Yankees at San Francisco Giants, 2026-03-25; the official schedule confirms
 game was played), recorded in `PROSPECTIVE_2026_SEASON_START_SOURCE`/`PROSPECTIVE_2026_
 SEASON_START_VERIFIED_AT`.
 
+## Version 1.2: dashboard deployment and operations
+
+Version 1.2 (`dashboard/`) is a read-only, static-site presentation layer over Version
+1.1's immutable prospective snapshots -- see CLAUDE.md and `dashboard/snapshot_data.py`'s
+module docstring for the full snapshot-selection/precedence rules and integrity
+guarantees. This section documents the existing production workflow: generate a
+snapshot, rebuild the dashboard, deploy the static output. It changes no model,
+prospective-scoring, snapshot, or dashboard logic.
+
+**1. Generate the newest snapshot only after the requested MLB slate is fully
+complete.** Version 1.1's own `assert_data_through_date_is_complete` guard already
+refuses an incomplete date (see "Version 1.1: prospective 2026 scoring" above), so this
+is enforced, not just a convention:
+
+```bash
+.venv/bin/python prospective/run_v1_1_2026_scoring.py \
+    --data-through YYYY-MM-DD
+```
+
+**2. `--force-redownload` is not part of the normal workflow.** The prospective
+runner's raw Statcast cache is coverage-aware -- it refreshes itself automatically
+whenever its verified coverage doesn't reach the requested `--data-through` date (see
+"v1.1.2 operational correctness fix" above). Only pass `--force-redownload` if there is
+a specific reason to force a cache refresh regardless of coverage.
+
+**3. Verify the snapshot completed successfully** by checking its manifest
+(`artifacts/prospective/v1_1/<snapshot>/manifest.json`) reports:
+- the requested `data_through_date`
+- `observed_date_coverage` actually reaching that date
+- `schema_checks.raw_statcast_cache_coverage_validation.decision` (`reused` or
+  `refreshed`) and its `reason`
+- `schema_checks.final_pre_scoring_coverage_check.missing_completed_game_dates` is empty
+- `output_hashes`/`frozen_artifact_hashes` are present -- the same information
+  `dashboard/snapshot_data.py` independently re-verifies (via `integrity_hashes.json`)
+  before the dashboard will ever display the snapshot; see "Integrity validation" in
+  that module's docstring
+
+**4. Build the dashboard:**
+
+```bash
+.venv/bin/python dashboard/build.py
+```
+
+**5. The dashboard automatically resolves the newest valid preferred snapshot** -- no
+flag is needed to point it at a specific date. Historical snapshots remain immutable; a
+corrected/refreshed snapshot for an earlier date never affects which snapshot is newest
+overall (see `dashboard/snapshot_data.py`'s "Snapshot precedence" docstring section).
+
+**6. Local preview:**
+
+```bash
+cd dashboard/dist
+python3 -m http.server 8000
+```
+
+**7. Production artifact:** `dashboard/dist/` -- a plain static site (HTML/CSS/JS plus a
+couple of small JSON payloads). This entire directory can be deployed to a static host
+as-is.
+
+**8. Production architecture:**
+
+```
+completed MLB slate
+    -> immutable prospective snapshot (prospective/run_v1_1_2026_scoring.py)
+    -> dashboard/build.py
+    -> dashboard/dist/
+    -> static hosting
+```
+
+**9. Operational guarantees:**
+- Production hosting never trains or scores models -- `dashboard/dist/` is static
+  output; nothing in it executes Python.
+- The dashboard never downloads Statcast -- see `tests/test_dashboard_isolation.py` for
+  the structural check that no module under `dashboard/` imports scoring, training, or
+  download code.
+- Sealed 2025 evaluation data is never used as live product data -- the dashboard only
+  reads `outputs/prospective/v1_1/`/`artifacts/prospective/v1_1/`.
+- Missing historical snapshot dates are allowed and are never interpolated -- a gap
+  (e.g. a day with no snapshot run) simply has no entry in the trend or snapshot
+  history; see `dashboard/visuals.py`'s trend-chart docstring.
+- Corrected snapshots follow the dashboard's deterministic precedence rules -- a later,
+  differently-labeled snapshot for the same `--data-through` date supersedes an earlier
+  one for display (both remain on disk, unmodified); a retrospective-backfill snapshot
+  (if one is ever produced by a future, separate mechanism) never supersedes a genuine
+  or corrected one for the same date.
+
+**Deploying.** Platform-specific configuration (Netlify, Cloudflare Pages, or another
+static host) has not been added to this repository yet -- it will be added once a
+hosting provider is chosen. Until then, "deployment" means running the two commands
+above and pointing a static host at the resulting `dashboard/dist/` directory by hand.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit
