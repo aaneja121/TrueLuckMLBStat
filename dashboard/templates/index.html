@@ -3,16 +3,24 @@
 {% block title %}Contact Luck Leaderboard{% endblock %}
 {% block content %}
 <h1>Contact Luck Leaderboard</h1>
+
+<div class="callout explainer-callout">
+  <p>
+    Contact Luck estimates how favorable a hitter's batted-ball outcomes have been relative to expectation.
+    <strong>+3.0</strong> means roughly three more favorable runs per 100 eligible batted balls than expected.
+    The interval shows the uncertainty around that estimate. Contact Luck describes what happened — it is not a
+    projection of future performance.
+  </p>
+</div>
+
+<div class="explainer-stats">
+  <span class="explainer-stat">Data through {{ data_through_date_display }}</span>
+  <span class="explainer-stat">{{ qualified_count }} qualified hitters</span>
+</div>
+
 <p class="page-subtitle">
-  Contact Luck Runs per 100 eligible batted balls, with 95% intervals. Data through {{ data_through_date }}.
   Ranked players only ({{ qualified_count }} of {{ player_count }} players qualify) — see
   <a href="{{ root_prefix }}methodology/">methodology</a> for the qualification rule.
-</p>
-
-<p class="hero-question">
-  How much more or less favorable were a batter's realized contact outcomes than the model expected, and how
-  uncertain is that estimate? This is a retrospective description of what already happened — not a measure of
-  talent, and not a projection of future performance.
 </p>
 
 <div class="leaderboard-tabs">

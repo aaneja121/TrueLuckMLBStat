@@ -22,7 +22,7 @@ import json
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -221,6 +221,9 @@ def build_dashboard(
         "root_prefix": root_prefix,
         "asset_prefix": asset_prefix,
         "data_through_date": latest.data_through_date,
+        "data_through_date_display": date.fromisoformat(latest.data_through_date).strftime(
+            "%b. %-d, %Y"
+        ),
         "dashboard_version": DASHBOARD_VERSION,
         "snapshot_directory_name": latest.directory_name,
         "build_timestamp": build_timestamp,

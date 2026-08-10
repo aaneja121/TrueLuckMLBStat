@@ -57,7 +57,7 @@ a:hover { text-decoration: underline; }
 }
 
 .site-header-inner {
-  max-width: 1080px;
+  max-width: 1140px;
   margin: 0 auto;
   padding: 14px 20px;
   display: flex;
@@ -141,7 +141,7 @@ a:hover { text-decoration: underline; }
 }
 
 main {
-  max-width: 1080px;
+  max-width: 1140px;
   margin: 0 auto;
   padding: 24px 20px 64px;
 }
@@ -159,6 +159,26 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
   color: var(--text-secondary);
   font-size: 0.95rem;
   margin-bottom: 24px;
+}
+
+.explainer-callout { margin: 12px 0 14px; }
+.explainer-callout p { margin: 0; }
+
+.explainer-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.explainer-stat {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
 }
 
 .terminology-tabs {
@@ -383,7 +403,7 @@ table.leaderboard td.rank-cell {
 .snapshot-type-invalid_incomplete_snapshot { color: var(--diverging-negative); }
 
 footer.site-footer {
-  max-width: 1080px;
+  max-width: 1140px;
   margin: 40px auto 0;
   padding: 16px 20px;
   color: var(--text-muted);
@@ -391,9 +411,35 @@ footer.site-footer {
   border-top: 1px solid var(--border);
 }
 
+/* Desktop-only presentation polish (v1.2.1): the 1440px real-browser QA
+   pass found the leaderboard reading as a narrow, dense central column with
+   a lot of unused horizontal space. Purely visual -- no data/logic change,
+   no effect on the approved mobile layout below (disjoint media ranges). */
+@media (min-width: 900px) {
+  table.leaderboard { font-size: 1rem; }
+
+  table.leaderboard th { padding: 11px 10px; }
+  table.leaderboard td { padding: 13px 10px; }
+
+  table.leaderboard th:nth-child(2),
+  table.leaderboard td:nth-child(2) {
+    min-width: 220px;
+  }
+
+  /* Scales both dimensions together (native aspect ratio 220:32) so the
+     bar enlarges uniformly rather than letterboxing inside a wider box --
+     the SVG's own internal viewBox/coordinates (visuals.py) are untouched. */
+  .interval-bar-compact { width: 300px; height: 44px; }
+}
+
 @media (max-width: 640px) {
   .site-nav { gap: 12px; }
   table.leaderboard { font-size: 0.84rem; }
-  .interval-bar-compact { width: 160px; }
+  .interval-bar-compact { width: 108px; }
   .player-hero-figure { font-size: 1.9rem; }
+  /* Total runs / eligible BBE / games / interval width move to the player
+     page on mobile -- keeping Rank, Player, Runs/100, and the interval bar
+     visible without needing horizontal scroll for the primary leaderboard
+     use case. */
+  .hide-mobile { display: none; }
 }

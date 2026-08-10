@@ -16,6 +16,16 @@
     {% if player.official_rank_unfavorable %}
       <span class="badge">Unfavorable rank #{{ player.official_rank_unfavorable }}</span>
     {% endif %}
+    {% if player.qualification_status != "qualified" %}
+      <p class="page-subtitle" style="margin-top:8px; max-width:32em;">
+        No official rank: this player hasn't yet reached the minimum eligible-batted-ball
+        threshold for the official leaderboard (status:
+        {{ player.qualification_status | replace("_", " ") }}). The score and interval below
+        are still computed and shown — see the
+        <a href="{{ root_prefix }}methodology/#technical-details">methodology page</a>
+        for the qualification rule.
+      </p>
+    {% endif %}
   </div>
   <div>
     <div class="player-hero-figure {{ 'interval-positive' if player.score >= 0 else 'interval-negative' }}">
