@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ player.batter_name }} — Contact Luck{% endblock %}
+{% block content %}
+<p><a href="{{ root_prefix }}">&larr; Back to leaderboard</a></p>
+
+<div class="player-header">
+  <div>
+    <h1>{{ player.batter_name }}</h1>
+    <p class="page-subtitle">MLBAM ID {{ player.batter_id }} · Data through {{ data_through_date }}</p>
+    <span class="badge{% if player.qualification_status == 'qualified' %} badge-qualified{% endif %}">
+      {{ player.qualification_status | replace("_", " ") | capitalize }}
+    </span>
+    {% if player.official_rank_favorable %}
+      <span class="badge">Favorable rank #{{ player.official_rank_favorable }}</span>
+    {% endif %}
+    {% if player.official_rank_unfavorable %}
+      <span class="badge">Unfavorable rank #{{ player.official_rank_unfavorable }}</span>
+    {% endif %}
+  </div>
+  <div>
+    <div class="player-hero-figure {{ 'interval-positive' if player.score >= 0 else 'interval-negative' }}">
+      {{ "%+.2f"|format(player.score) }} runs / 100
+    </div>
+    <p class="page-subtitle" style="margin-top:2px;">
+      95% interval: [{{ "%+.2f"|format(player.lower) }}, {{ "%+.2f"|format(player.upper) }}]
+    </p>
+  </div>
+</div>
+
+{{ player.interval_svg | safe }}
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-label">Total Contact Luck Runs</div>
+    <div class="stat-value">{{ "%+.1f"|format(player.total_runs) }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Eligible BBE</div>
+    <div class="stat-value">{{ player.bbe }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Games</div>
+    <div class="stat-value">{{ player.games }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Provisional-component share</div>
+    <div class="stat-value">{{ "%.0f%%"|format((player.provisional_share or 0) * 100) }}</div>
+  </div>
+</div>
+
+<p class="callout">
+  Contact Luck is a retrospective description of realized outcomes, not a measure of stable
+  batting talent and not a projection of future performance. The 95% interval reflects
+  sampling uncertainty in the estimate itself — it does not indicate whether the underlying
+  effect is "real" or "significant," and overlapping zero does not mean the observation is
+  unreliable or should be discounted.
+</p>
+
+<h2>Component decomposition</h2>
+<p class="page-subtitle">Runs per 100 eligible batted balls attributed to each stage of the play.</p>
+<table class="component-table">
+  <thead><tr><th>Component</th><th class="numeric">Runs / 100</th></tr></thead>
+  <tbody>
+    {% for row in component_value_rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td class="numeric">{{ "%+.2f"|format(row.value) if row.value is not none else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3>Component model status &amp; reason codes</h3>
+<table class="component-table">
+  <thead><tr><th>Component</th><th>Model status</th><th>Reason codes</th></tr></thead>
+  <tbody>
+    {% for row in component_status_rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td>{{ row.model_status_values | join(", ") }}</td>
+      <td>{{ row.reason_codes | join(", ") }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Season-to-date trend</h2>
+{% if trend_svg %}
+  <p class="page-subtitle">
+    Contact Luck Runs / 100 across every stored historical snapshot for this player. Points are
+    plotted at their true snapshot dates — a gap between points (such as a missing snapshot day)
+    is never filled in or estimated.
+  </p>
+  {{ trend_svg | safe }}
+{% else %}
+  <p class="page-subtitle">Only one snapshot is available for this player so far — a trend needs at least two.</p>
+{% endif %}
+{% endblock %}

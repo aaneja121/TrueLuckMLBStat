@@ -1,0 +1,39 @@
+{% macro render_leaderboard_table(rows, table_id) %}
+<div class="leaderboard-controls">
+  <input type="text" class="leaderboard-search" placeholder="Filter this table by name…"
+         data-role="leaderboard-filter" data-target-table="#lb-{{ table_id }}">
+  <span class="sorted-view-label" id="sorted-label-{{ table_id }}"></span>
+</div>
+<div class="overflow-x">
+<table class="leaderboard" id="lb-{{ table_id }}" data-sortable data-sorted-label-target="#sorted-label-{{ table_id }}">
+  <thead>
+    <tr>
+      <th data-sort-key="officialRank" data-sort-type="number">Rank</th>
+      <th data-sort-key="playerName" data-sort-type="text">Player</th>
+      <th class="numeric" data-sort-key="score" data-sort-type="number">Runs / 100</th>
+      <th>95% interval</th>
+      <th class="numeric" data-sort-key="totalRuns" data-sort-type="number">Total runs</th>
+      <th class="numeric" data-sort-key="bbe" data-sort-type="number">Eligible BBE</th>
+      <th class="numeric" data-sort-key="games" data-sort-type="number">Games</th>
+      <th class="numeric" data-sort-key="intervalWidth" data-sort-type="number">Interval width</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr data-official-rank="{{ row.official_rank }}" data-player-name="{{ row.batter_name }}"
+        data-score="{{ row.score }}" data-total-runs="{{ row.total_runs }}"
+        data-bbe="{{ row.bbe }}" data-games="{{ row.games }}" data-interval-width="{{ row.interval_width }}">
+      <td class="rank-cell numeric">{{ row.official_rank }}</td>
+      <td><a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a></td>
+      <td class="numeric">{{ "%.2f"|format(row.score) }}</td>
+      <td>{{ row.interval_svg | safe }}</td>
+      <td class="numeric">{{ "%.1f"|format(row.total_runs) }}</td>
+      <td class="numeric">{{ row.bbe }}</td>
+      <td class="numeric">{{ row.games }}</td>
+      <td class="numeric">{{ "%.1f"|format(row.interval_width) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}

@@ -1,0 +1,194 @@
+"""Contact Luck v1.2: hand-rolled inline SVG for the interval bar and the
+season-to-date trend chart.
+
+Rendered at BUILD TIME from already-computed snapshot values (never
+recomputes a score/interval) so the site needs no client-side charting
+dependency. Colors are applied via CSS classes only (see `static/style.css`
+for the actual hex values, drawn from the validated diverging blue/red pair)
+-- this module never inlines a hex color, so light/dark theming lives in one
+place.
+
+Direction (blue for a non-negative point estimate, red for negative) is
+based on the SIGN OF THE POINT ESTIMATE ONLY, applied identically whether or
+not the 95% interval crosses zero. Per the Version 1.2 spec: an interval
+that overlaps zero must never be rendered as faded, muted, or otherwise
+visually different from one that doesn't -- overlap-with-zero is not a
+good/bad or confident/unconfident signal here, so this module has no code
+path that varies opacity, size, or style by `interval_interpretation`.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from datetime import date
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from content import TrendPoint
+
+__all__ = [
+    "compute_interval_domain",
+    "render_interval_bar_svg",
+    "render_trend_chart_svg",
+]
+
+
+def compute_interval_domain(
+    intervals: Sequence[tuple[float, float]], *, pad_fraction: float = 0.12
+) -> tuple[float, float]:
+    """A shared x-axis domain for a set of (lower, upper) intervals, always
+    including zero and padded a bit so bars/markers near the edge aren't
+    clipped.
+    """
+    lows = [lo for lo, _ in intervals] + [0.0]
+    highs = [hi for _, hi in intervals] + [0.0]
+    lo, hi = min(lows), max(highs)
+    span = hi - lo or 1.0
+    pad = span * pad_fraction
+    return lo - pad, hi + pad
+
+
+def render_interval_bar_svg(
+    *,
+    point: float,
+    lower: float,
+    upper: float,
+    domain: tuple[float, float],
+    compact: bool = False,
+) -> str:
+    """A horizontal point-estimate-plus-95%-interval bar with a visible zero
+    line. `compact=True` is the small leaderboard-row size; `compact=False`
+    is the larger player-detail-page size with an axis label under the zero
+    line. Exact values are always in the `<title>`/`aria-label`, never ONLY
+    in the title -- the point, the interval line, and the zero line are all
+    drawn directly on the bar itself.
+    """
+    width, height = (220, 32) if compact else (480, 72)
+    margin = 10 if compact else 28
+    inner_w = width - 2 * margin
+    domain_min, domain_max = domain
+    if domain_max <= domain_min:
+        domain_max = domain_min + 1.0
+
+    def x(value: float) -> float:
+        return margin + (value - domain_min) / (domain_max - domain_min) * inner_w
+
+    mid_y = height / 2
+    zero_x = x(0.0)
+    lower_x = x(max(lower, domain_min))
+    upper_x = x(min(upper, domain_max))
+    point_x = x(min(max(point, domain_min), domain_max))
+    sign_class = "interval-positive" if point >= 0 else "interval-negative"
+    size_class = "interval-bar-compact" if compact else "interval-bar-full"
+
+    parts = [
+        f'<svg class="interval-bar {size_class}" viewBox="0 0 {width} {height}" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" aria-label="Point estimate '
+        f"{point:.2f} runs per 100 eligible batted balls; 95 percent interval "
+        f'{lower:.2f} to {upper:.2f}">',
+        f"<title>{point:.2f} runs/100 (95% interval: {lower:.2f} to {upper:.2f})</title>",
+        f'<line class="interval-zero-line" x1="{zero_x:.1f}" y1="4" '
+        f'x2="{zero_x:.1f}" y2="{height - 4}"></line>',
+        f'<line class="interval-range {sign_class}" x1="{lower_x:.1f}" y1="{mid_y:.1f}" '
+        f'x2="{upper_x:.1f}" y2="{mid_y:.1f}"></line>',
+        f'<circle class="interval-point {sign_class}" cx="{point_x:.1f}" cy="{mid_y:.1f}" '
+        f'r="{4 if compact else 6}"></circle>',
+    ]
+    if not compact:
+        parts.append(
+            f'<text class="interval-axis-label" x="{zero_x:.1f}" y="{height - 6:.1f}" '
+            f'text-anchor="middle">0</text>'
+        )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def render_trend_chart_svg(
+    points: Sequence[TrendPoint], *, width: int = 640, height: int = 220
+) -> str:
+    """A line (point estimates) plus a shaded band (95% interval) across
+    stored historical snapshots only. X positions are TRUE calendar
+    positions (not evenly-spaced ordinal slots) -- a gap like the missing
+    2026-08-07 snapshot shows up as a longer segment between 08-06 and
+    08-08, never as a fabricated point. Each marker's `<title>` and the
+    date label under it show the real snapshot date, and a
+    `retrospective_backfill` point gets a distinct marker class
+    (`trend-point-backfill`) so it can never be mistaken for a genuine
+    contemporaneous observation.
+    """
+    if not points:
+        return '<p class="trend-empty">No historical snapshots available yet.</p>'
+    if len(points) == 1:
+        only = points[0]
+        return (
+            '<p class="trend-empty">Only one snapshot available so far '
+            f"({only.data_through_date}) -- a trend needs at least two.</p>"
+        )
+
+    dates = [date.fromisoformat(p.data_through_date) for p in points]
+    x_min, x_max = min(dates), max(dates)
+    x_span = (x_max - x_min).days or 1
+
+    values = [p.contact_luck_runs_per_100 for p in points]
+    lowers = [p.lower_95_interval for p in points]
+    uppers = [p.upper_95_interval for p in points]
+    y_min = min(lowers + [0.0])
+    y_max = max(uppers + [0.0])
+    y_span = (y_max - y_min) or 1.0
+    y_pad = y_span * 0.12
+    y_min -= y_pad
+    y_max += y_pad
+    y_span = y_max - y_min
+
+    margin_left, margin_right, margin_top, margin_bottom = 44, 16, 16, 28
+    inner_w = width - margin_left - margin_right
+    inner_h = height - margin_top - margin_bottom
+
+    def xpix(d: date) -> float:
+        return margin_left + (d - x_min).days / x_span * inner_w
+
+    def ypix(value: float) -> float:
+        return margin_top + (1 - (value - y_min) / y_span) * inner_h
+
+    zero_y = ypix(0.0)
+    band_upper = " ".join(
+        f"{xpix(d):.1f},{ypix(u):.1f}" for d, u in zip(dates, uppers, strict=True)
+    )
+    band_lower = " ".join(
+        f"{xpix(d):.1f},{ypix(low):.1f}"
+        for d, low in zip(reversed(dates), reversed(lowers), strict=True)
+    )
+    line_pts = " ".join(f"{xpix(d):.1f},{ypix(v):.1f}" for d, v in zip(dates, values, strict=True))
+
+    parts = [
+        f'<svg class="trend-chart" viewBox="0 0 {width} {height}" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" aria-label="Contact Luck Runs '
+        f'per 100 trend across {len(points)} stored snapshots">',
+        f'<line class="trend-zero-line" x1="{margin_left}" y1="{zero_y:.1f}" '
+        f'x2="{width - margin_right}" y2="{zero_y:.1f}"></line>',
+        f'<text class="interval-axis-label" x="{margin_left - 6}" y="{zero_y:.1f}" '
+        f'text-anchor="end" dominant-baseline="middle">0</text>',
+        f'<polygon class="trend-band" points="{band_upper} {band_lower}"></polygon>',
+        f'<polyline class="trend-line" points="{line_pts}"></polyline>',
+    ]
+    for d, v, point in zip(dates, values, points, strict=True):
+        sign_class = "interval-positive" if v >= 0 else "interval-negative"
+        marker_class = (
+            "trend-point-backfill"
+            if point.snapshot_type == "retrospective_backfill"
+            else "trend-point"
+        )
+        cx, cy = xpix(d), ypix(v)
+        parts.append(
+            f'<circle class="{marker_class} {sign_class}" cx="{cx:.1f}" cy="{cy:.1f}" r="5">'
+            f"<title>{point.data_through_date}: {v:.2f} runs/100 (95% interval: "
+            f"{point.lower_95_interval:.2f} to {point.upper_95_interval:.2f}); "
+            f"{point.eligible_batted_balls} eligible BBE, {point.qualification_status}</title>"
+            f"</circle>"
+        )
+        parts.append(
+            f'<text class="trend-date-label" x="{cx:.1f}" y="{height - margin_bottom + 16}" '
+            f'text-anchor="middle">{d.strftime("%b %-d")}</text>'
+        )
+    parts.append("</svg>")
+    return "".join(parts)

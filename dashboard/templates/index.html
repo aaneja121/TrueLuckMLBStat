@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% import "_macros.html" as macros %}
+{% block title %}Contact Luck Leaderboard{% endblock %}
+{% block content %}
+<h1>Contact Luck Leaderboard</h1>
+<p class="page-subtitle">
+  Contact Luck Runs per 100 eligible batted balls, with 95% intervals. Data through {{ data_through_date }}.
+  Ranked players only ({{ qualified_count }} of {{ player_count }} players qualify) — see
+  <a href="{{ root_prefix }}methodology/">methodology</a> for the qualification rule.
+</p>
+
+<p class="hero-question">
+  How much more or less favorable were a batter's realized contact outcomes than the model expected, and how
+  uncertain is that estimate? This is a retrospective description of what already happened — not a measure of
+  talent, and not a projection of future performance.
+</p>
+
+<div class="leaderboard-tabs">
+  <input type="radio" name="lb-tab" id="tab-favorable" class="tab-radio" checked>
+  <input type="radio" name="lb-tab" id="tab-unfavorable" class="tab-radio">
+  <div class="terminology-tabs">
+    <label for="tab-favorable" class="terminology-tab">Most favorable realized luck</label>
+    <label for="tab-unfavorable" class="terminology-tab">Least favorable outcomes relative to expectation</label>
+  </div>
+
+  <div class="tab-panel" id="panel-favorable">
+    {{ macros.render_leaderboard_table(favorable_rows, "favorable") }}
+  </div>
+  <div class="tab-panel" id="panel-unfavorable">
+    {{ macros.render_leaderboard_table(unfavorable_rows, "unfavorable") }}
+  </div>
+</div>
+
+<p class="callout">
+  Columns can be re-sorted for exploration, but a re-sorted table is always labeled
+  "Sorted view" and is never presented as an alternative official ranking. The Rank column
+  always shows the stored, frozen official rank — click it to return to that order.
+</p>
+{% endblock %}

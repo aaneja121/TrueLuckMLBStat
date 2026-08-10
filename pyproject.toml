@@ -34,6 +34,13 @@ dev = [
     "matplotlib>=3.8",
     "pandas-stubs>=2.1",
 ]
+# Version 1.2 dashboard: a read-only static-site build over Version 1.1
+# prospective snapshots (see CLAUDE.md / dashboard/). Deliberately its own
+# extra, not folded into the base `dependencies` list -- the dashboard is a
+# presentation layer, not part of the scoring pipeline those depend on.
+dashboard = [
+    "jinja2>=3.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -58,7 +65,7 @@ filterwarnings = ["ignore::DeprecationWarning"]
 # (Version 1.0's final-evaluation harness and Version 1.1's prospective
 # -scoring harness -- plain script directories, not part of the installed
 # mlb_luck_score package) without sys.path hacks in every test file.
-pythonpath = ["evaluation", "prospective"]
+pythonpath = ["evaluation", "prospective", "dashboard"]
 
 [tool.mypy]
 # NOTE: intentionally NOT pinning python_version here. Numpy's bundled type
