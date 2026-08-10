@@ -2125,6 +2125,383 @@ guards, 2025 never read):
   -- per the task's explicit instruction, the review tables above are development
   diagnostics only.
 
+## Version 1.1: prospective 2026 scoring
+
+Version 1.0 (`evaluation/run_v1_final_evaluation.py`) is the sealed, one-time final
+evaluation against 2025 -- see CLAUDE.md "The one narrow exception: the sealed Version
+1.0 final evaluation" for that protocol. Version 1.1 (`prospective/
+run_v1_1_2026_scoring.py`) is a DIFFERENT kind of tool: a repeatable, scoring-only
+pipeline that applies the exact frozen Version 1.0 system to 2026 season-to-date data,
+producing a new immutable dated snapshot each time it is run. See CLAUDE.md "Version
+1.1: prospective 2026 scoring" for the full policy (2025/2026 isolation, the
+no-tuning-on-2026 rule, and what a future model change must look like).
+
+**What each snapshot run does**, unchanged from Version 1.0's own component choices:
+trains the contact, outfield-opportunity, and infield-opportunity models fresh on
+`TRAIN_SEASONS` (2021-2023) via the same frozen `train_model`/`train_opportunity_model`/
+`run_infield_model_selection`/`run_advancement_model_selection`/
+`run_near_wall_model_selection` functions Version 0.10-1.0 already use, then scores the
+requested 2026 window through the frozen eligibility rules, attribution ledger,
+confidence framework, additive season aggregation, bootstrap intervals, qualification
+thresholds, and public-score/leaderboard contract (Versions 0.2-0.12, unmodified).
+
+**Namespaces**: `data/prospective/2026/`, `outputs/prospective/v1_1/<snapshot>/`,
+`artifacts/prospective/v1_1/<snapshot>/` -- fully isolated from both the development
+caches (`data/raw`, `data/processed`, `outputs/tables`) and the sealed Version 1.0
+namespaces (`data/final_evaluation/2025`, `outputs/final_evaluation/v1`, `artifacts/
+final_evaluation/v1`, which the prospective runner refuses to read as anything other
+than an optional, read-only seal-integrity check).
+
+**CLI**:
+
+```bash
+.venv/bin/python prospective/run_v1_1_2026_scoring.py \
+    --data-through 2026-04-15 \
+    [--snapshot-label mid-april] \
+    [--force-redownload]
+```
+
+Deliberately exposes no model-selection, calibration, feature-selection, or
+threshold-tuning flag. A completed snapshot directory is never overwritten; rerunning
+the same `--data-through` date with identical inputs and code is accepted as a
+deterministic no-op, and a rerun that differs raises a conflict error rather than
+silently replacing the prior result -- this holds regardless of `--force-redownload`,
+which only refreshes the shared, mutable raw cache before a NEW snapshot is built and
+can never touch an already-completed one.
+
+Two guards run before any 2026 data is touched. First, the working tree must be clean
+-- a dirty tracked file OR an untracked-but-not-ignored file (e.g. an uncommitted new
+script) blocks the run, so a snapshot's manifest always names a commit its code can
+actually be reproduced from; files under the prospective namespaces above are
+gitignored specifically so a prior snapshot's own outputs never falsely trip this.
+Second, the requested `--data-through` date must be fully complete -- every scheduled
+game on that date must be Final (checked against the MLB Stats API); a postponed or
+cancelled game is excluded from that requirement (recorded separately), but a
+suspended game is treated exactly like an in-progress one and blocks the date. Both
+guards fail loudly rather than silently adjusting anything -- see CLAUDE.md "Version
+1.1" for the full detail and rationale.
+
+**Outputs per snapshot**: `public_score.csv`/`.parquet`/`.json`, `favorable_
+leaderboard.json`, `unfavorable_leaderboard.json`, `scorecard.json`,
+`coverage_and_schema_report.json`, `component_status_summary.json`, `name_
+resolution_report.json` (under `outputs/prospective/v1_1/<snapshot>/`), plus
+`manifest.json` and `integrity_hashes.json` (under `artifacts/prospective/v1_1/
+<snapshot>/`). Notebook `15_prospective_snapshot_review.ipynb` is a read-only reviewer
+for an already-completed snapshot -- it performs no fitting, scoring, downloading, or
+file mutation.
+
+**Player names**: the public score schema's `batter_name` column (present since Version
+0.12 but always null before Version 1.1) is filled via a presentation-only, post-hoc
+overlay keyed on MLBAM `batter_id`, sourced from the public MLB Stats API `/people`
+endpoint (`mlb_luck_score.data.download_player_names`). Names are never used as model
+features and never affect a score, interval, rank, or qualification status -- see
+CLAUDE.md for the exact guarantee.
+
+**v1.1.2 operational correctness fix**: `data/prospective/2026/statcast_2026_regular_
+season.parquet` was downloaded once (2026-08-06) and then silently reused across three
+later `--data-through` requests whose actual coverage had already moved past it -- the
+old guard only checked whether the file existed, never whether its coverage reached the
+request. Every one of those snapshots is left exactly as it was (immutable, never
+modified) but is now known to have scored the same underlying 2026-03-25..2026-08-05 data
+regardless of its own `--data-through` label. Fixed by making cache reuse
+coverage-provenance-based (a persisted sidecar recording every observed game date, not
+just min/max) plus a second, fully independent pre-scoring assertion that never trusts
+the earlier reuse decision -- see CLAUDE.md "Version 1.1.2" for the complete incident
+writeup and `tests/test_prospective_statcast_cache_coverage.py` for the regression tests.
+`--force-redownload` is no longer required for ordinary forward-moving snapshots; the
+cache now refreshes itself automatically when it doesn't cover what was requested.
+
+**Status as of this writing**: `outputs/prospective/v1_1/2026-08-05/` is the first real,
+genuinely-covered snapshot. `2026-08-06/` and the first `2026-08-08/` both exist as
+immutable historical records but reflect the pre-v1.1.2 staleness bug (their own
+`scorecard.json.data_through_date` honestly shows `2026-08-05`, since the public-score
+schema's own date field is always derived from the actual scored data, never the
+requested cutoff). `2026-08-08__refreshed/` is the first snapshot generated with a
+genuinely refreshed cache (621 rows, 108 qualified, vs. the earlier 617/103). The real
+2026 season-opening date is VERIFIED -- `prospective.prospective_config.PROSPECTIVE_2026_
+SEASON_START_DATE = date(2026, 3, 25)`, `PROSPECTIVE_2026_SEASON_START_VERIFIED = True` --
+via a maintainer-provided citation of MLB's official 2026 schedule (Opening Night: New
+York Yankees at San Francisco Giants, 2026-03-25; the official schedule confirms that
+game was played), recorded in `PROSPECTIVE_2026_SEASON_START_SOURCE`/`PROSPECTIVE_2026_
+SEASON_START_VERIFIED_AT`.
+
+## Version 1.2: dashboard deployment and operations
+
+Version 1.2 (`dashboard/`) is a read-only, static-site presentation layer over Version
+1.1's immutable prospective snapshots -- see CLAUDE.md and `dashboard/snapshot_data.py`'s
+module docstring for the full snapshot-selection/precedence rules and integrity
+guarantees. This section documents the existing production workflow: generate a
+snapshot, rebuild the dashboard, deploy the static output. It changes no model,
+prospective-scoring, snapshot, or dashboard logic.
+
+**1. Generate the newest snapshot only after the requested MLB slate is fully
+complete.** Version 1.1's own `assert_data_through_date_is_complete` guard already
+refuses an incomplete date (see "Version 1.1: prospective 2026 scoring" above), so this
+is enforced, not just a convention:
+
+```bash
+.venv/bin/python prospective/run_v1_1_2026_scoring.py \
+    --data-through YYYY-MM-DD
+```
+
+**2. `--force-redownload` is not part of the normal workflow.** The prospective
+runner's raw Statcast cache is coverage-aware -- it refreshes itself automatically
+whenever its verified coverage doesn't reach the requested `--data-through` date (see
+"v1.1.2 operational correctness fix" above). Only pass `--force-redownload` if there is
+a specific reason to force a cache refresh regardless of coverage.
+
+**3. Verify the snapshot completed successfully** by checking its manifest
+(`artifacts/prospective/v1_1/<snapshot>/manifest.json`) reports:
+- the requested `data_through_date`
+- `observed_date_coverage` actually reaching that date
+- `schema_checks.raw_statcast_cache_coverage_validation.decision` (`reused` or
+  `refreshed`) and its `reason`
+- `schema_checks.final_pre_scoring_coverage_check.missing_completed_game_dates` is empty
+- `output_hashes`/`frozen_artifact_hashes` are present -- the same information
+  `dashboard/snapshot_data.py` independently re-verifies (via `integrity_hashes.json`)
+  before the dashboard will ever display the snapshot; see "Integrity validation" in
+  that module's docstring
+
+**4. Build the dashboard:**
+
+```bash
+.venv/bin/python dashboard/build.py
+```
+
+**5. The dashboard automatically resolves the newest valid preferred snapshot** -- no
+flag is needed to point it at a specific date. Historical snapshots remain immutable; a
+corrected/refreshed snapshot for an earlier date never affects which snapshot is newest
+overall (see `dashboard/snapshot_data.py`'s "Snapshot precedence" docstring section).
+
+**6. Local preview:**
+
+```bash
+cd dashboard/dist
+python3 -m http.server 8000
+```
+
+**7. Production artifact:** `dashboard/dist/` -- a plain static site (HTML/CSS/JS plus a
+couple of small JSON payloads). This entire directory can be deployed to a static host
+as-is.
+
+**8. Production architecture:**
+
+```
+completed MLB slate
+    -> immutable prospective snapshot (prospective/run_v1_1_2026_scoring.py)
+    -> dashboard/build.py
+    -> dashboard/dist/
+    -> static hosting
+```
+
+**9. Operational guarantees:**
+- Production hosting never trains or scores models -- `dashboard/dist/` is static
+  output; nothing in it executes Python.
+- The dashboard never downloads Statcast -- see `tests/test_dashboard_isolation.py` for
+  the structural check that no module under `dashboard/` imports scoring, training, or
+  download code.
+- Sealed 2025 evaluation data is never used as live product data -- the dashboard only
+  reads `outputs/prospective/v1_1/`/`artifacts/prospective/v1_1/`.
+- Missing historical snapshot dates are allowed and are never interpolated -- a gap
+  (e.g. a day with no snapshot run) simply has no entry in the trend or snapshot
+  history; see `dashboard/visuals.py`'s trend-chart docstring.
+- Corrected snapshots follow the dashboard's deterministic precedence rules -- a later,
+  differently-labeled snapshot for the same `--data-through` date supersedes an earlier
+  one for display (both remain on disk, unmodified); a retrospective-backfill snapshot
+  (if one is ever produced by a future, separate mechanism) never supersedes a genuine
+  or corrected one for the same date.
+
+**Deploying.** The dashboard is hosted on Cloudflare Pages (project `contact-luck`),
+deployed via `wrangler pages deploy dashboard/dist --project-name=contact-luck`.
+`scripts/publish_snapshot.sh` (below) wraps the whole snapshot-to-deploy chain behind
+one command and remains the only orchestration entry point -- nothing reproduces its
+commands elsewhere.
+
+### Operational entry point: `scripts/publish_snapshot.sh`
+
+```bash
+scripts/publish_snapshot.sh --data-through YYYY-MM-DD [options]
+```
+
+Runs, in order, and stops at the first failure: `prospective/run_v1_1_2026_scoring.py
+--data-through <date>` -> `dashboard/build.py` -> (unless `--skip-deploy`) a confirmation
+prompt -> `wrangler pages deploy dashboard/dist --project-name=contact-luck`. It
+duplicates none of Version 1.1's guards (clean working tree, date completeness, coverage
+validation, conflict detection) -- it only calls the existing entry points and reports
+their exit codes. Flags: `--snapshot-label`, `--project-name` (default `contact-luck`),
+`--skip-deploy` (build only, no deploy -- the dry-run path), `--yes` (skip the
+interactive confirmation, required for any non-interactive/CI invocation), `--help`.
+
+**Manual publication.** Run the command above directly from a clean working tree once a
+date's MLB slate is fully complete. Omit `--skip-deploy` to deploy for real (you'll be
+asked to confirm unless `--yes` is also passed).
+
+### Scheduled publication: `.github/workflows/publish-prospective.yml`
+
+A GitHub Actions workflow triggers `scripts/publish_snapshot.sh` on a schedule, so
+publishing doesn't require a human to run the command by hand every day. It is a thin
+trigger only -- it builds the same `.venv` the script expects
+(`python -m venv .venv && .venv/bin/pip install -e ".[dashboard]"`), calls the script as
+a single atomic step, and stops there. It never reimplements or bypasses any Version 1.1
+guard.
+
+- **Manual trigger**: GitHub -> Actions -> "Publish prospective snapshot" -> "Run
+  workflow". Inputs: `data_through` (optional -- blank auto-resolves yesterday in
+  America/New_York) and `deploy` (checkbox, default OFF -- manual runs default to a dry
+  run, matching the scheduled default below).
+- **Schedule**: once daily at `13:00 UTC` (`0 13 * * *`). GitHub Actions cron is fixed
+  UTC and does not shift for daylight saving: `13:00 UTC` is `09:00 America/New_York`
+  during EDT (roughly mid-March to early November -- most of the season) and `08:00`
+  during EST. Either is a conservative morning buffer after even a late West Coast
+  extra-inning game; the cron time only needs to land "safely after games usually end,"
+  not be exact, because the actual `--data-through` date is resolved separately (next
+  point) and a slate that somehow isn't complete yet is rejected by Version 1.1's own
+  date-completeness guard rather than silently scored partial.
+- **Date resolution**: `scripts/resolve_data_through_date.sh` resolves "yesterday in
+  America/New_York" via the runner's tzdata (`TZ="America/New_York" date --date="...
+  yesterday"`), not a fixed UTC offset -- a run firing at, say, 02:00 UTC can still be
+  evening of the previous day in New York, and a naive UTC-calendar-date approach would
+  be off by one. Extracted into its own script specifically so this logic has direct
+  test coverage (`tests/test_resolve_data_through_date.py`, Linux-only -- see that
+  script's header for why) independent of running the workflow or real prospective
+  scoring. It also fails loudly (rather than silently returning a wrong date) if the
+  `tzdata` package is missing -- discovered during development that a bare
+  `TZ=America/New_York` conversion against a missing zoneinfo file does not error, it
+  just silently fails to convert.
+- **Current mode: dry run only.** Both the schedule and a manual run with `deploy`
+  unchecked call `scripts/publish_snapshot.sh --data-through "$DATE" --skip-archive
+  --skip-deploy --yes` -- snapshot generation and dashboard rebuild happen for real, but
+  nothing is archived to R2 and nothing is deployed to Cloudflare. This is deliberate: it
+  lets scheduled scoring + dashboard generation run unattended for a while and be
+  inspected (via the uploaded `dashboard/dist/` and snapshot-manifest artifacts on each
+  run) before real R2 archival and unattended production deploys are enabled. Real R2
+  archival is meant to be validated manually and independently first (see the rollout
+  order below) -- `publish_snapshot.sh` refuses `--skip-archive` without `--skip-deploy`
+  (see the flag table above), so this workflow only ever produces one of two states: both
+  flags, or neither.
+- **Enabling production scheduled deploys later**: set the repository variable
+  `PROSPECTIVE_AUTO_DEPLOY` to `true` (GitHub -> Settings -> Secrets and variables ->
+  Actions -> Variables). That is the *only* change needed -- the workflow YAML does not
+  change. With it unset (the default) or anything other than `true`, scheduled runs stay
+  dry-run. A manual run can independently opt into a real deploy any time via the
+  `deploy` checkbox, regardless of this variable.
+- **Required GitHub secrets** (only consumed when an actual deploy happens -- a dry run
+  needs neither): `CLOUDFLARE_API_TOKEN` (scope it to Cloudflare Pages edit access for
+  this project only, not full account access) and `CLOUDFLARE_ACCOUNT_ID`. Set under
+  GitHub -> Settings -> Secrets and variables -> Actions -> Secrets. Never committed
+  anywhere in this repository.
+- **Concurrency**: all runs share a single `publish-prospective` concurrency group with
+  `cancel-in-progress: false` -- a second trigger while one is in flight queues rather
+  than racing it or cancelling a possibly-mid-deploy run.
+- **When a guard rejects a run**: the workflow step fails with `scripts/
+  publish_snapshot.sh`'s own exit code and error message (e.g. a dirty working tree, an
+  incomplete `--data-through` date, or a snapshot that already exists with different
+  inputs) -- exactly as it would locally. The workflow does not retry (a retry could race
+  or attempt to bypass Version 1.1's own immutability/conflict handling) and never falls
+  back to an earlier date on its own.
+
+### Durable archival: `scripts/archive_snapshot.py`
+
+**The problem.** `outputs/prospective/v1_1/`/`artifacts/prospective/v1_1/` are gitignored
+by design (see "Version 1.1" above) -- correct for a snapshot generated on a
+maintainer's own machine, but a snapshot generated by a GitHub Actions run exists only
+on that run's disposable runner and vanishes when the job ends. `scripts/
+archive_snapshot.py` copies a completed local snapshot's files, byte for byte, into a
+durable Cloudflare R2 bucket, so an official snapshot survives runner destruction.
+
+**Pipeline ordering: score -> archive -> build -> deploy.** Archival runs immediately
+after scoring, BEFORE the dashboard build, and gates everything after it. This is
+deliberate: the raw scoring output is the precious, comparatively irreplaceable
+artifact (re-scoring an old date depends on the same historical Statcast data still
+being fetchable, which is not guaranteed indefinitely), while the dashboard build is
+cheap and already iterated on constantly. Archiving first means an official snapshot is
+durable even if a LATER stage breaks, and it means "the public site must never deploy if
+durable archival failed" falls directly out of `scripts/publish_snapshot.sh`'s existing
+sequential `set -euo pipefail` structure -- no special-cased check was needed. This
+ordering guarantee has a dedicated regression test
+(`tests/test_publish_snapshot_orchestration.py`) that runs the real script against fake
+`.venv/bin/python`/`npx` executables and asserts, by inspecting what was actually
+invoked, that a failed archive genuinely prevents the build and deploy steps from
+running -- not just an argument that `set -e` ought to guarantee it.
+
+**`--skip-archive` and `--skip-deploy` are independently controllable**, specifically so
+real R2 archival can be validated on its own before production deploys are enabled:
+
+| Flags | Behavior |
+|---|---|
+| (neither) | `score -> archive -> build -> deploy` |
+| `--skip-deploy` | `score -> archive -> build -> stop` (archives for real, doesn't deploy) |
+| `--skip-archive --skip-deploy` | `score -> build -> stop` (touches neither external system) |
+| `--skip-archive` alone | **refused** -- the script will not deploy a dashboard built from a snapshot that wasn't just durably archived; there is no override flag for this |
+
+Scoring and the dashboard build happen for real in every row above; only archive/deploy
+are ever skipped.
+
+**Archive layout** mirrors the existing two-namespace local contract exactly, for every
+file actually present (enumerated dynamically, never a hardcoded filename list, so a
+future Version 1.1 output file is archived automatically):
+
+```
+prospective/<season>/<snapshot_dir_name>/outputs/<every file from
+    outputs/prospective/v1_1/<snapshot_dir_name>/>
+prospective/<season>/<snapshot_dir_name>/artifacts/<every file from
+    artifacts/prospective/v1_1/<snapshot_dir_name>/>
+```
+
+`<season>` comes from the snapshot's own `manifest.json` (`prospective_season`), and
+`<snapshot_dir_name>` is `YYYY-MM-DD` or `YYYY-MM-DD__<label>` -- identical to the local
+directory-naming convention `run_v1_1_2026_scoring.py`/`dashboard/snapshot_data.py`
+already use, so a corrected/refreshed snapshot (e.g. `2026-08-08__refreshed`) archives as
+its own separate, additional entry, exactly mirroring how it exists locally.
+
+**Write-once.** `artifacts/integrity_hashes.json` (already written by Version 1.1) is
+reused directly as the identity anchor -- no second hashing scheme was invented. If the
+archive has no entry yet for a `<snapshot_dir_name>`, every local file is uploaded, then
+immediately re-fetched and compared to confirm the upload actually took. If an entry
+already exists, its `integrity_hashes.json` is compared (as parsed JSON, not raw bytes)
+against the local one: identical -> no-op (safe to rerun); different -> `ArchiveConflictError`,
+and the archive is NEVER silently overwritten.
+
+**Recovery.** `scripts/archive_snapshot.py --restore --data-through YYYY-MM-DD --season
+2026 [--snapshot-label LABEL]` is the explicit, on-demand reverse operation -- downloads
+an archived snapshot's files back into the normal local `outputs/prospective/v1_1/`/
+`artifacts/prospective/v1_1/` paths, verifies every file against the archived hashes, and
+refuses (never silently overwriting) if different local files already exist at that path.
+**This is the only way R2 data reaches local disk.** The dashboard (`dashboard/
+snapshot_data.py`) and Version 1.1's own guards are UNCHANGED by this -- they still only
+ever read local disk. Nothing auto-restores from R2; if a future version wants the
+dashboard or CI to depend on R2 at runtime instead of requiring this explicit step, that
+is a real architectural change (a new runtime dependency on remote state) and deserves
+its own explicit decision.
+
+**Cloudflare R2 configuration.**
+- A bucket dedicated to this archive (e.g. `contact-luck-prospective-archive`) -- not yet
+  created; nothing in this codebase creates one automatically.
+- An **R2 API token** scoped to Object Read & Write on that one bucket only (Cloudflare
+  dashboard -> R2 -> Manage R2 API Tokens) -- deliberately narrower than the general
+  `CLOUDFLARE_API_TOKEN` used for Pages deploys, and never full account/admin access.
+- Required GitHub secrets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (from that R2 API
+  token). `R2_ACCOUNT_ID` is NOT a separate secret -- R2 shares the same Cloudflare
+  account as Pages, so the workflow reuses the existing `CLOUDFLARE_ACCOUNT_ID` secret.
+- Required GitHub repository variable: `PROSPECTIVE_ARCHIVE_BUCKET` (the bucket name --
+  not sensitive, so a variable rather than a secret, matching `PROSPECTIVE_AUTO_DEPLOY`).
+- Implementation: `boto3` (the `archive` extra, `pip install -e ".[archive]"`) against
+  R2's S3-compatible endpoint (`https://<account_id>.r2.cloudflarestorage.com`) -- a
+  library rather than a CLI specifically so the write-once/identity-comparison logic
+  could be unit-tested against a plain in-memory fake
+  (`tests/test_archive_snapshot.py`) without contacting real Cloudflare services or
+  needing a mocking library.
+- None of this has been provisioned yet -- no bucket has been created and no snapshot has
+  been uploaded. See CLAUDE.md-style caution: creating cloud resources and uploading data
+  both require an explicit, separate go-ahead.
+
+**Known gap this does not solve**: every CI run still starts with a cold local
+Statcast/game-metadata cache (`data/prospective/2026/` is gitignored and ephemeral on the
+runner, same as before archival existed) -- durable archival of the SCORED OUTPUT does not
+change that every scheduled run currently re-downloads the season-to-date raw data from
+scratch. Worth solving eventually, but kept out of scope here deliberately so this change
+stays focused on output durability/auditability.
+
 ## Preliminary raw-luck definition (Version 0.1, LEGACY)
 
 > Superseded by Version 0.2 above. Kept only for backward compatibility and explicit

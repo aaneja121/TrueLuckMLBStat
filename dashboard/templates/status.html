@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Data &amp; status — Contact Luck{% endblock %}
+{% block content %}
+<h1>Data &amp; status</h1>
+<p class="page-subtitle">Provenance for the snapshot currently shown on this site.</p>
+
+<table class="status-table">
+  <tbody>
+    <tr><th>Data through date</th><td>{{ status.data_through_date }}</td></tr>
+    <tr><th>Snapshot label</th><td>{{ status.snapshot_label or "(none — genuine unlabeled run)" }}</td></tr>
+    <tr><th>Snapshot type</th>
+      <td><span class="snapshot-type-{{ status.snapshot_type }}">{{ status.snapshot_type | replace("_", " ") }}</span></td></tr>
+    <tr><th>Snapshot generated at</th><td>{{ status.generated_at }}</td></tr>
+    <tr><th>Source season</th><td>{{ status.source_season }}</td></tr>
+    <tr><th>Score version</th><td>{{ status.score_version }}</td></tr>
+    <tr><th>Model versions</th>
+      <td>
+        <ul style="margin:0; padding-left: 18px;">
+        {% for component, version in status.model_versions.items() %}
+          <li>{{ component }}: {{ version }}</li>
+        {% endfor %}
+        </ul>
+      </td></tr>
+    <tr><th>Raw Statcast cache decision</th><td>{{ status.cache_decision or "unknown" }} ({{ status.cache_decision_reason or "n/a" }})</td></tr>
+    <tr><th>Coverage-validation missing dates</th>
+      <td>{{ status.final_pre_scoring_missing_dates | join(", ") if status.final_pre_scoring_missing_dates else "none" }}</td></tr>
+    <tr><th>Integrity status</th>
+      <td>{{ "Verified" if status.integrity_valid else "FAILED — see build log" }}</td></tr>
+    <tr><th>Players scored</th><td>{{ status.row_count }}</td></tr>
+    <tr><th>Qualified (officially ranked)</th><td>{{ status.qualified_count }}</td></tr>
+    <tr><th>Qualification breakdown</th>
+      <td>
+        {% for status_name, count in status.qualification_counts.items() %}
+          {{ status_name | replace("_", " ") }}: {{ count }}{% if not loop.last %} · {% endif %}
+        {% endfor %}
+      </td></tr>
+    <tr><th>Player-name source</th>
+      <td>{{ status.name_resolution_summary.source }} —
+        {{ status.name_resolution_summary.resolved_batter_count }}/{{ status.name_resolution_summary.requested_batter_count }} resolved
+        ({{ status.name_resolution_summary.unresolved_batter_count }} unresolved)</td></tr>
+  </tbody>
+</table>
+
+<h2>Component model status (this snapshot)</h2>
+<table class="status-table">
+  <tbody>
+    {% for component, model_status in status.component_model_status.items() %}
+    <tr><th>{{ component }}</th><td>{{ model_status }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="page-subtitle">
+  Model selection winners: {{ status.model_selection_winners }}
+</p>
+
+<h2>Snapshot history</h2>
+<p class="page-subtitle">
+  Every valid stored snapshot, newest first. A date with more than one entry shows the preferred
+  (displayed) snapshot first; superseded or backfill snapshots for the same date are listed
+  underneath and are never used as the displayed value for that date.
+</p>
+<div class="overflow-x">
+<table class="status-table">
+  <thead>
+    <tr><th>Data through</th><th>Snapshot</th><th>Type</th><th>Generated at</th><th>Displayed?</th></tr>
+  </thead>
+  <tbody>
+    {% for entry in status.snapshot_history %}
+      {% for snap in entry.all_valid_snapshots %}
+      <tr>
+        <td>{{ entry.data_through_date if loop.first else "" }}</td>
+        <td>{{ snap.directory_name }}</td>
+        <td><span class="snapshot-type-{{ snap.snapshot_type }}">{{ snap.snapshot_type | replace("_", " ") }}</span></td>
+        <td>{{ snap.generated_at }}</td>
+        <td>{{ "Yes" if entry.preferred and snap.directory_name == entry.preferred.directory_name else "No (superseded)" }}</td>
+      </tr>
+      {% endfor %}
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

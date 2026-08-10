@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Methodology — Contact Luck{% endblock %}
+{% block content %}
+<h1>Methodology</h1>
+<p class="page-subtitle">What Contact Luck measures, what it does not measure, and its current limitations.</p>
+
+<h2>Definitions</h2>
+<dl>
+  <dt><strong>Contact Luck Runs</strong></dt>
+  <dd>The number of runs by which a batter's observed eligible batted-ball outcomes were more or
+    less favorable than the model expected.</dd>
+
+  <dt><strong>Contact Luck Runs per 100</strong></dt>
+  <dd>Contact Luck Runs normalized to 100 eligible batted balls.</dd>
+
+  <dt><strong>Positive</strong></dt>
+  <dd>More favorable realized outcomes than expected.</dd>
+
+  <dt><strong>Negative</strong></dt>
+  <dd>Less favorable realized outcomes than expected.</dd>
+</dl>
+
+<p class="callout">
+  <strong>Limitation.</strong> Contact Luck is a retrospective description of realized outcomes,
+  not a measure of stable batting talent and not a projection of future performance.
+</p>
+
+<h2>How a score is built</h2>
+<p>
+  Each fair batted ball is compared against what the model expected given its measured contact
+  quality and the situation it occurred in. The difference between the actual outcome's run value
+  and the model's expectation, summed across a player's eligible batted balls, is their Contact
+  Luck Runs. At a high level, that expectation is built from several stages:
+</p>
+<ul>
+  <li><strong>Contact expectation</strong> — the model's prediction of the batted ball's outcome
+    from its measured launch speed/angle and situational context, before defense or baserunning
+    are involved.</li>
+  <li><strong>Outfield / infield opportunity</strong> — whether a defender had a realistic chance
+    to make the play, given where and how hard the ball was hit.</li>
+  <li><strong>Defensive execution</strong> — how the actual defensive outcome compared to what a
+    typical defender would be expected to do with that opportunity.</li>
+  <li><strong>Advancement</strong> — baserunner advancement value beyond the batted-ball outcome
+    itself.</li>
+  <li><strong>Uncertainty</strong> — a 95% interval around each score, estimated by resampling
+    games (not individual plays), to reflect sampling variability in a season-to-date sample.</li>
+  <li><strong>Qualification</strong> — only players who clear a minimum-sample threshold are
+    included in the official leaderboard ranking; others are reported as
+    <code>small_sample</code> and excluded from ranking, though they can still be looked up on
+    their own player page.</li>
+  <li><strong>Provisional near-wall treatment</strong> — batted balls near the outfield wall use a
+    specialist model that is still provisional (not yet fully calibrated across every venue); its
+    share of a player's score is reported explicitly rather than hidden.</li>
+</ul>
+
+<p><a href="#technical-details">Read more technical detail ↓</a></p>
+
+<h2 id="technical-details">Technical details</h2>
+<p>
+  Every component's per-play model carries its own status (for example
+  <code>calibrated</code>, <code>calibrated_with_limited_subgroup_evidence</code>,
+  <code>provisional</code>, or <code>unavailable</code>) and, where relevant, a reason code
+  explaining why a play could not be scored by a given component (for example
+  <code>missing_geometry</code> or <code>not_outfield_air_ball_bb_type</code>). A player's own
+  page shows these directly, along with the share of their total score coming from components
+  that are still provisional rather than fully calibrated. Uncertainty intervals use a
+  game-clustered bootstrap (not a per-play bootstrap), because plays within the same game are not
+  independent observations.
+</p>
+<p>
+  For the full modeling history, versioning, and validation results behind the frozen model this
+  dashboard displays, see the project's <code>README.md</code> and <code>CLAUDE.md</code>.
+</p>
+{% endblock %}

@@ -34,6 +34,22 @@ dev = [
     "matplotlib>=3.8",
     "pandas-stubs>=2.1",
 ]
+# Version 1.2 dashboard: a read-only static-site build over Version 1.1
+# prospective snapshots (see CLAUDE.md / dashboard/). Deliberately its own
+# extra, not folded into the base `dependencies` list -- the dashboard is a
+# presentation layer, not part of the scoring pipeline those depend on.
+dashboard = [
+    "jinja2>=3.1",
+]
+# scripts/archive_snapshot.py: durable Cloudflare R2 archival of completed
+# Version 1.1 snapshots. Its own extra for the same reason as `dashboard`
+# above -- archival is an operational concern, not part of the scoring
+# pipeline, and most local dev/test work never needs boto3 installed (the
+# module's pure functions and its InMemoryArchiveClient test double import
+# nothing from boto3; only the real make_r2_client() factory does, lazily).
+archive = [
+    "boto3>=1.34",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -54,10 +70,11 @@ known-first-party = ["mlb_luck_score"]
 testpaths = ["tests"]
 addopts = "-ra"
 filterwarnings = ["ignore::DeprecationWarning"]
-# Lets tests import the top-level evaluation/ scripts (Version 1.0's final
-# -evaluation harness -- a plain script directory, not part of the installed
+# Lets tests import the top-level evaluation/ and prospective/ scripts
+# (Version 1.0's final-evaluation harness and Version 1.1's prospective
+# -scoring harness -- plain script directories, not part of the installed
 # mlb_luck_score package) without sys.path hacks in every test file.
-pythonpath = ["evaluation"]
+pythonpath = ["evaluation", "prospective", "dashboard", "scripts"]
 
 [tool.mypy]
 # NOTE: intentionally NOT pinning python_version here. Numpy's bundled type

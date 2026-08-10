@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as macros %}
+{% block title %}Contact Luck Leaderboard{% endblock %}
+{% block content %}
+<h1>Contact Luck Leaderboard</h1>
+
+<div class="callout explainer-callout">
+  <p>
+    Contact Luck estimates how favorable a hitter's batted-ball outcomes have been relative to expectation.
+    <strong>+3.0</strong> means roughly three more favorable runs per 100 eligible batted balls than expected.
+    The interval shows the uncertainty around that estimate. Contact Luck describes what happened — it is not a
+    projection of future performance.
+  </p>
+</div>
+
+<div class="explainer-stats">
+  <span class="explainer-stat">Data through {{ data_through_date_display }}</span>
+  <span class="explainer-stat">{{ qualified_count }} qualified hitters</span>
+</div>
+
+<p class="page-subtitle">
+  Ranked players only ({{ qualified_count }} of {{ player_count }} players qualify) — see
+  <a href="{{ root_prefix }}methodology/">methodology</a> for the qualification rule.
+</p>
+
+<div class="leaderboard-tabs">
+  <input type="radio" name="lb-tab" id="tab-favorable" class="tab-radio" checked>
+  <input type="radio" name="lb-tab" id="tab-unfavorable" class="tab-radio">
+  <div class="terminology-tabs">
+    <label for="tab-favorable" class="terminology-tab">Most favorable realized luck</label>
+    <label for="tab-unfavorable" class="terminology-tab">Least favorable outcomes relative to expectation</label>
+  </div>
+
+  <div class="tab-panel" id="panel-favorable">
+    {{ macros.render_leaderboard_table(favorable_rows, "favorable") }}
+  </div>
+  <div class="tab-panel" id="panel-unfavorable">
+    {{ macros.render_leaderboard_table(unfavorable_rows, "unfavorable") }}
+  </div>
+</div>
+
+<p class="callout">
+  Columns can be re-sorted for exploration, but a re-sorted table is always labeled
+  "Sorted view" and is never presented as an alternative official ranking. The Rank column
+  always shows the stored, frozen official rank — click it to return to that order.
+</p>
+{% endblock %}

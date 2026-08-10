@@ -1,0 +1,468 @@
+/* Contact Luck v1.2 -- dashboard stylesheet.
+   Palette: dataviz skill reference palette (references/palette.md),
+   diverging blue/red pair + chart chrome/ink. Direction (blue/red) encodes
+   the SIGN of the point estimate only -- it is applied identically whether
+   or not the 95% interval crosses zero. See visuals.py's module docstring. */
+
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --diverging-positive: #2a78d6;
+  --diverging-negative: #e34948;
+  --diverging-mid: #f0efec;
+  --band-opacity: 0.10;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --diverging-positive: #3987e5;
+    --diverging-negative: #e66767;
+    --diverging-mid: #383835;
+    --band-opacity: 0.16;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--page);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+a { color: var(--diverging-positive); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.site-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.site-header-inner {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.site-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.site-nav {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.site-nav a {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.site-nav a.active,
+.site-nav a:hover {
+  color: var(--text-primary);
+}
+
+.global-search-wrap {
+  position: relative;
+}
+
+.global-search-wrap input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  width: 200px;
+}
+
+.search-results-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.search-results-dropdown[hidden] { display: none; }
+
+.search-result-item {
+  padding: 7px 12px;
+  font-size: 0.86rem;
+  color: var(--text-primary);
+}
+
+.search-result-item:hover {
+  background: var(--page);
+  text-decoration: none;
+}
+
+.data-through-badge {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+main {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+
+h1 { font-size: 1.6rem; margin: 0 0 6px; }
+h2 { font-size: 1.2rem; margin: 32px 0 10px; }
+h3 { font-size: 1rem; margin: 20px 0 8px; }
+
+.page-subtitle {
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+}
+
+.hero-question {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-bottom: 24px;
+}
+
+.explainer-callout { margin: 12px 0 14px; }
+.explainer-callout p { margin: 0; }
+
+.explainer-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.explainer-stat {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+
+.terminology-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.terminology-tab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tab-radio { display: none; }
+.tab-panel { display: none; }
+
+#tab-favorable:checked ~ #panel-favorable,
+#tab-unfavorable:checked ~ #panel-unfavorable {
+  display: block;
+}
+
+#tab-favorable:checked ~ .terminology-tabs label[for="tab-favorable"],
+#tab-unfavorable:checked ~ .terminology-tabs label[for="tab-unfavorable"] {
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+  font-weight: 600;
+}
+
+.leaderboard-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.leaderboard-search {
+  flex: 1 1 220px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.92rem;
+}
+
+.sorted-view-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  min-height: 1.2em;
+}
+
+table.leaderboard {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+table.leaderboard th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--baseline);
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+table.leaderboard th[data-sort-key]:hover { color: var(--text-primary); }
+
+table.leaderboard td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--gridline);
+  vertical-align: middle;
+}
+
+table.leaderboard td.numeric,
+table.leaderboard th.numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+table.leaderboard td.rank-cell {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  width: 2.5em;
+}
+
+.player-link { color: var(--text-primary); font-weight: 500; }
+.player-link:hover { color: var(--diverging-positive); text-decoration: underline; }
+
+.overflow-x { overflow-x: auto; }
+
+/* Interval bar (leaderboard rows + player detail) */
+.interval-bar { display: block; }
+.interval-bar-compact { width: 220px; height: 32px; }
+.interval-bar-full { width: 100%; max-width: 480px; height: 72px; }
+
+.interval-zero-line,
+.trend-zero-line {
+  stroke: var(--baseline);
+  stroke-width: 1;
+}
+
+.interval-axis-label {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.interval-range { stroke-width: 3; stroke-linecap: round; }
+.interval-point { stroke: var(--surface); stroke-width: 2; }
+
+.interval-positive { stroke: var(--diverging-positive); fill: var(--diverging-positive); }
+.interval-negative { stroke: var(--diverging-negative); fill: var(--diverging-negative); }
+
+/* Trend chart */
+.trend-chart { width: 100%; max-width: 640px; height: auto; }
+.trend-band { fill: var(--diverging-mid); opacity: var(--band-opacity); stroke: none; }
+.trend-line { fill: none; stroke: var(--text-secondary); stroke-width: 2; stroke-linejoin: round; }
+.trend-point { stroke: var(--surface); stroke-width: 2; }
+.trend-point-backfill {
+  stroke: var(--surface);
+  stroke-width: 2;
+  stroke-dasharray: 2 2;
+  fill-opacity: 0.55;
+}
+.trend-date-label { fill: var(--text-muted); font-size: 10px; text-anchor: middle; }
+.trend-empty { color: var(--text-muted); font-size: 0.9rem; }
+
+/* Stat cards on player page */
+.player-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.player-hero-figure {
+  font-size: 2.4rem;
+  font-weight: 700;
+}
+
+.player-hero-figure.interval-positive { color: var(--diverging-positive); }
+.player-hero-figure.interval-negative { color: var(--diverging-negative); }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.stat-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.stat-card .stat-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.stat-card .stat-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.badge-qualified { border-color: var(--diverging-positive); color: var(--diverging-positive); }
+
+.component-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 8px; }
+.component-table td, .component-table th {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--gridline);
+  text-align: left;
+}
+.component-table td.numeric, .component-table th.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.technical-disclosure {
+  margin: 14px 0 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 14px;
+  background: var(--surface);
+}
+
+.technical-disclosure summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.technical-disclosure[open] summary {
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--gridline);
+  margin-bottom: 4px;
+}
+
+.technical-disclosure table.component-table { margin-top: 0; }
+
+.callout {
+  border-left: 3px solid var(--baseline);
+  padding: 10px 16px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  margin: 16px 0;
+}
+
+.status-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.status-table th, .status-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--gridline);
+}
+.status-table th { color: var(--text-secondary); width: 40%; }
+
+.snapshot-type-genuine_prospective_snapshot { color: var(--text-secondary); }
+.snapshot-type-corrected_prospective_snapshot { color: var(--diverging-positive); }
+.snapshot-type-retrospective_backfill { color: var(--text-muted); font-style: italic; }
+.snapshot-type-invalid_incomplete_snapshot { color: var(--diverging-negative); }
+
+footer.site-footer {
+  max-width: 1140px;
+  margin: 40px auto 0;
+  padding: 16px 20px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Desktop-only presentation polish (v1.2.1): the 1440px real-browser QA
+   pass found the leaderboard reading as a narrow, dense central column with
+   a lot of unused horizontal space. Purely visual -- no data/logic change,
+   no effect on the approved mobile layout below (disjoint media ranges). */
+@media (min-width: 900px) {
+  table.leaderboard { font-size: 1rem; }
+
+  table.leaderboard th { padding: 11px 10px; }
+  table.leaderboard td { padding: 13px 10px; }
+
+  table.leaderboard th:nth-child(2),
+  table.leaderboard td:nth-child(2) {
+    min-width: 220px;
+  }
+
+  /* Scales both dimensions together (native aspect ratio 220:32) so the
+     bar enlarges uniformly rather than letterboxing inside a wider box --
+     the SVG's own internal viewBox/coordinates (visuals.py) are untouched. */
+  .interval-bar-compact { width: 300px; height: 44px; }
+}
+
+@media (max-width: 640px) {
+  .site-nav { gap: 12px; }
+  table.leaderboard { font-size: 0.84rem; }
+  .interval-bar-compact { width: 108px; }
+  .player-hero-figure { font-size: 1.9rem; }
+  /* Total runs / eligible BBE / games / interval width move to the player
+     page on mobile -- keeping Rank, Player, Runs/100, and the interval bar
+     visible without needing horizontal scroll for the primary leaderboard
+     use case. */
+  .hide-mobile { display: none; }
+}

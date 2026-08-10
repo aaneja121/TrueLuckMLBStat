@@ -11,7 +11,7 @@
 	download-sprint-speed join-sprint-speed compare-infield-opportunity \
 	notebook-infield-opportunity compare-advancement-models notebook-advancement \
 	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation \
-	run-public-score notebook-public-score
+	run-public-score notebook-public-score run-prospective-scoring notebook-prospective-review
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -387,3 +387,33 @@ run-public-score:
 
 notebook-public-score:
 	$(PY) -m jupyter notebook notebooks/13_public_score_review.ipynb
+
+# Version 1.1: repeatable prospective 2026 scoring snapshot, applying the exact frozen
+# Version 1.0 system (see CLAUDE.md "Version 1.1: prospective 2026 scoring"). Requires
+# internet access to reach Baseball Savant / the MLB Stats API for any date range not
+# already cached under data/prospective/2026/. DATA_THROUGH must be set
+# (make run-prospective-scoring DATA_THROUGH=2026-04-15); SNAPSHOT_LABEL is optional.
+# The 2026 season-opening date (2026-03-25, MLB Opening Night) is verified -- see
+# prospective.prospective_config.PROSPECTIVE_2026_SEASON_START_SOURCE. Two guards run
+# before any data is touched: the git working tree must be clean (a dirty tracked file
+# or an untracked-and-not-ignored file blocks the run), and DATA_THROUGH's slate must be
+# fully final on MLB's schedule (a date with a game still in progress or suspended is
+# refused -- pick an earlier date and rerun).
+run-prospective-scoring:
+	@if [ -z "$(DATA_THROUGH)" ]; then \
+		echo "Usage: make run-prospective-scoring DATA_THROUGH=YYYY-MM-DD [SNAPSHOT_LABEL=label]"; \
+		exit 1; \
+	fi
+	$(PY) prospective/run_v1_1_2026_scoring.py \
+		--data-through $(DATA_THROUGH) \
+		$(if $(SNAPSHOT_LABEL),--snapshot-label $(SNAPSHOT_LABEL),)
+
+# Read-only reviewer for an already-completed prospective snapshot -- performs no
+# fitting, scoring, downloading, or file mutation. Set CONTACT_LUCK_PROSPECTIVE_
+# OUTPUTS_DIR / CONTACT_LUCK_PROSPECTIVE_ARTIFACTS_DIR to point at one snapshot's own
+# directories before launching, e.g.
+#   CONTACT_LUCK_PROSPECTIVE_OUTPUTS_DIR=outputs/prospective/v1_1/2026-04-15 \
+#   CONTACT_LUCK_PROSPECTIVE_ARTIFACTS_DIR=artifacts/prospective/v1_1/2026-04-15 \
+#   make notebook-prospective-review
+notebook-prospective-review:
+	$(PY) -m jupyter notebook notebooks/15_prospective_snapshot_review.ipynb

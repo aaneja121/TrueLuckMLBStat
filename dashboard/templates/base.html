@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Contact Luck{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Contact Luck: how much more or less favorable a batter's realized contact outcomes were than expected, for informational/research purposes.{% endblock %}">
+  <link rel="stylesheet" href="{{ asset_prefix }}static/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div>
+        <a class="site-title" href="{{ root_prefix }}">Contact Luck</a>
+      </div>
+      <nav class="site-nav">
+        <a href="{{ root_prefix }}"{% if active_page == 'leaderboard' %} class="active"{% endif %}>Leaderboard</a>
+        <a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="active"{% endif %}>Methodology</a>
+        <a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="active"{% endif %}>Data &amp; status</a>
+      </nav>
+      <div class="global-search-wrap">
+        <input type="text" placeholder="Find a player…" autocomplete="off"
+               data-role="global-player-search" aria-label="Find a player by name">
+        <div class="search-results-dropdown" data-role="global-player-search-results" hidden></div>
+      </div>
+      <span class="data-through-badge">Data through {{ data_through_date }}</span>
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Contact Luck is a retrospective description of realized outcomes, not a measure of
+      stable batting talent and not a projection of future performance. See the
+      <a href="{{ root_prefix }}methodology/">methodology page</a> for definitions and limitations.
+    </p>
+    <p>Dashboard v{{ dashboard_version }} · built from snapshot {{ snapshot_directory_name }} · generated {{ build_timestamp }}</p>
+  </footer>
+
+  <script type="application/json" id="player-index-data">{{ player_index_json | safe }}</script>
+  <script src="{{ asset_prefix }}static/app.js"></script>
+</body>
+</html>
