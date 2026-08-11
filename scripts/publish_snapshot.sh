@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 #
-# Contact Luck operational loop: ensure the frozen 2021-2024 development
-# input is present, generate a new Version 1.1 prospective snapshot for a
-# completed MLB date, durably archive it, repopulate any OTHER historical
+# Contact Luck operational loop: ensure every gitignored frozen input
+# artifact is present, generate a new Version 1.1 prospective snapshot for
+# a completed MLB date, durably archive it, repopulate any OTHER historical
 # snapshots missing on this machine from the durable archive, rebuild the
 # Version 1.2 static dashboard from the complete local history, and deploy
 # the result to Cloudflare Pages.
 #
 #     completed MLB slate
-#         -> scripts/ensure_frozen_inputs.py         (frozen 2021-2024 dev
-#                                                      input: reuse local if
-#                                                      hash-valid, else fetch
-#                                                      from R2 and verify)
+#         -> scripts/ensure_frozen_inputs.py         (frozen input bundle:
+#                                                      the 2021-2024 dev
+#                                                      parquet + 3 model
+#                                                      -comparison detail
+#                                                      JSONs. Each: reuse
+#                                                      local if hash-valid,
+#                                                      else fetch from R2
+#                                                      and verify)
 #         -> prospective/run_v1_1_2026_scoring.py   (immutable snapshot)
 #         -> scripts/archive_snapshot.py             (durable R2 archive)
 #         -> scripts/archive_snapshot.py --sync-history
@@ -21,20 +25,27 @@
 #         -> wrangler pages deploy                  (static hosting)
 #
 # WHY THE FROZEN-INPUT STAGE EXISTS: a GitHub Actions runner starts from a
-# clean git checkout with no data/processed/ cache at all -- the frozen
-# 2021-2024 development input every component model trains against
-# (data/processed/cleaned_development_data_with_sprint_speed.parquet) is
-# gitignored (CLAUDE.md "Never commit datasets") and has only ever existed
-# on a maintainer's own machine. The first scheduled dry-run got all the
-# way through downloading and cleaning 2026 data before failing exactly
-# here. scripts/ensure_frozen_inputs.py closes that gap: it reuses the
-# local file if present and hash-valid, otherwise fetches it from a
-# dedicated, immutable R2 object (a SEPARATE prefix from the prospective
-# snapshot archive below) and verifies its sha256 before use -- it never
-# regenerates or substitutes the development dataset. This stage ALWAYS
-# runs, even under --skip-archive --skip-deploy, because scoring always
-# needs it regardless of what happens to the output afterward -- exactly
-# the same reasoning that makes history sync always run.
+# clean git checkout with no data/processed/ or outputs/tables/ cache at
+# all. Version 1.1's manifest freezes its inputs by hashing every path in
+# evaluation.v1_final_evaluation_manifest.FROZEN_ARTIFACT_RELATIVE_PATHS --
+# 27 of those 32 paths are git-tracked source files (present on any fresh
+# checkout automatically), but 4 are gitignored, local-only data/detail
+# files (CLAUDE.md "Never commit datasets") that have only ever existed on
+# a maintainer's own machine: the 2021-2024 development parquet, plus
+# outputs/tables/{opportunity_model_comparison,infield_opportunity,
+# advancement}_detail.json. The first scheduled dry-run failed on the
+# parquet alone; the second got past scoring and failed building the
+# manifest, needing the remaining three. scripts/ensure_frozen_inputs.py
+# closes the COMPLETE gap (all four, audited against the real frozen
+# -artifact list -- see that script's own module docstring): for each, it
+# reuses the local file if present and hash-valid, otherwise fetches it
+# from a dedicated, immutable R2 object (a SEPARATE prefix from the
+# prospective snapshot archive below) and verifies its sha256 before use --
+# it never regenerates or substitutes any of them. This stage ALWAYS runs,
+# even under --skip-archive --skip-deploy, because scoring/manifest
+# generation always needs the full bundle regardless of what happens to
+# the output afterward -- exactly the same reasoning that makes history
+# sync always run.
 #
 # WHY HISTORY SYNC EXISTS: a GitHub Actions runner starts from a fresh git
 # checkout -- outputs/prospective/v1_1/ and artifacts/prospective/v1_1/ are
@@ -114,8 +125,8 @@
 #   --project-name NAME     Cloudflare Pages project name. Default:
 #                           contact-luck
 #   --archive-bucket NAME   R2 bucket for durable snapshot archival, history
-#                           sync, AND the frozen development-input check
-#                           (same bucket, separate key prefixes -- see
+#                           sync, AND the frozen-input bundle check (same
+#                           bucket, separate key prefixes -- see
 #                           scripts/ensure_frozen_inputs.py). Default:
 #                           $R2_BUCKET_NAME if set, else
 #                           contact-luck-prospective-archive.
@@ -134,13 +145,14 @@
 # R2 credentials: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY as
 # environment variables -- ALWAYS required now, even for a full dry run
 # (--skip-archive --skip-deploy), because history sync always reads from
-# R2. The frozen-input check (scripts/ensure_frozen_inputs.py) only
-# actually NEEDS these if data/processed/cleaned_development_data_with_
-# sprint_speed.parquet is missing locally -- true on every fresh CI runner,
-# false on a maintainer's own machine that already has it, where this
-# stage never touches R2 at all. See scripts/archive_snapshot.py's module
-# docstring and README.md's "Durable archival" section for exactly what
-# these need to be.
+# R2. The frozen-input bundle check (scripts/ensure_frozen_inputs.py) only
+# actually NEEDS these if at least one bundle entry (the development
+# parquet or one of the three model-comparison detail JSONs) is missing
+# locally -- true on every fresh CI runner, false on a maintainer's own
+# machine that already has the full bundle, where this stage never
+# touches R2 at all. See scripts/archive_snapshot.py's module docstring
+# and README.md's "Durable archival" section for exactly what these need
+# to be.
 #
 # Example:
 #   scripts/publish_snapshot.sh --data-through 2026-08-10
@@ -238,7 +250,7 @@ fi
 
 SEASON="${DATA_THROUGH:0:4}"
 
-echo "==> [1/6] Ensuring frozen 2021-2024 development input is present and verified"
+echo "==> [1/6] Ensuring the frozen input bundle (dev parquet + 3 detail JSONs) is present and verified"
 R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/ensure_frozen_inputs.py
 
 echo "==> [2/6] Generating prospective snapshot for --data-through $DATA_THROUGH"

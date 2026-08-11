@@ -1,16 +1,21 @@
 """Tests for scripts/ensure_frozen_inputs.py -- the portability fix that
-lets a fresh CI runner obtain the frozen 2021-2024 development input
-without ever regenerating it. All tests use `InMemoryArchiveClient`
+lets a fresh CI runner obtain every gitignored frozen artifact Version 1.1
+prospective scoring's manifest generation requires (the frozen 2021-2024
+development parquet plus three model-comparison detail JSON files) without
+ever regenerating any of them. All tests use `InMemoryArchiveClient`
 (imported from `scripts.archive_snapshot`); none contact real Cloudflare
-R2, none require real credentials, and none touch the real 106MB frozen
-parquet on this machine's disk -- every test uses tiny synthetic bytes and
-its own `tmp_path`-scoped local path/hash pair.
+R2, none require real credentials, and none touch the real frozen files on
+this machine's disk (except the read-only cross-checks in
+`TestBundleCoversEveryGitignoredFrozenArtifact`, which only ever read,
+never write) -- every synthetic test uses tiny bytes and its own
+`tmp_path`-scoped local path/hash pair.
 """
 
 from __future__ import annotations
 
 import ast
 import hashlib
+import subprocess
 from pathlib import Path
 
 import ensure_frozen_inputs as efi
@@ -300,9 +305,10 @@ class TestPinnedConfig:
         assert not efi.FROZEN_INPUT_R2_KEY.startswith("prospective/")
 
     def test_local_path_matches_the_real_pipelines_frozen_input_path(self) -> None:
-        # Imported (not re-declared) from evaluation.run_v1_final_evaluation
-        # -- this assertion is really just confirming the import wiring
-        # didn't silently fall back to some other path.
+        # FROZEN_INPUT_LOCAL_PATH is a backward-compatible alias for
+        # FROZEN_INPUT_BUNDLE[0] (the parquet entry) -- this assertion
+        # confirms that alias still points at the right file, not a
+        # different bundle entry, after the bundle refactor.
         assert (
             efi.FROZEN_INPUT_LOCAL_PATH.name == "cleaned_development_data_with_sprint_speed.parquet"
         )
@@ -311,3 +317,280 @@ class TestPinnedConfig:
     def test_pinned_hash_is_a_well_formed_sha256_hex_digest(self) -> None:
         assert len(efi.FROZEN_INPUT_SHA256) == 64
         int(efi.FROZEN_INPUT_SHA256, 16)  # raises ValueError if not valid hex
+
+    def test_every_bundle_entry_has_a_well_formed_sha256_and_a_frozen_inputs_key(self) -> None:
+        for spec in efi.FROZEN_INPUT_BUNDLE:
+            assert len(spec.sha256) == 64
+            int(spec.sha256, 16)  # raises ValueError if not valid hex
+            assert spec.r2_key.startswith("frozen-inputs/v1/")
+            assert spec.size_bytes > 0
+
+    def test_bundle_has_exactly_four_entries_matching_the_known_incident(self) -> None:
+        # Not a hard architectural limit -- just documents the exact
+        # incident this bundle was built to close (parquet + the 3 detail
+        # JSONs the second dry-run failed on) so a future addition/removal
+        # here is a deliberate, visible change to this test, not silent.
+        local_paths = {spec.local_relative_path for spec in efi.FROZEN_INPUT_BUNDLE}
+        assert local_paths == {
+            "data/processed/cleaned_development_data_with_sprint_speed.parquet",
+            "outputs/tables/opportunity_model_comparison_detail.json",
+            "outputs/tables/infield_opportunity_detail.json",
+            "outputs/tables/advancement_detail.json",
+        }
+
+
+class TestBundleReuseLocally:
+    def test_complete_bundle_reused_locally_without_any_client(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec(
+                "nested/b.json", "frozen-inputs/v1/nested/b.json", _sha256(b"BBBB"), 4
+            ),
+        )
+        (tmp_path / "a.bin").write_bytes(b"AAA")
+        (tmp_path / "nested").mkdir()
+        (tmp_path / "nested" / "b.json").write_bytes(b"BBBB")
+
+        def _fail_if_called() -> InMemoryArchiveClient:
+            raise AssertionError("must never contact R2 when every local file is already valid")
+
+        results = efi.ensure_frozen_input_bundle(
+            specs, project_root=tmp_path, client_factory=_fail_if_called
+        )
+
+        assert len(results) == 2
+        assert all(r.outcome == efi.FrozenInputOutcome.REUSED_LOCAL for r in results)
+        assert results[0].sha256 == _sha256(b"AAA")
+        assert results[1].sha256 == _sha256(b"BBBB")
+
+    def test_the_real_local_bundle_is_fully_reused_with_zero_r2_contact(self) -> None:
+        """Exercises the DEFAULT bundle (real project paths) against
+        whatever is actually on this machine's disk right now -- skipped
+        (not failed) if any entry is missing, since that's a valid state
+        on a fresh checkout before the one-time seed/first `ensure` run.
+        """
+        for spec in efi.FROZEN_INPUT_BUNDLE:
+            if not (efi.PROJECT_ROOT / spec.local_relative_path).exists():
+                pytest.skip("real frozen-input bundle not fully present on this machine")
+
+        def _fail_if_called() -> InMemoryArchiveClient:
+            raise AssertionError("must never contact R2 when every local file is already valid")
+
+        results = efi.ensure_frozen_input_bundle(client_factory=_fail_if_called)
+        assert len(results) == len(efi.FROZEN_INPUT_BUNDLE)
+        assert all(r.outcome == efi.FrozenInputOutcome.REUSED_LOCAL for r in results)
+
+
+class TestBundleMultipleMissingFetchedCorrectly:
+    def test_fetches_every_missing_entry_from_r2(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec(
+                "nested/b.json", "frozen-inputs/v1/nested/b.json", _sha256(b"BBBB"), 4
+            ),
+        )
+        client = InMemoryArchiveClient()
+        client.put_object_bytes("frozen-inputs/v1/a.bin", b"AAA")
+        client.put_object_bytes("frozen-inputs/v1/nested/b.json", b"BBBB")
+
+        results = efi.ensure_frozen_input_bundle(
+            specs, project_root=tmp_path, client_factory=lambda: client
+        )
+
+        assert all(r.outcome == efi.FrozenInputOutcome.DOWNLOADED_FROM_R2 for r in results)
+        assert (tmp_path / "a.bin").read_bytes() == b"AAA"
+        assert (tmp_path / "nested" / "b.json").read_bytes() == b"BBBB"
+
+    def test_fetches_only_the_missing_entries_and_reuses_the_rest(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec("b.bin", "frozen-inputs/v1/b.bin", _sha256(b"BBB"), 3),
+        )
+        (tmp_path / "a.bin").write_bytes(b"AAA")  # already present locally
+        client = InMemoryArchiveClient()
+        client.put_object_bytes("frozen-inputs/v1/b.bin", b"BBB")  # only b needs fetching
+
+        results = efi.ensure_frozen_input_bundle(
+            specs, project_root=tmp_path, client_factory=lambda: client
+        )
+        assert results[0].outcome == efi.FrozenInputOutcome.REUSED_LOCAL
+        assert results[1].outcome == efi.FrozenInputOutcome.DOWNLOADED_FROM_R2
+
+    def test_shares_exactly_one_client_across_the_whole_bundle(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec("b.bin", "frozen-inputs/v1/b.bin", _sha256(b"BBB"), 3),
+        )
+        client = InMemoryArchiveClient()
+        client.put_object_bytes("frozen-inputs/v1/a.bin", b"AAA")
+        client.put_object_bytes("frozen-inputs/v1/b.bin", b"BBB")
+
+        call_count = 0
+
+        def factory() -> InMemoryArchiveClient:
+            nonlocal call_count
+            call_count += 1
+            return client
+
+        efi.ensure_frozen_input_bundle(specs, project_root=tmp_path, client_factory=factory)
+        assert call_count == 1
+
+
+class TestBundleOneMissingRemoteArtifactFails:
+    def test_stops_at_the_first_missing_remote_entry(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec("b.bin", "frozen-inputs/v1/b.bin", _sha256(b"BBB"), 3),
+        )
+        client = InMemoryArchiveClient()
+        client.put_object_bytes("frozen-inputs/v1/a.bin", b"AAA")
+        # b.bin was never uploaded.
+
+        with pytest.raises(efi.FrozenInputMissingRemoteObjectError):
+            efi.ensure_frozen_input_bundle(
+                specs, project_root=tmp_path, client_factory=lambda: client
+            )
+
+        assert (tmp_path / "a.bin").exists()  # the earlier entry still succeeded
+        assert not (tmp_path / "b.bin").exists()
+
+
+class TestBundleOneCorruptedLocalArtifactFails:
+    def test_stops_at_the_first_corrupted_local_entry_before_any_r2_contact(
+        self, tmp_path: Path
+    ) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec("b.bin", "frozen-inputs/v1/b.bin", _sha256(b"BBB"), 3),
+        )
+        (tmp_path / "a.bin").write_bytes(b"AAA")
+        (tmp_path / "b.bin").write_bytes(b"WRONG")  # corrupted/stale
+
+        def _fail_if_called() -> InMemoryArchiveClient:
+            raise AssertionError("a corrupted local entry must fail before any R2 contact")
+
+        with pytest.raises(efi.FrozenInputLocalHashMismatchError):
+            efi.ensure_frozen_input_bundle(
+                specs, project_root=tmp_path, client_factory=_fail_if_called
+            )
+        assert (tmp_path / "b.bin").read_bytes() == b"WRONG"  # never overwritten
+
+
+class TestBundleOneCorruptedRemoteArtifactFails:
+    def test_stops_at_the_first_corrupted_remote_entry(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec("b.bin", "frozen-inputs/v1/b.bin", _sha256(b"BBB"), 3),
+        )
+        client = InMemoryArchiveClient()
+        client.put_object_bytes("frozen-inputs/v1/a.bin", b"AAA")
+        client.put_object_bytes("frozen-inputs/v1/b.bin", b"CORRUPTED")
+
+        with pytest.raises(efi.FrozenInputRemoteHashMismatchError):
+            efi.ensure_frozen_input_bundle(
+                specs, project_root=tmp_path, client_factory=lambda: client
+            )
+        assert (tmp_path / "a.bin").exists()
+        assert not (tmp_path / "b.bin").exists()  # corrupted download never written
+
+
+class TestBundleCoversEveryGitignoredFrozenArtifact:
+    """THE structural regression test this task asks for: a future frozen
+    artifact added to `evaluation.v1_final_evaluation_manifest.FROZEN_
+    ARTIFACT_RELATIVE_PATHS` (the exact list `prospective_manifest.
+    build_snapshot_manifest` hashes) without also being added to `FROZEN_
+    INPUT_BUNDLE` here must fail this test -- exactly the gap that caused
+    the real second-dry-run incident (three detail JSONs were in the
+    frozen-artifact list but not yet covered by this module).
+    """
+
+    def test_every_gitignored_frozen_artifact_path_is_in_the_bundle(self) -> None:
+        from v1_final_evaluation_manifest import FROZEN_ARTIFACT_RELATIVE_PATHS
+
+        result = subprocess.run(
+            ["git", "check-ignore", *FROZEN_ARTIFACT_RELATIVE_PATHS],
+            cwd=efi.PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,  # exit 1 just means "none of these are ignored" -- not an error
+        )
+        gitignored = {line for line in result.stdout.splitlines() if line}
+        bundle_paths = {spec.local_relative_path for spec in efi.FROZEN_INPUT_BUNDLE}
+        uncovered = gitignored - bundle_paths
+        assert not uncovered, (
+            "gitignored frozen artifact(s) in FROZEN_ARTIFACT_RELATIVE_PATHS not covered by "
+            f"scripts/ensure_frozen_inputs.py's FROZEN_INPUT_BUNDLE: {sorted(uncovered)}"
+        )
+
+    def test_bundle_has_no_stale_entries_outside_the_real_frozen_artifact_list(self) -> None:
+        """The reverse direction -- a bundle entry no longer part of the
+        real frozen-artifact list is dead weight, not a safety hole, but
+        worth catching so the bundle stays an accurate mirror.
+        """
+        from v1_final_evaluation_manifest import FROZEN_ARTIFACT_RELATIVE_PATHS
+
+        frozen_paths = set(FROZEN_ARTIFACT_RELATIVE_PATHS)
+        bundle_paths = {spec.local_relative_path for spec in efi.FROZEN_INPUT_BUNDLE}
+        stale = bundle_paths - frozen_paths
+        assert not stale, f"bundle entry no longer in FROZEN_ARTIFACT_RELATIVE_PATHS: {stale}"
+
+    def test_every_bundle_entrys_pinned_hash_matches_the_real_local_file(self) -> None:
+        """Since the real files are present on a machine that has run the
+        production pipeline, directly cross-check every pinned hash
+        against reality -- catches a transcription error in the bundle
+        immediately, not only at ensure-time on some other machine.
+        Skips (never fails) an entry that isn't present here.
+        """
+        for spec in efi.FROZEN_INPUT_BUNDLE:
+            full_path = efi.PROJECT_ROOT / spec.local_relative_path
+            if not full_path.exists():
+                continue
+            actual = hashlib.sha256(full_path.read_bytes()).hexdigest()
+            assert actual == spec.sha256, f"{spec.local_relative_path}: pinned hash is stale"
+            assert full_path.stat().st_size == spec.size_bytes
+
+
+class TestUploadBundleSeedingAction:
+    def test_uploads_every_entry_and_reports_per_key_outcome(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec("b.bin", "frozen-inputs/v1/b.bin", _sha256(b"BBB"), 3),
+        )
+        (tmp_path / "a.bin").write_bytes(b"AAA")
+        (tmp_path / "b.bin").write_bytes(b"BBB")
+        client = InMemoryArchiveClient()
+
+        results = efi.upload_frozen_input_bundle_to_r2(specs, project_root=tmp_path, client=client)
+
+        assert results == (
+            ("frozen-inputs/v1/a.bin", efi.FrozenInputUploadOutcome.UPLOADED),
+            ("frozen-inputs/v1/b.bin", efi.FrozenInputUploadOutcome.UPLOADED),
+        )
+        assert client.get_object_bytes("frozen-inputs/v1/a.bin") == b"AAA"
+        assert client.get_object_bytes("frozen-inputs/v1/b.bin") == b"BBB"
+
+    def test_rerunning_over_a_fully_seeded_bundle_is_all_no_ops(self, tmp_path: Path) -> None:
+        specs = (efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),)
+        (tmp_path / "a.bin").write_bytes(b"AAA")
+        client = InMemoryArchiveClient()
+        client.put_object_bytes("frozen-inputs/v1/a.bin", b"AAA")
+
+        results = efi.upload_frozen_input_bundle_to_r2(specs, project_root=tmp_path, client=client)
+        assert results == (
+            ("frozen-inputs/v1/a.bin", efi.FrozenInputUploadOutcome.NO_OP_IDENTICAL),
+        )
+
+    def test_stops_at_the_first_upload_conflict(self, tmp_path: Path) -> None:
+        specs = (
+            efi.FrozenInputSpec("a.bin", "frozen-inputs/v1/a.bin", _sha256(b"AAA"), 3),
+            efi.FrozenInputSpec("b.bin", "frozen-inputs/v1/b.bin", _sha256(b"BBB"), 3),
+        )
+        (tmp_path / "a.bin").write_bytes(b"AAA")
+        (tmp_path / "b.bin").write_bytes(b"BBB")
+        client = InMemoryArchiveClient()
+        client.put_object_bytes("frozen-inputs/v1/a.bin", b"SOMETHING ELSE ENTIRELY")
+
+        with pytest.raises(efi.FrozenInputUploadConflictError):
+            efi.upload_frozen_input_bundle_to_r2(specs, project_root=tmp_path, client=client)
+        # b was never attempted.
+        assert not client.object_exists("frozen-inputs/v1/b.bin")
