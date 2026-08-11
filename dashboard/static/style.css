@@ -268,6 +268,17 @@ table.leaderboard th.numeric {
   text-align: right;
 }
 
+/* Centers the "95% interval" header over the interval-bar column, and the
+   header/cell padding is identical (both come from the shared `th`/`td`
+   rules above) so the header and every bar beneath it share one effective
+   column width -- the bar itself is centered via `.interval-bar-compact`'s
+   own `margin: 0 auto` below, since `text-align` alone doesn't center a
+   block-level, fixed-width child. */
+table.leaderboard td.interval-col,
+table.leaderboard th.interval-col {
+  text-align: center;
+}
+
 table.leaderboard td.rank-cell {
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -281,7 +292,13 @@ table.leaderboard td.rank-cell {
 
 /* Interval bar (leaderboard rows + player detail) */
 .interval-bar { display: block; }
-.interval-bar-compact { width: 220px; height: 32px; }
+/* margin: 0 auto centers this fixed-width bar within its (now
+   text-align:center) leaderboard cell -- text-align alone doesn't center a
+   block-level child, and this only affects the compact leaderboard variant
+   (the player-detail page's `.interval-bar-full` is width:100% and
+   unaffected). Every breakpoint below only overrides width/height, never
+   margin, so the bar stays centered under the header at every size. */
+.interval-bar-compact { width: 220px; height: 32px; margin: 0 auto; }
 .interval-bar-full { width: 100%; max-width: 480px; height: 72px; }
 
 .interval-zero-line,

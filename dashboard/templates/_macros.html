@@ -11,7 +11,7 @@
       <th data-sort-key="officialRank" data-sort-type="number">Rank</th>
       <th data-sort-key="playerName" data-sort-type="text">Player</th>
       <th class="numeric" data-sort-key="score" data-sort-type="number">Runs / 100</th>
-      <th>95% interval</th>
+      <th class="interval-col">95% interval</th>
       <th class="numeric hide-mobile" data-sort-key="totalRuns" data-sort-type="number">Total runs</th>
       <th class="numeric hide-mobile" data-sort-key="bbe" data-sort-type="number">Eligible BBE</th>
       <th class="numeric hide-mobile" data-sort-key="games" data-sort-type="number">Games</th>
@@ -26,7 +26,7 @@
       <td class="rank-cell numeric">{{ row.official_rank }}</td>
       <td><a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a></td>
       <td class="numeric">{{ "%.2f"|format(row.score) }}</td>
-      <td>{{ row.interval_svg | safe }}</td>
+      <td class="interval-col">{{ row.interval_svg | safe }}</td>
       <td class="numeric hide-mobile">{{ "%.1f"|format(row.total_runs) }}</td>
       <td class="numeric hide-mobile">{{ row.bbe }}</td>
       <td class="numeric hide-mobile">{{ row.games }}</td>

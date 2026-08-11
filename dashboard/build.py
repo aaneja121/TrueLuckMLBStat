@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -108,13 +109,19 @@ _COMPONENT_LABELS = {
 def _player_view(
     detail: c.PlayerDetail,
     trend_points: list[c.TrendPoint],
-    qualified_domain: tuple[float, float],
+    qualified_intervals: Sequence[tuple[float, float]],
 ) -> dict[str, Any]:
+    # Single-pass padding over the SAME raw interval set the leaderboard
+    # domain is built from, plus this player's own raw (unpadded) interval --
+    # never re-pad an already-padded domain (that silently shifts the zero
+    # fraction and puts this page's bar on a different effective scale than
+    # the player's own leaderboard row for the identical numbers). For a
+    # qualified player, this player's interval is already inside
+    # `qualified_intervals`, so `player_domain` comes out identical to the
+    # leaderboard's shared domain; for a non-qualified player, the domain
+    # widens (still with exactly one padding pass) to fit their own interval.
     player_domain = v.compute_interval_domain(
-        [
-            (qualified_domain[0], qualified_domain[1]),
-            (detail.lower_95_interval, detail.upper_95_interval),
-        ]
+        [*qualified_intervals, (detail.lower_95_interval, detail.upper_95_interval)]
     )
     component_value_rows = [
         {"label": "Contact", "value": detail.components.contact_per_100},
@@ -198,9 +205,20 @@ def build_dashboard(
 
     favorable_rows = c.build_favorable_leaderboard(payloads)
     unfavorable_rows = c.build_unfavorable_leaderboard(payloads)
-    qualified_domain = v.compute_interval_domain(
-        [(r.lower_95_interval, r.upper_95_interval) for r in favorable_rows]
-    )
+    # The shared x-domain for every interval chart in this leaderboard view
+    # (both tabs) must be derived from every CI endpoint actually displayed
+    # in that view -- not just one table. `favorable_rows`/`unfavorable_rows`
+    # happen to list the same qualified population today (both are built
+    # with no `top_n` cut -- see `mlb_luck_score.scoring.leaderboard`), but
+    # that is not a contract this module should silently depend on: a future
+    # top-N cut on either table must not leave the other table's bars
+    # clipped against a domain that never saw their data. Duplicate
+    # intervals (the common case today) do not change the computed min/max,
+    # so this is a no-op change in practice, only a correctness one.
+    qualified_intervals = [
+        (r.lower_95_interval, r.upper_95_interval) for r in (*favorable_rows, *unfavorable_rows)
+    ]
+    qualified_domain = v.compute_interval_domain(qualified_intervals)
 
     player_index = c.build_player_index(payloads)
     player_index_json = json.dumps(
@@ -272,7 +290,7 @@ def build_dashboard(
         trend_points = c.build_player_trend(history, entry.batter_id, payload_cache=payload_cache)
         player_dir = out_dir / "players" / str(entry.batter_id)
         player_dir.mkdir(parents=True, exist_ok=True)
-        view = _player_view(detail, trend_points, qualified_domain)
+        view = _player_view(detail, trend_points, qualified_intervals)
         (player_dir / "index.html").write_text(
             player_template.render(**base_context, active_page=None, **view)
         )

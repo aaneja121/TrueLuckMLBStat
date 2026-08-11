@@ -104,6 +104,8 @@ def write_snapshot(
     generated_at: str,
     players: list[dict[str, Any]],
     corrupt: str | None = None,
+    favorable_top_n: int | None = None,
+    unfavorable_top_n: int | None = None,
 ) -> None:
     """Writes one full synthetic snapshot directory pair.
 
@@ -115,6 +117,15 @@ def write_snapshot(
       the directory name's parsed label.
     - "malformed_manifest_json": manifest.json is truncated invalid JSON.
     - None: a fully valid snapshot.
+
+    `favorable_top_n`/`unfavorable_top_n` mirror the optional `top_n` cut
+    `mlb_luck_score.scoring.leaderboard._leaderboard` supports in
+    production (unused there today -- both tables list the full qualified
+    population -- but the parameter exists, so dashboard code must not
+    silently assume the two tables always contain the same players). Use
+    these to build a snapshot where the two leaderboard tables genuinely
+    diverge, for tests that need to prove the dashboard's shared domain is
+    derived from BOTH tables' displayed data, not just one.
     """
     out_dir = outputs_root / directory_name
     art_dir = artifacts_root / directory_name
@@ -136,6 +147,10 @@ def write_snapshot(
         _leaderboard_record(p, "official_rank_unfavorable", i)
         for i, p in enumerate(unfavorable_sorted, start=1)
     ]
+    if favorable_top_n is not None:
+        favorable_records = favorable_records[:favorable_top_n]
+    if unfavorable_top_n is not None:
+        unfavorable_records = unfavorable_records[:unfavorable_top_n]
     for i, p in enumerate(favorable_sorted, start=1):
         p["official_rank_favorable"] = i
     for i, p in enumerate(unfavorable_sorted, start=1):
