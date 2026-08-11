@@ -1,14 +1,16 @@
 """Regression tests for scripts/publish_snapshot.sh's STAGE SEQUENCING --
-specifically: does an archive (or scoring) failure actually prevent the
-dashboard build and the Cloudflare Pages deploy from ever running.
+specifically: does an archive/history-sync (or scoring) failure actually
+prevent the dashboard build and the Cloudflare Pages deploy from ever
+running.
 
 This deliberately does NOT rely only on "the script has `set -euo
 pipefail`, so it must be fine" -- that's a reasonable design argument, but
 not a test. Instead it runs the REAL `scripts/publish_snapshot.sh` (copied
 byte-for-byte into an isolated fake project root, never a hand-written
 duplicate of its logic) against fake `.venv/bin/python` and `npx`
-executables that log every invocation and can be told to fail on command.
-This proves the actual shell control flow, not just an assertion about it.
+executables that log every invocation (by clean stage name -- score,
+archive, history_sync, build) and can be told to fail on command. This
+proves the actual shell control flow, not just an assertion about it.
 
 Never scores real MLB data, never contacts R2, never contacts Cloudflare
 Pages: the fake `python` never runs real prospective/dashboard/archive
@@ -28,19 +30,28 @@ import pytest
 
 REAL_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "publish_snapshot.sh"
 
-# Records every invocation as "python:<first-arg>" to $CALL_LOG, then exits
-# 1 (rather than the actual scoring/archive/build work) if the stage named
-# by $FAIL_STAGE matches the relative script path it was asked to run.
+# Records every invocation as "python:<stage_name>" to $CALL_LOG, then exits
+# 1 (rather than the actual scoring/archive/sync/build work) if the stage
+# named by $FAIL_STAGE matches. The archive_snapshot.py script is called for
+# TWO different stages (archive-upload and --sync-history) -- distinguished
+# by scanning the full argv, not just $1, since both pass
+# "scripts/archive_snapshot.py" as $1.
 FAKE_PYTHON = """#!/usr/bin/env bash
 set -euo pipefail
-STAGE_ARG="${1:-}"
-echo "python:$STAGE_ARG" >> "$CALL_LOG"
-case "$STAGE_ARG" in
+FIRST_ARG="${1:-}"
+case "$FIRST_ARG" in
   prospective/run_v1_1_2026_scoring.py) STAGE_NAME="score" ;;
-  scripts/archive_snapshot.py) STAGE_NAME="archive" ;;
+  scripts/archive_snapshot.py)
+    if [[ "$*" == *"--sync-history"* ]]; then
+      STAGE_NAME="history_sync"
+    else
+      STAGE_NAME="archive"
+    fi
+    ;;
   dashboard/build.py) STAGE_NAME="build" ;;
   *) STAGE_NAME="unknown" ;;
 esac
+echo "python:$STAGE_NAME" >> "$CALL_LOG"
 if [[ "${FAIL_STAGE:-}" == "$STAGE_NAME" ]]; then
   echo "fake python: simulating failure for stage $STAGE_NAME" >&2
   exit 1
@@ -92,6 +103,12 @@ def _run(
     env = dict(os.environ)
     env["PATH"] = f"{fake_project / 'fake-bin'}:{env['PATH']}"
     env["CALL_LOG"] = str(call_log)
+    # Fake R2 credentials -- history sync now always runs (even dry-run),
+    # so scripts/publish_snapshot.sh's own env-var presence expectations
+    # must be satisfied; the fake python never actually uses them.
+    env["R2_ACCOUNT_ID"] = "fake-account"
+    env["R2_ACCESS_KEY_ID"] = "fake-key-id"
+    env["R2_SECRET_ACCESS_KEY"] = "fake-secret"
     if fail_stage is not None:
         env["FAIL_STAGE"] = fail_stage
     else:
@@ -112,8 +129,8 @@ def _log_lines(call_log: Path) -> list[str]:
     return [line for line in call_log.read_text().splitlines() if line]
 
 
-class TestArchiveFailureBlocksLaterStages:
-    def test_archive_failure_prevents_build_and_deploy(
+class TestFailuresBlockLaterStages:
+    def test_archive_failure_prevents_history_sync_build_and_deploy(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
         call_log = tmp_path / "calls.log"
@@ -121,22 +138,36 @@ class TestArchiveFailureBlocksLaterStages:
 
         assert result.returncode != 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == [
-            "python:prospective/run_v1_1_2026_scoring.py",
-            "python:scripts/archive_snapshot.py",
-        ]
-        assert not any(line.startswith("python:dashboard/build.py") for line in lines), (
+        assert lines == ["python:score", "python:archive"]
+        assert "python:history_sync" not in lines
+        assert not any(line.startswith("python:build") for line in lines), (
             "dashboard build must never run after a failed archive"
         )
         assert not any(line.startswith("npx:") for line in lines), (
             "deploy must never be attempted after a failed archive"
         )
 
-    def test_scoring_failure_prevents_archive_build_and_deploy(
+    def test_history_sync_failure_prevents_build_and_deploy(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
-        """One stage earlier than the archive failure above -- confirms the
-        same guarantee holds transitively, not just for the one stage
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="history_sync")
+
+        assert result.returncode != 0, result.stderr
+        lines = _log_lines(call_log)
+        assert lines == ["python:score", "python:archive", "python:history_sync"]
+        assert not any(line.startswith("python:build") for line in lines), (
+            "dashboard build must never run after a failed history sync"
+        )
+        assert not any(line.startswith("npx:") for line in lines), (
+            "deploy must never be attempted after a failed history sync"
+        )
+
+    def test_scoring_failure_prevents_everything_after_it(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """The earliest possible failure -- confirms the same guarantee
+        holds transitively for every later stage, not just the one
         immediately before the dashboard build.
         """
         call_log = tmp_path / "calls.log"
@@ -144,27 +175,27 @@ class TestArchiveFailureBlocksLaterStages:
 
         assert result.returncode != 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:prospective/run_v1_1_2026_scoring.py"]
-        assert not any("archive_snapshot.py" in line for line in lines)
-        assert not any("build.py" in line for line in lines)
+        assert lines == ["python:score"]
         assert not any(line.startswith("npx:") for line in lines)
 
-    def test_archive_runs_before_build_on_success(self, fake_project: Path, tmp_path: Path) -> None:
+    def test_archive_then_history_sync_run_before_build_on_success(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
         """Direct evidence of the documented ordering (score -> archive ->
-        build -> deploy), not just an assertion about it.
+        history_sync -> build -> deploy), not just an assertion about it.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log)
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines.index("python:scripts/archive_snapshot.py") < lines.index(
-            "python:dashboard/build.py"
-        )
+        assert lines.index("python:score") < lines.index("python:archive")
+        assert lines.index("python:archive") < lines.index("python:history_sync")
+        assert lines.index("python:history_sync") < lines.index("python:build")
 
 
 class TestSkipFlagSemantics:
-    def test_skip_deploy_archives_and_builds_but_never_deploys(
+    def test_skip_deploy_archives_syncs_and_builds_but_never_deploys(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
         call_log = tmp_path / "calls.log"
@@ -172,25 +203,25 @@ class TestSkipFlagSemantics:
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == [
-            "python:prospective/run_v1_1_2026_scoring.py",
-            "python:scripts/archive_snapshot.py",
-            "python:dashboard/build.py",
-        ]
+        assert lines == ["python:score", "python:archive", "python:history_sync", "python:build"]
         assert not any(line.startswith("npx:") for line in lines), "--skip-deploy must never deploy"
 
-    def test_skip_archive_and_skip_deploy_skips_both(
+    def test_skip_archive_and_skip_deploy_still_runs_history_sync_read_only(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
+        """The key behavior change this task adds: a full dry run
+        (--skip-archive --skip-deploy) skips the archive WRITE and the
+        Pages deploy, but history sync still runs -- it only READS from
+        R2, so it validates the real CI dashboard-build behavior even in
+        dry-run mode.
+        """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log, "--skip-archive", "--skip-deploy")
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == [
-            "python:prospective/run_v1_1_2026_scoring.py",
-            "python:dashboard/build.py",
-        ]
+        assert lines == ["python:score", "python:history_sync", "python:build"]
+        assert "python:archive" not in lines
         assert not any(line.startswith("npx:") for line in lines)
 
     def test_skip_archive_without_skip_deploy_is_rejected_before_any_stage_runs(
@@ -206,16 +237,17 @@ class TestSkipFlagSemantics:
     def test_full_success_reaches_deploy(self, fake_project: Path, tmp_path: Path) -> None:
         """Baseline happy path -- contrast for the failure tests above:
         when nothing fails and neither skip flag is passed, deploy IS
-        reached.
+        reached, after archive AND history sync.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log)
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines[:3] == [
-            "python:prospective/run_v1_1_2026_scoring.py",
-            "python:scripts/archive_snapshot.py",
-            "python:dashboard/build.py",
+        assert lines[:4] == [
+            "python:score",
+            "python:archive",
+            "python:history_sync",
+            "python:build",
         ]
         assert any(line.startswith("npx:wrangler pages deploy") for line in lines)

@@ -65,20 +65,60 @@ hashing scheme:
 ## Recovery
 
 `restore_snapshot()` / `--restore` is the explicit, on-demand reverse
-operation: given a data-through date (and optional label), downloads that
-snapshot's files from R2 back into the normal local
-`outputs/prospective/v1_1/<snapshot_dir_name>/` /
+operation for ONE known snapshot: given a data-through date (and optional
+label) plus its season, downloads that snapshot's files from R2 back into
+the normal local `outputs/prospective/v1_1/<snapshot_dir_name>/` /
 `artifacts/prospective/v1_1/<snapshot_dir_name>/` paths, verifying every
 downloaded file against the archived `integrity_hashes.json` before
 declaring success, and refusing (never silently overwriting) if different
-local files already exist at that path. This is the ONLY way R2 data
-reaches this repository's local filesystem -- nothing else auto-restores.
-The dashboard build and the prospective scoring guards are UNCHANGED by
-this module: they still only ever see local disk. If a future version
-wants the dashboard (or CI) to pull automatically from R2 instead of
-requiring this explicit step, that is a real architectural change
-(a new runtime dependency on remote state) and deserves its own explicit
-decision -- not something this module does quietly.
+local files already exist at that path.
+
+## History sync (repopulating a disposable CI runner)
+
+A GitHub Actions runner starts from a fresh git checkout -- `outputs/
+prospective/v1_1/`/`artifacts/prospective/v1_1/` are gitignored, so a CI job
+that just scored today's date has ONLY today's snapshot locally. Without
+more, `dashboard/build.py`'s season-to-date trend charts would show a
+single point on every CI-built dashboard, no matter how much history is
+sitting in R2. `list_archived_snapshots()` / `sync_missing_snapshots()` /
+`--sync-history` close that gap:
+
+- `list_archived_snapshots(client, season=...)` enumerates every candidate
+  `<snapshot_dir_name>` under `prospective/<season>/` (never a hardcoded
+  date list). A key only becomes a CANDIDATE at all if the path segment
+  right after `<season>/` has the SHAPE of a real snapshot directory name
+  (`YYYY-MM-DD` or `YYYY-MM-DD__<label>`, with the date portion a genuine
+  calendar date) -- a key that reaches the right depth but whose name
+  doesn't look like a snapshot at all (some unrelated object that happens
+  to sit under this prefix) is treated as genuinely unrelated and silently
+  ignored, never reported. Every candidate that DOES pass the shape check
+  then gets a COMPLETENESS determination: complete only if its `artifacts/
+  integrity_hashes.json` object exists, parses as JSON, AND every relative
+  path it lists is also actually present as an object in the archive -- see
+  `ArchivedSnapshotInfo.complete`/`.problem`.
+- `sync_missing_snapshots(season=...)` restores every COMPLETE archived
+  snapshot that is missing locally, using the exact same `restore_snapshot()`
+  machinery (same hash verification, same "never overwrite" guarantee). For
+  a `<snapshot_dir_name>` that already exists locally, it checks whether the
+  local copy is identical to the archive (by comparing `integrity_hashes.json`
+  AND re-hashing every referenced local file) -- identical is a safe no-op;
+  anything else (missing `integrity_hashes.json`, a hash mismatch, a
+  referenced file that's missing or corrupted) raises
+  `HistorySyncConflictError` rather than silently overwriting or attempting
+  automatic repair. A candidate that passed the shape check (so it IS a real
+  snapshot directory, by name) but failed the completeness check raises
+  `HistorySyncIncompleteArchiveError` -- a broken OFFICIAL snapshot entry is
+  never silently skipped, it stops the sync so a human investigates. Only a
+  genuinely UNRELATED key (never became a candidate in the first place) is
+  ignored without blocking anything else from syncing down.
+
+This is the ONLY way R2 data reaches this repository's local filesystem --
+nothing else auto-restores, and the dashboard build and the prospective
+scoring guards are UNCHANGED by this module: they still only ever read
+local disk (see `dashboard/snapshot_data.py`). `scripts/publish_snapshot.sh`
+runs history sync as an explicit pipeline stage, after archiving and before
+the dashboard build, in BOTH dry-run and production modes (dry-run performs
+only R2 reads -- no archive writes, no Cloudflare Pages deploy).
 """
 
 from __future__ import annotations
@@ -87,8 +127,10 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -107,11 +149,18 @@ __all__ = [
     "ArchiveError",
     "ArchiveOutcome",
     "ArchiveResult",
+    "ArchivedSnapshotInfo",
+    "HistorySyncConflictError",
+    "HistorySyncIncompleteArchiveError",
+    "HistorySyncResult",
     "InMemoryArchiveClient",
     "archive_snapshot",
     "build_snapshot_dir_name",
     "discover_local_snapshot_files",
+    "list_archived_snapshots",
     "restore_snapshot",
+    "split_snapshot_dir_name",
+    "sync_missing_snapshots",
 ]
 
 
@@ -143,6 +192,26 @@ class RestoreConflictError(ArchiveError):
     """
 
 
+class HistorySyncConflictError(ArchiveError):
+    """sync_missing_snapshots() found a local snapshot directory that
+    already exists for an archived <snapshot_dir_name> but is partial,
+    corrupt, or does not match the archive -- never auto-repaired or
+    overwritten. Resolve by hand (move/remove the local directory) before
+    retrying.
+    """
+
+
+class HistorySyncIncompleteArchiveError(ArchiveError):
+    """sync_missing_snapshots() found a candidate whose name has the SHAPE
+    of a real snapshot directory (YYYY-MM-DD or YYYY-MM-DD__<label>) but
+    failed list_archived_snapshots()'s completeness check -- a broken
+    OFFICIAL archive entry, not a genuinely unrelated key. Never silently
+    skipped: this stops the whole sync so a human investigates the archive
+    directly, rather than quietly proceeding with a historical record
+    that's missing a real date.
+    """
+
+
 class ArchiveOutcome(StrEnum):
     WRITTEN = "written"
     NO_OP_IDENTICAL = "no_op_identical"
@@ -156,11 +225,39 @@ class ArchiveResult:
     keys_written: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ArchivedSnapshotInfo:
+    """One candidate <snapshot_dir_name> discovered under prospective/<season>/.
+
+    Only reaches this dataclass at all if its name has the SHAPE of a real
+    snapshot directory (YYYY-MM-DD or YYYY-MM-DD__<label>, a genuine
+    calendar date) -- a key that doesn't even look like a snapshot is
+    treated as unrelated and never becomes an ArchivedSnapshotInfo. Given
+    that, `complete=False` means "this IS meant to be an official snapshot,
+    but it's broken" -- missing artifacts/integrity_hashes.json, a
+    malformed/unparseable one, or one that references a file not actually
+    present in the archive. sync_missing_snapshots() treats that as a hard
+    failure (HistorySyncIncompleteArchiveError), never a silent skip.
+    """
+
+    snapshot_dir_name: str
+    season: int
+    complete: bool
+    problem: str | None = None
+
+
+@dataclass(frozen=True)
+class HistorySyncResult:
+    season: int
+    restored: tuple[str, ...] = ()
+    already_present: tuple[str, ...] = ()
+
+
 class ArchiveClient(Protocol):
-    """The only three operations this module needs from an object store --
-    kept intentionally tiny so tests can implement it with a plain
-    in-memory dict (`InMemoryArchiveClient` below) instead of contacting
-    real Cloudflare R2 or requiring a mocking library.
+    """The operations this module needs from an object store -- kept
+    intentionally small so tests can implement it with a plain in-memory
+    dict (`InMemoryArchiveClient` below) instead of contacting real
+    Cloudflare R2 or requiring a mocking library.
     """
 
     def object_exists(self, key: str) -> bool: ...
@@ -169,11 +266,13 @@ class ArchiveClient(Protocol):
 
     def put_object_bytes(self, key: str, data: bytes) -> None: ...
 
+    def list_keys(self, prefix: str) -> list[str]: ...
+
 
 class InMemoryArchiveClient:
     """Test double -- an ArchiveClient backed by a plain dict, never
-    touching the network. Used by tests/test_archive_snapshot.py; never
-    used in production.
+    touching the network. Used by tests/test_archive_snapshot.py and
+    tests/test_archive_history_sync.py; never used in production.
     """
 
     def __init__(self) -> None:
@@ -187,6 +286,9 @@ class InMemoryArchiveClient:
 
     def put_object_bytes(self, key: str, data: bytes) -> None:
         self._objects[key] = data
+
+    def list_keys(self, prefix: str) -> list[str]:
+        return sorted(key for key in self._objects if key.startswith(prefix))
 
 
 def make_r2_client(
@@ -228,6 +330,20 @@ def make_r2_client(
         def put_object_bytes(self, key: str, data: bytes) -> None:
             s3.put_object(Bucket=bucket, Key=key, Body=data)
 
+        def list_keys(self, prefix: str) -> list[str]:
+            keys: list[str] = []
+            continuation_token: str | None = None
+            while True:
+                kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+                if continuation_token:
+                    kwargs["ContinuationToken"] = continuation_token
+                response: Any = s3.list_objects_v2(**kwargs)
+                keys.extend(obj["Key"] for obj in response.get("Contents", []))
+                if not response.get("IsTruncated"):
+                    break
+                continuation_token = response.get("NextContinuationToken")
+            return keys
+
     return _R2Client()
 
 
@@ -237,6 +353,17 @@ def build_snapshot_dir_name(data_through_date: str, snapshot_label: str | None) 
     dashboard/snapshot_data.py's own copy of this formatting rule).
     """
     return f"{data_through_date}__{snapshot_label}" if snapshot_label else data_through_date
+
+
+def split_snapshot_dir_name(snapshot_dir_name: str) -> tuple[str, str | None]:
+    """The inverse of build_snapshot_dir_name() -- mirrors
+    dashboard/snapshot_data.py's parse_snapshot_directory_name() exactly,
+    without importing it.
+    """
+    if "__" in snapshot_dir_name:
+        date_part, label_part = snapshot_dir_name.split("__", 1)
+        return date_part, label_part
+    return snapshot_dir_name, None
 
 
 def discover_local_snapshot_files(outputs_dir: Path, artifacts_dir: Path) -> dict[str, Path]:
@@ -262,6 +389,123 @@ def _r2_key(prefix: str, season: int, snapshot_dir_name: str, relative: str) -> 
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
+
+
+_SNAPSHOT_DIR_NAME_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:__.+)?$")
+
+
+def _is_valid_snapshot_dir_name_shape(name: str) -> bool:
+    """True only if `name` has the exact shape a real snapshot directory
+    name would (YYYY-MM-DD or YYYY-MM-DD__<label>) AND its date portion is
+    a genuine calendar date -- this is the line between "an unrelated key
+    that happens to sit under prospective/<season>/" (safe to ignore) and
+    "this IS supposed to be an official snapshot" (an incomplete/malformed
+    one of these must fail loudly, never be silently skipped -- see
+    HistorySyncIncompleteArchiveError).
+    """
+    match = _SNAPSHOT_DIR_NAME_PATTERN.match(name)
+    if not match:
+        return False
+    try:
+        date.fromisoformat(match.group(1))
+    except ValueError:
+        return False
+    return True
+
+
+def _parse_snapshot_dir_names(keys: list[str], *, prefix: str, season: int) -> set[str]:
+    """Every distinct <snapshot_dir_name> segment implied by a set of R2
+    keys under prospective/<season>/ -- NOT a hardcoded date list. A key
+    is excluded (treated as genuinely unrelated, never reported) if either:
+    it doesn't reach a <snapshot_dir_name>/<category>/<file> depth, or its
+    <snapshot_dir_name> segment doesn't have the shape of a real snapshot
+    directory name (see _is_valid_snapshot_dir_name_shape). Anything that
+    DOES pass both checks is a genuine snapshot candidate from here on --
+    list_archived_snapshots()/sync_missing_snapshots() then decide whether
+    it's complete, but never whether it counts as a snapshot at all.
+    """
+    season_prefix = f"{prefix}/{season}/"
+    names: set[str] = set()
+    for key in keys:
+        if not key.startswith(season_prefix):
+            continue
+        remainder = key[len(season_prefix) :]
+        parts = remainder.split("/", 2)
+        if len(parts) < 3:
+            # Doesn't reach <snapshot_dir_name>/<outputs|artifacts>/<file>
+            # depth -- not a key this archive contract ever writes, so it's
+            # not evidence of a real snapshot. Ignored, not an error: see
+            # "R2 listing safety" in the module docstring.
+            continue
+        candidate = parts[0]
+        if not _is_valid_snapshot_dir_name_shape(candidate):
+            # Reaches the right depth but doesn't look like a snapshot
+            # directory at all -- genuinely unrelated, safe to ignore.
+            continue
+        names.add(candidate)
+    return names
+
+
+def list_archived_snapshots(
+    client: ArchiveClient, *, season: int, prefix: str = DEFAULT_ARCHIVE_PREFIX
+) -> list[ArchivedSnapshotInfo]:
+    """Enumerate every candidate <snapshot_dir_name> under
+    prospective/<season>/ and determine which are COMPLETE (safe to
+    restore) -- see "History sync" in the module docstring for the exact
+    completeness rule. Never contacts anything outside this one season
+    prefix, and never hardcodes a specific date.
+    """
+    season_prefix = f"{prefix}/{season}/"
+    all_keys = client.list_keys(season_prefix)
+    all_keys_set = set(all_keys)
+    candidate_names = _parse_snapshot_dir_names(all_keys, prefix=prefix, season=season)
+
+    results: list[ArchivedSnapshotInfo] = []
+    for name in sorted(candidate_names):
+        integrity_key = _r2_key(prefix, season, name, f"artifacts/{INTEGRITY_HASHES_FILENAME}")
+        if integrity_key not in all_keys_set:
+            results.append(
+                ArchivedSnapshotInfo(
+                    snapshot_dir_name=name,
+                    season=season,
+                    complete=False,
+                    problem=f"missing artifacts/{INTEGRITY_HASHES_FILENAME}",
+                )
+            )
+            continue
+
+        try:
+            integrity = json.loads(client.get_object_bytes(integrity_key))
+        except json.JSONDecodeError as exc:
+            results.append(
+                ArchivedSnapshotInfo(
+                    snapshot_dir_name=name,
+                    season=season,
+                    complete=False,
+                    problem=f"{INTEGRITY_HASHES_FILENAME} is not valid JSON: {exc}",
+                )
+            )
+            continue
+
+        missing_files = sorted(
+            relative
+            for relative in integrity
+            if _r2_key(prefix, season, name, relative) not in all_keys_set
+        )
+        if missing_files:
+            results.append(
+                ArchivedSnapshotInfo(
+                    snapshot_dir_name=name,
+                    season=season,
+                    complete=False,
+                    problem=f"missing archived file(s): {missing_files}",
+                )
+            )
+            continue
+
+        results.append(ArchivedSnapshotInfo(snapshot_dir_name=name, season=season, complete=True))
+
+    return results
 
 
 def archive_snapshot(
@@ -418,6 +662,113 @@ def restore_snapshot(
     )
 
 
+def _local_snapshot_matches_archive(
+    *, outputs_dir: Path, artifacts_dir: Path, remote_integrity: dict[str, str]
+) -> bool:
+    """True only if a LOCAL snapshot directory that already exists is
+    byte-for-byte identical to what the archive has -- both its own
+    integrity_hashes.json content AND every file it references actually
+    present locally with a matching hash. Anything else (missing
+    integrity_hashes.json, a content mismatch, a referenced file missing or
+    corrupted) returns False, which sync_missing_snapshots() treats as a
+    conflict to fail loudly on, never to repair.
+    """
+    local_integrity_path = artifacts_dir / INTEGRITY_HASHES_FILENAME
+    if not local_integrity_path.exists():
+        return False
+    try:
+        local_integrity = json.loads(local_integrity_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    if local_integrity != remote_integrity:
+        return False
+    for relative, expected_hash in local_integrity.items():
+        dest_root = outputs_dir if relative.startswith("outputs/") else artifacts_dir
+        dest_path = dest_root / Path(relative).name
+        if not dest_path.exists():
+            return False
+        if hashlib.sha256(dest_path.read_bytes()).hexdigest() != expected_hash:
+            return False
+    return True
+
+
+def sync_missing_snapshots(
+    *,
+    season: int,
+    client: ArchiveClient,
+    outputs_root: Path = PROSPECTIVE_OUTPUTS_ROOT,
+    artifacts_root: Path = PROSPECTIVE_ARTIFACTS_ROOT,
+    prefix: str = DEFAULT_ARCHIVE_PREFIX,
+) -> HistorySyncResult:
+    """Restore every COMPLETE archived snapshot for `season` that is
+    missing locally -- see "History sync" in the module docstring. Never
+    overwrites or repairs an existing local snapshot: identical -> no-op;
+    anything else -> HistorySyncConflictError, raised immediately (the
+    whole sync stops at the first conflict, exactly like archive_snapshot()
+    stopping at the first problem it finds -- a conflict means something is
+    genuinely wrong and needs a human, not a partial sync papering over it).
+    A candidate whose NAME has the shape of a real snapshot directory but
+    fails the completeness check raises HistorySyncIncompleteArchiveError,
+    same fail-immediately treatment -- a broken official snapshot entry is
+    never silently skipped. Only a key that never became a candidate at all
+    (genuinely unrelated -- see list_archived_snapshots()) is ignored
+    without blocking anything else from syncing down.
+    """
+    archived = list_archived_snapshots(client, season=season, prefix=prefix)
+
+    restored: list[str] = []
+    already_present: list[str] = []
+
+    for info in archived:
+        if not info.complete:
+            raise HistorySyncIncompleteArchiveError(
+                f"Archived snapshot {info.snapshot_dir_name} (season={season}, "
+                f"prefix={prefix}) has the name of a real snapshot but is incomplete or "
+                f"malformed: {info.problem}. Refusing to sync history with a broken "
+                "official archive entry -- investigate directly in R2 before retrying."
+            )
+
+        outputs_dir = outputs_root / info.snapshot_dir_name
+        artifacts_dir = artifacts_root / info.snapshot_dir_name
+
+        if outputs_dir.exists() or artifacts_dir.exists():
+            integrity_key = _r2_key(
+                prefix, season, info.snapshot_dir_name, f"artifacts/{INTEGRITY_HASHES_FILENAME}"
+            )
+            remote_integrity = json.loads(client.get_object_bytes(integrity_key))
+            if _local_snapshot_matches_archive(
+                outputs_dir=outputs_dir,
+                artifacts_dir=artifacts_dir,
+                remote_integrity=remote_integrity,
+            ):
+                already_present.append(info.snapshot_dir_name)
+                continue
+            raise HistorySyncConflictError(
+                f"Local snapshot directory already exists for {info.snapshot_dir_name} "
+                f"(under {outputs_dir} / {artifacts_dir}) but does not match the archive -- "
+                "it is either partial, corrupt, or genuinely different. Refusing to overwrite "
+                "or auto-repair; resolve by hand before retrying."
+            )
+
+        data_through_date, snapshot_label = split_snapshot_dir_name(info.snapshot_dir_name)
+        restore_snapshot(
+            data_through_date=data_through_date,
+            snapshot_label=snapshot_label,
+            season=season,
+            client=client,
+            outputs_root=outputs_root,
+            artifacts_root=artifacts_root,
+            prefix=prefix,
+        )
+        restored.append(info.snapshot_dir_name)
+
+    return HistorySyncResult(
+        season=season,
+        restored=tuple(restored),
+        already_present=tuple(already_present),
+    )
+
+
 def _client_from_env() -> ArchiveClient:
     bucket = os.environ.get("R2_BUCKET_NAME")
     account_id = os.environ.get("R2_ACCOUNT_ID")
@@ -449,19 +800,29 @@ def _client_from_env() -> ArchiveClient:
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--data-through", required=True, help="YYYY-MM-DD, matching the local snapshot."
+        "--data-through",
+        default=None,
+        help="YYYY-MM-DD, matching the local snapshot. Required unless --sync-history.",
     )
     parser.add_argument("--snapshot-label", default=None)
     parser.add_argument(
         "--restore",
         action="store_true",
-        help="Download an archived snapshot back to local disk instead of archiving one.",
+        help="Download ONE archived snapshot back to local disk instead of archiving one.",
+    )
+    parser.add_argument(
+        "--sync-history",
+        action="store_true",
+        help=(
+            "Restore every archived snapshot for --season that is missing locally, then exit. "
+            "Mutually exclusive with --restore/archiving; does not need --data-through."
+        ),
     )
     parser.add_argument(
         "--season",
         type=int,
         default=None,
-        help="Required with --restore only (no local manifest.json to read it from).",
+        help="Required with --restore or --sync-history (no local manifest.json to read it from).",
     )
     return parser
 
@@ -472,9 +833,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         bucket_for_log = os.environ.get("R2_BUCKET_NAME")
         client = _client_from_env()
+
+        if args.sync_history:
+            if args.season is None:
+                raise ArchiveError("--sync-history requires --season (see --help).")
+            sync_result = sync_missing_snapshots(season=args.season, client=client)
+            print(
+                f"bucket={bucket_for_log} sync season={sync_result.season} "
+                f"restored={len(sync_result.restored)} already_present={len(sync_result.already_present)}"
+            )
+            for name in sync_result.restored:
+                print(f"  restored: {name}")
+            return 0
+
         if args.restore:
             if args.season is None:
                 raise ArchiveError("--restore requires --season (see --help).")
+            if args.data_through is None:
+                raise ArchiveError("--restore requires --data-through (see --help).")
             result = restore_snapshot(
                 data_through_date=args.data_through,
                 snapshot_label=args.snapshot_label,
@@ -482,6 +858,10 @@ def main(argv: list[str] | None = None) -> int:
                 client=client,
             )
         else:
+            if args.data_through is None:
+                raise ArchiveError(
+                    "--data-through is required unless --sync-history is used (see --help)."
+                )
             result = archive_snapshot(
                 data_through_date=args.data_through,
                 snapshot_label=args.snapshot_label,

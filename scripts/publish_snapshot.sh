@@ -1,21 +1,38 @@
 #!/usr/bin/env bash
 #
 # Contact Luck operational loop: generate a new Version 1.1 prospective
-# snapshot for a completed MLB date, durably archive it, rebuild the
-# Version 1.2 static dashboard from it, and deploy the result to
-# Cloudflare Pages.
+# snapshot for a completed MLB date, durably archive it, repopulate any
+# OTHER historical snapshots missing on this machine from the durable
+# archive, rebuild the Version 1.2 static dashboard from the complete local
+# history, and deploy the result to Cloudflare Pages.
 #
 #     completed MLB slate
 #         -> prospective/run_v1_1_2026_scoring.py   (immutable snapshot)
 #         -> scripts/archive_snapshot.py             (durable R2 archive)
+#         -> scripts/archive_snapshot.py --sync-history
+#                                                     (repopulate missing
+#                                                      local history from R2)
 #         -> dashboard/build.py                     (dashboard/dist/)
 #         -> wrangler pages deploy                  (static hosting)
 #
-# ORDERING: archive happens BEFORE the dashboard build, and the dashboard
-# is never built (let alone deployed) if archival fails. This is
-# deliberate -- the raw scoring output is the precious, hard-to-reproduce
-# artifact (re-scoring depends on the same historical Statcast data still
-# being fetchable later); the dashboard build is comparatively cheap and
+# WHY HISTORY SYNC EXISTS: a GitHub Actions runner starts from a fresh git
+# checkout -- outputs/prospective/v1_1/ and artifacts/prospective/v1_1/ are
+# gitignored, so a CI job that just scored today's date has ONLY today's
+# snapshot locally. Without a sync step, dashboard/build.py's season-to-date
+# trend charts would show a single point on every CI-built dashboard, no
+# matter how much history is sitting in R2. The sync stage restores every
+# OTHER archived snapshot that's missing locally before the dashboard is
+# built, so a CI-built dashboard sees the same complete history a
+# maintainer's own long-lived machine would already have on disk. It never
+# overwrites an existing local snapshot -- see scripts/archive_snapshot.py's
+# "History sync" docstring section for the exact no-op/conflict rules.
+#
+# ORDERING: archive happens BEFORE history sync, which happens BEFORE the
+# dashboard build, and the dashboard is never built (let alone deployed) if
+# EITHER archival or history sync fails. This is deliberate -- the raw
+# scoring output is the precious, hard-to-reproduce artifact (re-scoring
+# depends on the same historical Statcast data still being fetchable
+# later); the dashboard build is comparatively cheap and
 # frequently-iterated. Archiving first means an official snapshot survives
 # runner destruction even if something goes wrong in a LATER stage, and it
 # means "the public site must never deploy if durable archival failed" is
@@ -31,16 +48,20 @@
 #   - the prospective runner's data-through-date-completeness guard
 #   - the archive's write-once/identity verification (never silently
 #     overwrites a differently-coded snapshot already in R2)
+#   - the history sync's never-overwrite-a-local-snapshot guarantee
 #   - the dashboard's snapshot integrity/precedence rules
 #
 # --skip-archive and --skip-deploy are INDEPENDENTLY controllable, so real
 # R2 archival can be validated on its own before production deploys are
 # enabled -- see README.md "Durable archival" for the rollout plan this
-# supports. Their combinations:
+# supports. History sync ALWAYS runs (even with both skip flags) so a dry
+# run still validates the real CI dashboard-build behavior -- it only ever
+# READS from R2 (never writes), so this doesn't compromise "dry run touches
+# no external WRITE path." Their combinations:
 #
-#   (neither flag)                  score -> archive -> build -> deploy
-#   --skip-deploy                   score -> archive -> build -> stop
-#   --skip-archive --skip-deploy    score -> build -> stop
+#   (neither flag)                  score -> archive -> sync -> build -> deploy
+#   --skip-deploy                   score -> archive -> sync -> build -> stop
+#   --skip-archive --skip-deploy    score -> sync (read-only) -> build -> stop
 #   --skip-archive (alone)          REFUSED -- see below.
 #
 # --skip-archive without --skip-deploy is deliberately refused: this
@@ -56,29 +77,34 @@
 #
 # Options:
 #   --data-through DATE     Required. Passed straight through to the
-#                           prospective runner.
+#                           prospective runner. Its year is also used as
+#                           the --season for archive/history-sync (Version
+#                           1.1 is single-season; see scripts/
+#                           archive_snapshot.py if that ever changes).
 #   --snapshot-label LABEL  Optional. Passed straight through (e.g. for a
 #                           deliberate corrected/refreshed rerun of a date
 #                           that already has a snapshot).
 #   --project-name NAME     Cloudflare Pages project name. Default:
 #                           contact-luck
-#   --archive-bucket NAME   R2 bucket for durable snapshot archival.
-#                           Default: $R2_BUCKET_NAME if set, else
-#                           contact-luck-prospective-archive.
+#   --archive-bucket NAME   R2 bucket for durable snapshot archival AND
+#                           history sync. Default: $R2_BUCKET_NAME if set,
+#                           else contact-luck-prospective-archive.
 #   --skip-archive          Do not archive to R2. Refused unless
 #                           --skip-deploy is ALSO passed (see above).
 #   --skip-deploy           Rebuild the dashboard but do not deploy to
 #                           Cloudflare Pages. Archival still happens
-#                           unless --skip-archive is also passed. Preview
+#                           unless --skip-archive is also passed. History
+#                           sync always happens regardless. Preview
 #                           locally with:
 #                             cd dashboard/dist && python3 -m http.server 8000
 #   --yes                   Skip the interactive deploy confirmation
 #                           prompt (for non-interactive use).
 #   -h, --help              Show this help and exit.
 #
-# R2 credentials (only read/required unless --skip-archive): R2_ACCOUNT_ID,
-# R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY as environment variables -- see
-# scripts/archive_snapshot.py's module docstring and README.md's
+# R2 credentials: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY as
+# environment variables -- ALWAYS required now, even for a full dry run
+# (--skip-archive --skip-deploy), because history sync always reads from
+# R2. See scripts/archive_snapshot.py's module docstring and README.md's
 # "Durable archival" section for exactly what these need to be.
 #
 # Example:
@@ -87,7 +113,7 @@
 set -euo pipefail
 
 usage() {
-  grep '^#' "${BASH_SOURCE[0]}" | sed -n '2,85p' | sed 's/^# \{0,1\}//'
+  grep '^#' "${BASH_SOURCE[0]}" | sed -n '2,111p' | sed 's/^# \{0,1\}//'
 }
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -169,7 +195,9 @@ if [[ -n "$SNAPSHOT_LABEL" ]]; then
   SNAPSHOT_DIR_NAME="${DATA_THROUGH}__${SNAPSHOT_LABEL}"
 fi
 
-echo "==> [1/4] Generating prospective snapshot for --data-through $DATA_THROUGH"
+SEASON="${DATA_THROUGH:0:4}"
+
+echo "==> [1/5] Generating prospective snapshot for --data-through $DATA_THROUGH"
 SNAPSHOT_ARGS=(--data-through "$DATA_THROUGH")
 if [[ -n "$SNAPSHOT_LABEL" ]]; then
   SNAPSHOT_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
@@ -177,9 +205,9 @@ fi
 "$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}"
 
 if [[ "$SKIP_ARCHIVE" -eq 1 ]]; then
-  echo "==> [2/4] Skipping durable archive (--skip-archive)."
+  echo "==> [2/5] Skipping durable archive (--skip-archive)."
 else
-  echo "==> [2/4] Archiving snapshot $SNAPSHOT_DIR_NAME to R2 bucket '$ARCHIVE_BUCKET'"
+  echo "==> [2/5] Archiving snapshot $SNAPSHOT_DIR_NAME to R2 bucket '$ARCHIVE_BUCKET'"
   ARCHIVE_ARGS=(--data-through "$DATA_THROUGH")
   if [[ -n "$SNAPSHOT_LABEL" ]]; then
     ARCHIVE_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
@@ -187,11 +215,14 @@ else
   R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/archive_snapshot.py "${ARCHIVE_ARGS[@]}"
 fi
 
-echo "==> [3/4] Rebuilding the dashboard"
+echo "==> [3/5] Syncing missing historical snapshots from R2 (read-only) for season $SEASON"
+R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/archive_snapshot.py --sync-history --season "$SEASON"
+
+echo "==> [4/5] Rebuilding the dashboard"
 "$PYTHON" dashboard/build.py
 
 if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
-  echo "==> [4/4] Skipping deploy (--skip-deploy)."
+  echo "==> [5/5] Skipping deploy (--skip-deploy)."
   echo "    Preview locally with: cd dashboard/dist && python3 -m http.server 8000"
   exit 0
 fi
@@ -218,5 +249,5 @@ if [[ "$ASSUME_YES" -ne 1 ]]; then
   esac
 fi
 
-echo "==> [4/4] Deploying dashboard/dist to Cloudflare Pages project '$PROJECT_NAME'"
+echo "==> [5/5] Deploying dashboard/dist to Cloudflare Pages project '$PROJECT_NAME'"
 npx wrangler pages deploy dashboard/dist --project-name="$PROJECT_NAME" --commit-dirty=true

@@ -6,9 +6,14 @@ name: Publish prospective snapshot
 #        ALL correctness/safety guards: clean working tree, date
 #        completeness, coverage validation, conflict detection)
 #     -> scripts/archive_snapshot.py             (durable Cloudflare R2
-#        archive -- see "Durable archival" in README.md. Runs BEFORE the
-#        dashboard build; if it fails, the dashboard is never built and
-#        nothing is ever deployed.)
+#        archive -- see "Durable archival" in README.md. Runs BEFORE
+#        history sync/the dashboard build; if it fails, nothing after it
+#        ever runs.)
+#     -> scripts/archive_snapshot.py --sync-history
+#                                                 (repopulate any OTHER
+#        archived snapshot missing on this disposable runner, so the
+#        dashboard's season-to-date trend charts see the full history, not
+#        just today's point -- see "Durable archival" in README.md)
 #     -> dashboard/build.py                     (static site)
 #     -> wrangler pages deploy                  (Cloudflare Pages)
 #
@@ -21,12 +26,15 @@ name: Publish prospective snapshot
 # workflow calls it as a single atomic step rather than splitting its
 # internal stages into separate YAML steps, so there is no way for the
 # workflow to accidentally run the dashboard build after a failed
-# snapshot/archive, or deploy after a failed build).
+# snapshot/archive/history-sync, or deploy after a failed build).
 #
-# INITIAL ROLLOUT: scheduled runs default to a dry run (--skip-deploy) so
-# scheduled scoring + dashboard generation can be validated for a while
-# before unattended production deploys are enabled. See "Enabling
-# production scheduled deploys" below and in README.md.
+# INITIAL ROLLOUT: scheduled runs default to a dry run (--skip-archive
+# --skip-deploy) so scheduled scoring + dashboard generation can be
+# validated for a while before unattended production deploys are enabled.
+# History sync ALWAYS runs, even in dry-run mode -- it only READS from R2,
+# never writes, so it validates the real CI dashboard-build behavior
+# (multi-point trend charts) without touching any external WRITE path. See
+# "Enabling production scheduled deploys" below and in README.md.
 
 on:
   workflow_dispatch:
@@ -118,17 +126,20 @@ jobs:
           fi
 
           if [ "$DEPLOY_REQUESTED" = "true" ]; then
-            MODE="DEPLOY (production: score -> archive -> build -> deploy)"
+            MODE="DEPLOY (production: score -> archive -> sync-history -> build -> deploy)"
           else
             # Conservative initial rollout (see README.md "Durable
             # archival"): dry runs pass BOTH --skip-archive and
-            # --skip-deploy, so scheduled/manual dry runs touch neither R2
-            # nor Cloudflare Pages until real R2 archival has been
-            # validated independently. scripts/publish_snapshot.sh itself
-            # refuses --skip-archive without --skip-deploy, so these two
-            # states (both flags, or neither) are the only ones this
-            # workflow ever produces.
-            MODE="DRY RUN (score -> build -> stop; no archive, no deploy)"
+            # --skip-deploy, so scheduled/manual dry runs never WRITE to R2
+            # and never touch Cloudflare Pages until real R2 archival has
+            # been validated independently. History sync still runs and
+            # still reads from R2 (read-only) even in this mode -- that's
+            # what lets a dry run validate the real CI dashboard-build
+            # behavior. scripts/publish_snapshot.sh itself refuses
+            # --skip-archive without --skip-deploy, so these two states
+            # (both flags, or neither) are the only ones this workflow ever
+            # produces.
+            MODE="DRY RUN (score -> sync-history [read-only] -> build -> stop; no archive writes, no deploy)"
           fi
 
           {
@@ -172,10 +183,12 @@ jobs:
         env:
           DATA_THROUGH: ${{ steps.resolve.outputs.data_through }}
           DEPLOYING: ${{ steps.resolve.outputs.deploying }}
-          # All six of these are unused/harmless in dry-run mode -- passing
-          # --skip-archive --skip-deploy means neither wrangler nor boto3
-          # ever makes a real network call. Only consumed when actually
-          # deploying.
+          # CLOUDFLARE_API_TOKEN and the Pages deploy itself are unused in
+          # dry-run mode (wrangler is never invoked when --skip-deploy is
+          # passed). The four R2_* variables, in contrast, are ALWAYS
+          # actually used now -- history sync always reads from R2, even in
+          # dry-run mode -- so these must be genuinely valid read
+          # credentials on every run, not just when deploying.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # R2 shares the same Cloudflare account as Pages -- no separate
