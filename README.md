@@ -2368,28 +2368,31 @@ guard.
   `tzdata` package is missing -- discovered during development that a bare
   `TZ=America/New_York` conversion against a missing zoneinfo file does not error, it
   just silently fails to convert.
-- **Current mode: dry run only.** Both the schedule and a manual run with `deploy`
-  unchecked call `scripts/publish_snapshot.sh --data-through "$DATE" --skip-archive
-  --skip-deploy --yes` -- snapshot generation and dashboard rebuild happen for real, but
-  nothing is archived to R2 and nothing is deployed to Cloudflare. This is deliberate: it
-  lets scheduled scoring + dashboard generation run unattended for a while and be
-  inspected (via the uploaded `dashboard/dist/` and snapshot-manifest artifacts on each
-  run) before real R2 archival and unattended production deploys are enabled. Real R2
-  archival is meant to be validated manually and independently first (see the rollout
-  order below) -- `publish_snapshot.sh` refuses `--skip-archive` without `--skip-deploy`
-  (see the flag table above), so this workflow only ever produces one of two states: both
-  flags, or neither.
+- **Current mode: dry run only for archive writes and deploys -- but history sync always
+  reads from R2.** Both the schedule and a manual run with `deploy` unchecked call
+  `scripts/publish_snapshot.sh --data-through "$DATE" --skip-archive --skip-deploy --yes`
+  -- snapshot generation, the read-only history sync, and the dashboard rebuild all happen
+  for real, but nothing is WRITTEN to R2 and nothing is deployed to Cloudflare Pages. This
+  is deliberate: it lets scheduled scoring + dashboard generation run unattended for a
+  while and be inspected (via the uploaded `dashboard/dist/` and snapshot-manifest
+  artifacts on each run) -- INCLUDING whether the season-to-date trend charts show the
+  full historical series, not just today's point -- before real R2 archive writes and
+  unattended production deploys are enabled. `publish_snapshot.sh` refuses `--skip-archive`
+  without `--skip-deploy` (see the flag table above), so this workflow only ever produces
+  one of two states: both flags, or neither.
 - **Enabling production scheduled deploys later**: set the repository variable
   `PROSPECTIVE_AUTO_DEPLOY` to `true` (GitHub -> Settings -> Secrets and variables ->
   Actions -> Variables). That is the *only* change needed -- the workflow YAML does not
   change. With it unset (the default) or anything other than `true`, scheduled runs stay
   dry-run. A manual run can independently opt into a real deploy any time via the
   `deploy` checkbox, regardless of this variable.
-- **Required GitHub secrets** (only consumed when an actual deploy happens -- a dry run
-  needs neither): `CLOUDFLARE_API_TOKEN` (scope it to Cloudflare Pages edit access for
-  this project only, not full account access) and `CLOUDFLARE_ACCOUNT_ID`. Set under
-  GitHub -> Settings -> Secrets and variables -> Actions -> Secrets. Never committed
-  anywhere in this repository.
+- **Required GitHub secrets.** `CLOUDFLARE_API_TOKEN` and the actual Cloudflare Pages
+  deploy are only consumed when an actual deploy happens (scope the token to Pages edit
+  access for this project only, not full account access). The four `R2_*` credentials
+  (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, plus `CLOUDFLARE_ACCOUNT_ID` reused as
+  `R2_ACCOUNT_ID`), in contrast, are consumed on **every** run now, dry or not -- history
+  sync always reads from R2, even in dry-run mode. Set under GitHub -> Settings -> Secrets
+  and variables -> Actions -> Secrets. Never committed anywhere in this repository.
 - **Concurrency**: all runs share a single `publish-prospective` concurrency group with
   `cancel-in-progress: false` -- a second trigger while one is in flight queues rather
   than racing it or cancelling a possibly-mid-deploy run.
@@ -2409,33 +2412,73 @@ on that run's disposable runner and vanishes when the job ends. `scripts/
 archive_snapshot.py` copies a completed local snapshot's files, byte for byte, into a
 durable Cloudflare R2 bucket, so an official snapshot survives runner destruction.
 
-**Pipeline ordering: score -> archive -> build -> deploy.** Archival runs immediately
-after scoring, BEFORE the dashboard build, and gates everything after it. This is
-deliberate: the raw scoring output is the precious, comparatively irreplaceable
-artifact (re-scoring an old date depends on the same historical Statcast data still
-being fetchable, which is not guaranteed indefinitely), while the dashboard build is
-cheap and already iterated on constantly. Archiving first means an official snapshot is
-durable even if a LATER stage breaks, and it means "the public site must never deploy if
-durable archival failed" falls directly out of `scripts/publish_snapshot.sh`'s existing
-sequential `set -euo pipefail` structure -- no special-cased check was needed. This
-ordering guarantee has a dedicated regression test
-(`tests/test_publish_snapshot_orchestration.py`) that runs the real script against fake
-`.venv/bin/python`/`npx` executables and asserts, by inspecting what was actually
-invoked, that a failed archive genuinely prevents the build and deploy steps from
-running -- not just an argument that `set -e` ought to guarantee it.
+**Pipeline ordering: score -> archive -> sync history -> build -> deploy.** Archival runs
+immediately after scoring, history sync runs immediately after that, and the dashboard is
+never built (let alone deployed) if EITHER fails. This is deliberate: the raw scoring
+output is the precious, comparatively irreplaceable artifact (re-scoring an old date
+depends on the same historical Statcast data still being fetchable, which is not
+guaranteed indefinitely), while the dashboard build is cheap and already iterated on
+constantly. Archiving first means an official snapshot is durable even if a LATER stage
+breaks, and it means "the public site must never deploy if durable archival failed"
+falls directly out of `scripts/publish_snapshot.sh`'s existing sequential
+`set -euo pipefail` structure -- no special-cased check was needed. This ordering
+guarantee has a dedicated regression test (`tests/test_publish_snapshot_orchestration.py`)
+that runs the real script against fake `.venv/bin/python`/`npx` executables and asserts,
+by inspecting what was actually invoked, that a failed archive OR a failed history sync
+genuinely prevents the build and deploy steps from running -- not just an argument that
+`set -e` ought to guarantee it.
 
 **`--skip-archive` and `--skip-deploy` are independently controllable**, specifically so
-real R2 archival can be validated on its own before production deploys are enabled:
+real R2 archival can be validated on its own before production deploys are enabled.
+History sync is NOT gated by either flag -- it always runs, because it only ever READS
+from R2 (never writes), so even a full dry run exercises the real CI dashboard-build
+behavior (see "History sync" below for why that matters):
 
 | Flags | Behavior |
 |---|---|
-| (neither) | `score -> archive -> build -> deploy` |
-| `--skip-deploy` | `score -> archive -> build -> stop` (archives for real, doesn't deploy) |
-| `--skip-archive --skip-deploy` | `score -> build -> stop` (touches neither external system) |
+| (neither) | `score -> archive -> sync history -> build -> deploy` |
+| `--skip-deploy` | `score -> archive -> sync history -> build -> stop` (archives for real, doesn't deploy) |
+| `--skip-archive --skip-deploy` | `score -> sync history (read-only) -> build -> stop` (writes to neither R2 nor Cloudflare Pages) |
 | `--skip-archive` alone | **refused** -- the script will not deploy a dashboard built from a snapshot that wasn't just durably archived; there is no override flag for this |
 
-Scoring and the dashboard build happen for real in every row above; only archive/deploy
-are ever skipped.
+Scoring, history sync, and the dashboard build happen for real in every row above; only
+the archive WRITE and the deploy are ever skipped.
+
+**History sync (why it exists, and why the dashboard itself stays filesystem-only).** A
+GitHub Actions runner starts from a fresh git checkout -- `outputs/prospective/v1_1/`/
+`artifacts/prospective/v1_1/` are gitignored, so a CI job that just scored today's date
+has ONLY today's snapshot locally. Without more, `dashboard/build.py`'s season-to-date
+trend charts would show a single point on every CI-built dashboard, no matter how much
+history is sitting in R2 -- `dashboard/snapshot_data.py` itself was deliberately never
+changed to fetch from R2 directly (see its own module docstring's "read-only boundary");
+it still only ever reads local disk. Instead, `scripts/archive_snapshot.py --sync-history
+--season <year>` runs as its own pipeline stage, between archiving and the dashboard
+build, and repopulates local disk from R2 before the dashboard ever sees it:
+
+- `list_archived_snapshots(season=...)` enumerates every candidate `<snapshot_dir_name>`
+  under `prospective/<season>/` in the archive (never a hardcoded date list). A key only
+  becomes a candidate at all if its name has the SHAPE of a real snapshot directory
+  (`YYYY-MM-DD` or `YYYY-MM-DD__<label>`, a genuine calendar date) -- a key that reaches
+  the right depth but isn't shaped like a snapshot (some unrelated object under the same
+  prefix) is silently ignored, never reported. Every candidate that DOES pass the shape
+  check then gets a completeness determination: complete only if `artifacts/
+  integrity_hashes.json` exists, parses, AND every file it references is also actually
+  present in the archive.
+- `sync_missing_snapshots(season=...)` restores every COMPLETE archived snapshot missing
+  locally, using the exact same `restore_snapshot()` hash-verification machinery. A
+  `<snapshot_dir_name>` that already exists locally is either an identical, safe no-op
+  (compares `integrity_hashes.json` AND re-hashes every referenced local file) or a
+  `HistorySyncConflictError` -- partial/corrupt/differing local snapshots are NEVER
+  auto-repaired or overwritten. A candidate that passed the shape check but failed
+  completeness raises `HistorySyncIncompleteArchiveError` and stops the whole sync
+  immediately -- a broken OFFICIAL snapshot entry is never silently skipped, only a
+  genuinely unrelated key (one that never became a candidate) is ignored without blocking
+  anything else.
+- The representative end-to-end regression test (`tests/test_archive_history_sync.py`)
+  builds a scenario with several historical snapshots that exist ONLY in the archive plus
+  a freshly-scored local "today" snapshot -- exactly what a real CI runner sees -- and
+  confirms `dashboard/snapshot_data.discover_snapshots()` sees only today's point BEFORE
+  sync, and the full, correctly-precedented date history AFTER it.
 
 **Archive layout** mirrors the existing two-namespace local contract exactly, for every
 file actually present (enumerated dynamically, never a hardcoded filename list, so a
@@ -2462,17 +2505,19 @@ already exists, its `integrity_hashes.json` is compared (as parsed JSON, not raw
 against the local one: identical -> no-op (safe to rerun); different -> `ArchiveConflictError`,
 and the archive is NEVER silently overwritten.
 
-**Recovery.** `scripts/archive_snapshot.py --restore --data-through YYYY-MM-DD --season
-2026 [--snapshot-label LABEL]` is the explicit, on-demand reverse operation -- downloads
-an archived snapshot's files back into the normal local `outputs/prospective/v1_1/`/
-`artifacts/prospective/v1_1/` paths, verifies every file against the archived hashes, and
-refuses (never silently overwriting) if different local files already exist at that path.
-**This is the only way R2 data reaches local disk.** The dashboard (`dashboard/
-snapshot_data.py`) and Version 1.1's own guards are UNCHANGED by this -- they still only
-ever read local disk. Nothing auto-restores from R2; if a future version wants the
-dashboard or CI to depend on R2 at runtime instead of requiring this explicit step, that
-is a real architectural change (a new runtime dependency on remote state) and deserves
-its own explicit decision.
+**Recovery -- two related but distinct tools.** `scripts/archive_snapshot.py --restore
+--data-through YYYY-MM-DD --season 2026 [--snapshot-label LABEL]` is the explicit,
+on-demand reverse operation for ONE known snapshot -- downloads it back into the normal
+local paths, verifies every file against the archived hashes, and refuses (never silently
+overwriting) if different local files already exist at that path. `--sync-history` (above)
+is the bulk analog: every missing snapshot for a season, discovered automatically rather
+than named one at a time, which is what the automated pipeline actually runs. **Either
+way, this is the only way R2 data reaches local disk** -- the dashboard (`dashboard/
+snapshot_data.py`) and Version 1.1's own guards are UNCHANGED by this: they still only
+ever read local disk. Nothing auto-restores from R2 outside these two explicit calls; if
+a future version wants the dashboard itself to depend on R2 at runtime, that is a real
+architectural change (a new runtime dependency on remote state) and deserves its own
+explicit decision -- not something either tool does quietly.
 
 **Cloudflare R2 configuration.**
 - A bucket dedicated to this archive (e.g. `contact-luck-prospective-archive`) -- not yet
@@ -2491,9 +2536,13 @@ its own explicit decision.
   could be unit-tested against a plain in-memory fake
   (`tests/test_archive_snapshot.py`) without contacting real Cloudflare services or
   needing a mocking library.
-- None of this has been provisioned yet -- no bucket has been created and no snapshot has
-  been uploaded. See CLAUDE.md-style caution: creating cloud resources and uploading data
-  both require an explicit, separate go-ahead.
+- The bucket (`contact-luck-prospective-archive`) has been created and a real R2
+  integration test has been run against it (archive, remote hash verification,
+  idempotent-rerun check, and a restore into an isolated temp directory that passed the
+  real dashboard integrity validator) using the existing, already-official `2026-08-09`
+  snapshot -- no new date was scored to test this, and nothing was deployed. History sync
+  itself has only been exercised against the in-memory test double so far, not yet against
+  the real bucket with real multi-date history.
 
 **Known gap this does not solve**: every CI run still starts with a cold local
 Statcast/game-metadata cache (`data/prospective/2026/` is gitignored and ephemeral on the
