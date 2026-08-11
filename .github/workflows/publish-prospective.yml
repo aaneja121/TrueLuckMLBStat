@@ -2,12 +2,13 @@ name: Publish prospective snapshot
 
 # Contact Luck operational loop:
 #   completed MLB slate
-#     -> scripts/ensure_frozen_inputs.py         (the frozen 2021-2024
-#        development input every component model trains against --
-#        gitignored, so a fresh runner has no local copy; reused if already
+#     -> scripts/ensure_frozen_inputs.py         (the complete frozen input
+#        bundle -- the 2021-2024 development parquet plus 3 model
+#        -comparison detail JSONs -- every one gitignored, so a fresh
+#        runner has no local copy of any of them; each reused if already
 #        hash-valid, else fetched from a dedicated R2 object and verified.
-#        Runs BEFORE scoring, which cannot proceed without it. No new
-#        secrets/dependencies needed here -- see below.)
+#        Runs BEFORE scoring, which cannot proceed without the full
+#        bundle. No new secrets/dependencies needed here -- see below.)
 #     -> prospective/run_v1_1_2026_scoring.py   (immutable snapshot -- owns
 #        ALL correctness/safety guards: clean working tree, date
 #        completeness, coverage validation, conflict detection)
@@ -196,11 +197,11 @@ jobs:
           # dry-run mode -- so these must be genuinely valid read
           # credentials on every run, not just when deploying. The SAME
           # four variables also serve scripts/ensure_frozen_inputs.py (a
-          # separate key prefix in the same bucket, see that script's
-          # docstring) -- no new secrets or repository variables were added
-          # for that fix; on THIS disposable runner the frozen input is
-          # always missing locally, so this stage always does a real R2
-          # read the first time it runs on a given job.
+          # separate key prefix per bundle entry, same bucket, see that
+          # script's docstring) -- no new secrets or repository variables
+          # were added for that fix; on THIS disposable runner every bundle
+          # entry is always missing locally, so this stage always does a
+          # real R2 read (per entry) the first time it runs on a given job.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # R2 shares the same Cloudflare account as Pages -- no separate

@@ -2403,64 +2403,102 @@ guard.
   or attempt to bypass Version 1.1's own immutability/conflict handling) and never falls
   back to an earlier date on its own.
 
-### Frozen development input portability: `scripts/ensure_frozen_inputs.py`
+### Frozen input bundle portability: `scripts/ensure_frozen_inputs.py`
 
-**The problem.** Every Version 1.1 prospective snapshot trains the four frozen component
-models on the same frozen 2021-2024 development input,
-`data/processed/cleaned_development_data_with_sprint_speed.parquet` (`evaluation.
-run_v1_final_evaluation.DEVELOPMENT_INPUT_PATH`, imported unchanged by `prospective/
-run_v1_1_2026_scoring.py`). Like every other file under `data/processed/`, it is
-gitignored (CLAUDE.md "Never commit datasets") and has only ever existed on a
-maintainer's own long-lived machine. The first scheduled GitHub Actions dry-run got all
-the way through resolving the date, downloading the full 2026 Statcast range, and
-cleaning/scoring eligibility, then failed exactly here: a fresh runner's clean checkout
-has no `data/processed/` cache at all.
+**The problem, in full.** Version 1.1's snapshot manifest freezes its inputs by hashing
+every path in `evaluation.v1_final_evaluation_manifest.FROZEN_ARTIFACT_RELATIVE_PATHS` --
+the SAME 32-path list the sealed Version 1.0 evaluation uses (`prospective.
+prospective_manifest.build_snapshot_manifest` calls `build_artifact_hashes(repo_root,
+relative_paths=FROZEN_ARTIFACT_RELATIVE_PATHS)` directly, never a second,
+prospective-specific list). 27 of those 32 are `src/mlb_luck_score/*.py` source files --
+already git-tracked, present on any fresh checkout automatically. The remaining FOUR are
+gitignored, local-only data/detail files (CLAUDE.md "Never commit datasets") that have
+only ever existed on a maintainer's own long-lived machine:
 
-**The fix, and why it never regenerates the dataset.** `scripts/ensure_frozen_inputs.py`
-runs as the very first stage of `scripts/publish_snapshot.sh`, before scoring: reuse the
-local file if it's already there AND its sha256 matches a hash pinned in source (never
-trusted blindly), otherwise fetch it from a dedicated, immutable Cloudflare R2 object and
-verify the same pinned hash before writing anything to disk. There is no third option --
-the module contains no import of, or call into, any cleaning/feature-engineering/
-Statcast-download code (see `tests/test_ensure_frozen_inputs.py::
-TestNoRegenerationFallback`'s structural AST check), so "regenerate it from raw data" is
-not a code path that exists here, not just a policy this script happens to follow.
+| Local path | Produced by |
+|---|---|
+| `data/processed/cleaned_development_data_with_sprint_speed.parquet` | the Version 0.x data-cleaning pipeline |
+| `outputs/tables/opportunity_model_comparison_detail.json` | `mlb_luck_score.models.compare_opportunity_models` |
+| `outputs/tables/infield_opportunity_detail.json` | `mlb_luck_score.models.compare_infield_opportunity` |
+| `outputs/tables/advancement_detail.json` | `mlb_luck_score.models.compare_advancement_models` |
 
-- **Storage layout.** `frozen-inputs/v1/cleaned_development_data_with_sprint_speed.parquet`
-  -- the SAME R2 bucket `scripts/archive_snapshot.py` uses (so CI needs no new secrets),
-  but a deliberately separate top-level prefix (`frozen-inputs/` vs. `prospective/`) so
-  this one immutable input artifact can never be discovered by, or confused with,
-  `list_archived_snapshots()`/`--sync-history`'s per-date snapshot enumeration. The `v1`
-  segment versions the ARCHIVED INPUT ARTIFACT itself; a legitimately different frozen
-  input (a new Version 0.x data-cleaning run) would become `frozen-inputs/v2/...` with
-  its own pinned hash, never an in-place overwrite.
-- **The pinned hash.** `f791415d218334aa578fd8104e7c3aec5f52716931fc69287aa2ee05b12443f8`
-  (`scripts.ensure_frozen_inputs.FROZEN_INPUT_SHA256`), computed directly from the real
-  local file (111,445,297 bytes) and independently cross-checked against `outputs/
-  final_evaluation/v1/v1_final_report.json`'s own `manifest.artifact_hashes` entry for
-  this same path -- recorded when the real, sealed Version 1.0 evaluation actually
-  trained against it. Both agree exactly.
+The first scheduled GitHub Actions dry-run failed on the parquet alone (fixed first, as an
+initially parquet-only version of this module). The SECOND scheduled dry-run then got all
+the way through downloading/cleaning 2026 data and fitting/selecting the frozen component
+models, only to fail building the snapshot manifest on the remaining three -- exposing
+that the portability gap was never just the parquet. `scripts/ensure_frozen_inputs.py`
+now covers the complete, audited set as one versioned bundle, not three more one-off
+patches.
+
+**The fix, and why it never regenerates anything.** `scripts/ensure_frozen_inputs.py`
+runs as the very first stage of `scripts/publish_snapshot.sh`, before scoring, and
+ensures EVERY bundle entry in order: reuse the local file if it's already there AND its
+sha256 matches a hash pinned in source (never trusted blindly), otherwise fetch it from a
+dedicated, immutable Cloudflare R2 object and verify the same pinned hash before writing
+anything to disk. Processing is fail-fast -- the first entry that can't be satisfied stops
+the whole stage immediately, and no later entry is attempted. There is no third option for
+any entry: the module contains no import of, or call into, any cleaning/feature
+-engineering/model-comparison/Statcast-download code (see `tests/
+test_ensure_frozen_inputs.py::TestNoRegenerationFallback`'s structural AST check), so
+"regenerate it" is not a code path that exists here, not just a policy this script happens
+to follow.
+
+- **Storage layout: one bundle, relative-path-preserving keys.** The three detail JSONs
+  use keys that mirror their local relative path exactly, e.g.
+  `frozen-inputs/v1/outputs/tables/opportunity_model_comparison_detail.json`. The parquet
+  keeps its already-live key unchanged (`frozen-inputs/v1/cleaned_development_data_with_
+  sprint_speed.parquet`, flat) rather than being migrated to match -- that object was
+  already uploaded and independently verified against real R2 before this bundle existed,
+  and re-keying it would silently orphan a working, already-verified production object for
+  no functional benefit. Every key lives under the SAME R2 bucket `scripts/
+  archive_snapshot.py` uses (so CI needs no new secrets), under a deliberately separate
+  top-level prefix (`frozen-inputs/` vs. `prospective/`) so none of this bundle can ever be
+  discovered by, or confused with, `list_archived_snapshots()`/`--sync-history`'s per-date
+  snapshot enumeration. The `v1` segment versions the ARCHIVED INPUT BUNDLE itself; a
+  legitimately different frozen input (a new Version 0.x data-cleaning or model-selection
+  run) would become a `frozen-inputs/v2/...` key with its own pinned hash, never an
+  in-place overwrite.
+- **The pinned hashes**, each independently cross-checked against `outputs/
+  final_evaluation/v1/v1_final_report.json`'s own `manifest.artifact_hashes` entry for that
+  same path (recorded when the real, sealed Version 1.0 evaluation actually ran against
+  it) -- every entry agrees exactly:
+
+  | Local path | SHA256 | Size |
+  |---|---|---|
+  | `data/processed/cleaned_development_data_with_sprint_speed.parquet` | `f791415d218334aa578fd8104e7c3aec5f52716931fc69287aa2ee05b12443f8` | 111,445,297 bytes |
+  | `outputs/tables/opportunity_model_comparison_detail.json` | `a694f6f65f0f94b7ed30fd785144a363d5f075a4a465f6a5b9a0eda2237a1d38` | 49,619 bytes |
+  | `outputs/tables/infield_opportunity_detail.json` | `2b879a72af11618b8d9f8939d900120c325c20990698261d7f4dcbb95b8141f0` | 85,434 bytes |
+  | `outputs/tables/advancement_detail.json` | `8826bae37c6b51489098018e95154d47ec0e1f05cd7c52bd29a633b20d01e222` | 18,174 bytes |
+
 - **Local-first, zero network dependency in the common case.** The R2 client is
-  constructed ONLY if the local file is missing -- on a maintainer's own machine (which
-  already has the file), this stage never contacts R2 at all, so nothing new was added to
-  the local development dependency chain. Only a disposable CI runner ever takes the
-  fetch path.
-- **Fails loudly, never silently, on every anomaly**: a local file that exists but
-  doesn't match the pinned hash (never redownloaded or overwritten -- investigate by
-  hand), a missing R2 object, or a downloaded object whose hash doesn't match the pin
+  constructed AT MOST ONCE per `ensure_frozen_inputs.py` invocation, shared across every
+  bundle entry that actually needs one, and never constructed at all if every local file
+  is already present and valid -- true of a maintainer's own machine, false of a fresh CI
+  runner (before the one-time seed) or any runner missing part of the bundle.
+- **Fails loudly, never silently, on every anomaly, for every entry**: a local file that
+  exists but doesn't match its pinned hash (never redownloaded or overwritten -- investigate
+  by hand), a missing R2 object, or a downloaded object whose hash doesn't match the pin
   (discarded, never written to disk looking like a verified artifact). See
   `FrozenInputLocalHashMismatchError` / `FrozenInputMissingRemoteObjectError` /
   `FrozenInputRemoteHashMismatchError`.
+- **The bundle can never silently drift out of sync with the real frozen-artifact list.**
+  `tests/test_ensure_frozen_inputs.py::TestBundleCoversEveryGitignoredFrozenArtifact`
+  cross-references every path in `FROZEN_ARTIFACT_RELATIVE_PATHS` against `git
+  check-ignore` and asserts every gitignored one is present in `FROZEN_INPUT_BUNDLE` --
+  exactly the audit that would have caught today's gap automatically before it ever
+  reached a real dry-run, and the guard that keeps a FUTURE frozen artifact from repeating
+  it.
 - **The one-time seeding upload (`--upload`) is a separate action**, never invoked by
-  `ensure_frozen_development_input()` or `scripts/publish_snapshot.sh` -- run by hand,
-  once, with explicit human intent, mirroring `scripts/archive_snapshot.py`'s own
-  write-once philosophy (refuses to upload a local file that doesn't match the pin,
-  refuses to overwrite an existing, DIFFERENT R2 object, re-verifies the upload by
-  fetching it back).
+  `ensure_frozen_input_bundle()` or `scripts/publish_snapshot.sh` -- run by hand, once per
+  entry that hasn't been seeded yet, with explicit human intent, mirroring `scripts/
+  archive_snapshot.py`'s own write-once philosophy (refuses to upload a local file that
+  doesn't match the pin, refuses to overwrite an existing, DIFFERENT R2 object, re-verifies
+  each upload by fetching it back). Safe to re-run over an already-fully-seeded bundle --
+  every entry simply no-ops.
 - **This stage always runs**, even under `--skip-archive --skip-deploy`, because scoring
-  needs the frozen input regardless of what happens to the snapshot's output afterward --
-  the same reasoning that makes history sync always run. See `tests/
-  test_publish_snapshot_orchestration.py::TestFailuresBlockLaterStages::
+  and manifest generation need the complete bundle regardless of what happens to the
+  snapshot's output afterward -- the same reasoning that makes history sync always run.
+  See `tests/test_publish_snapshot_orchestration.py::TestFailuresBlockLaterStages::
   test_ensure_frozen_inputs_failure_prevents_everything_after_it` for the orchestration
   proof that a failure here blocks scoring (and everything after it), exactly like a
   scoring failure would.
