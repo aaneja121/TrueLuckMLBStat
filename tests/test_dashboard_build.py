@@ -566,3 +566,82 @@ class TestIntervalDomainConsistency:
                 f"({row_fractions[key]:.4f}) and player detail page "
                 f"({player_fractions[key]:.4f}) -- they must share one scale"
             )
+
+
+class TestScoredGamesLabelClarification:
+    """Presentation-only clarification: the public "Games" label was renamed
+    to "Scored Games" everywhere on the dashboard, defined as "games with at
+    least one outcome-resolved eligible batted ball" -- NOT official MLB
+    games played. The underlying `games` value itself (`aggregate_
+    attribution.aggregate_to_batter_season`'s computation, unchanged by this
+    task) must still display byte-for-byte identically under the new label.
+    See dashboard/templates/{_macros.html,player.html,methodology.html} and
+    `mlb_luck_score.scoring.public_score_schema`'s "games" field description
+    (tested separately in `tests/test_public_score_schema.py`).
+    """
+
+    def test_leaderboard_header_says_scored_games_not_bare_games(self, tmp_path: Path) -> None:
+        out_root, art_root = _seed_two_snapshots(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            build_timestamp="2026-01-02T12:00:00+00:00",
+        )
+        html = (tmp_path / "dist" / "index.html").read_text()
+        assert html.count(">Scored Games<") == 2  # one header per table (favorable + unfavorable)
+        assert ">Games<" not in html
+
+    def test_player_page_stat_label_says_scored_games(self, tmp_path: Path) -> None:
+        out_root, art_root = _seed_two_snapshots(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            build_timestamp="2026-01-02T12:00:00+00:00",
+        )
+        html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
+        assert ">Scored Games<" in html
+        assert ">Games<" not in html
+
+    def test_methodology_page_defines_scored_games(self, tmp_path: Path) -> None:
+        out_root, art_root = _seed_two_snapshots(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            build_timestamp="2026-01-02T12:00:00+00:00",
+        )
+        html = (tmp_path / "dist" / "methodology" / "index.html").read_text()
+        assert "<strong>Scored Games</strong>" in html
+        assert "outcome-resolved eligible batted ball" in html
+        assert "This is <em>not</em> the" in html
+        assert "official MLB games played" in html
+
+    def test_games_numeric_value_is_unchanged_in_leaderboard_row_and_player_page(
+        self, tmp_path: Path
+    ) -> None:
+        """Alice Alpha's fixture `games=101` (see `_players()`/
+        `default_player_record`) is untouched by this task -- confirm the
+        renamed label still displays the EXACT same numeric value as
+        before, both in the leaderboard row's data attribute and on her own
+        player page's stat card.
+        """
+        out_root, art_root = _seed_two_snapshots(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            build_timestamp="2026-01-02T12:00:00+00:00",
+        )
+        index_html = (tmp_path / "dist" / "index.html").read_text()
+        assert 'data-games="101"' in index_html
+
+        player_html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
+        stat_value = re.search(
+            r'<div class="stat-label"[^>]*>Scored Games</div>\s*'
+            r'<div class="stat-value">(\d+)</div>',
+            player_html,
+        )
+        assert stat_value is not None, "could not find the Scored Games stat card"
+        assert stat_value.group(1) == "101"

@@ -13,6 +13,7 @@ from mlb_luck_score.scoring.public_score_schema import (
     INTERVAL_ABOVE_ZERO,
     INTERVAL_BELOW_ZERO,
     INTERVAL_OVERLAPS_ZERO,
+    PUBLIC_SCORE_FIELDS,
     PUBLIC_SCORE_SCHEMA_VERSION,
     REQUIRED_PUBLIC_SCORE_COLUMNS,
     PublicScoreSchemaError,
@@ -176,3 +177,45 @@ def test_rank_populated_for_non_rank_eligible_row_fails():
     )
     with pytest.raises(PublicScoreSchemaError, match="official_rank_favorable"):
         validate_public_score_table(table)
+
+
+class TestGamesFieldDescriptionClarification:
+    """Regression coverage for the 'games' field's description text: it must
+    accurately describe "distinct games with an outcome-resolved eligible
+    batted ball" and must never again read as (or be silently reworded back
+    to) "official MLB games played" -- see the dashboard's "Scored Games"
+    presentation-only clarification, which relies on this same definition
+    matching what the schema documents. This is a documentation-only
+    contract: the underlying COLUMN NAME stays exactly "games" (the frozen
+    public-score data contract is unchanged), only the description string
+    changed.
+    """
+
+    def _games_field(self):
+        (field,) = [f for f in PUBLIC_SCORE_FIELDS if f.name == "games"]
+        return field
+
+    def test_column_name_is_unchanged(self):
+        # The frozen public-score JSON/parquet key must stay "games" --
+        # only the human-readable description changed, never the contract.
+        assert self._games_field().name == "games"
+        assert self._games_field().dtype == "int64"
+        assert self._games_field().nullable is False
+
+    def test_description_states_outcome_resolved_definition(self):
+        description = self._games_field().description
+        assert "outcome-resolved" in description
+        assert "eligible batted ball" in description
+
+    def test_description_explicitly_disclaims_official_games_played(self):
+        description = self._games_field().description
+        assert "NOT official MLB games played" in description
+
+    def test_description_no_longer_reads_as_bare_eligible_batted_ball(self):
+        # The old, ambiguous wording ("games with an eligible batted ball")
+        # doesn't distinguish a resolved batted ball from an ambiguous one
+        # (field_error/fielders_choice) that never actually counts --
+        # confirms the old phrasing is gone, not just that new text exists
+        # alongside it.
+        description = self._games_field().description
+        assert "games with an eligible batted ball." not in description

@@ -79,7 +79,16 @@ PUBLIC_SCORE_FIELDS: tuple[PublicScoreField, ...] = (
         "codebase -- see module docstring.",
     ),
     PublicScoreField("season", "int64", False, "MLB season (2021-2024 only; 2025 is refused)."),
-    PublicScoreField("games", "int64", False, "Distinct games with an eligible batted ball."),
+    PublicScoreField(
+        "games",
+        "int64",
+        False,
+        "Distinct games with at least one outcome-resolved eligible batted ball ('Scored "
+        "Games' on the public dashboard). NOT official MLB games played -- a game where "
+        "every plate appearance ended in a strikeout/walk, or whose only batted ball was an "
+        "ambiguous-outcome event (field_error/fielders_choice, per mlb_luck_score.eligibility), "
+        "contributes zero to this count even though the player appeared in it.",
+    ),
     PublicScoreField(
         "eligible_batted_balls", "int64", False, "Count of resolved, ledger-eligible plays."
     ),
