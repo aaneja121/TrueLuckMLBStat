@@ -1,9 +1,39 @@
-# Contact Luck Prototype v0.1 (TrueLuckMLBStat)
+# Contact Luck
 
-> **This repository is a research prototype, not a validated public baseball statistic.**
-> Every number it produces -- probabilities, raw luck, the public score, the confidence
-> label -- is a provisional Version 0.1 research artifact. See "Scientific limitations"
-> below before drawing any conclusion from it.
+Contact Luck is an MLB batted-ball metric that measures the difference, in run value,
+between what a batter's contact was expected to produce and what actually occurred.
+
+The system was developed on 2021-2024 data, frozen before a one-time held-out evaluation
+on the 2025 MLB season, and is now scored prospectively on 2026 data. The public metric is
+**Contact Luck Runs per 100 Eligible Batted Balls**, accompanied by game-clustered 95%
+uncertainty intervals.
+
+The project decomposes realized outcomes across contact, outfield defense, infield
+defense, and batter-runner advancement, with component-specific validation/status labels.
+Contact Luck is retrospective and is not intended as a stable measure of batting talent or
+a predictive statistic.
+
+**Live dashboard:** https://contact-luck.pages.dev
+
+The production system includes immutable prospective snapshots, frozen-input
+verification, durable Cloudflare R2 archival, automated GitHub Actions scoring, and
+static Cloudflare Pages deployment.
+
+### Validation design
+
+- **2021-2023**: model fitting
+- **2024**: development validation / model selection
+- **2025**: one-time sealed final evaluation
+- **2026**: prospective scoring
+
+The 2025 evaluation classified the frozen system as validated with documented
+limitations. Individual component estimates retain their own calibration/evidence labels
+and should not be interpreted as independent causal effects.
+
+## Development history
+
+The remainder of this README documents the full research progression from Version 0.1
+onward, including rejected candidate models and the reasoning behind adoption decisions.
 
 ## Project purpose
 
@@ -2368,24 +2398,26 @@ guard.
   `tzdata` package is missing -- discovered during development that a bare
   `TZ=America/New_York` conversion against a missing zoneinfo file does not error, it
   just silently fails to convert.
-- **Current mode: dry run only for archive writes and deploys -- but history sync always
-  reads from R2.** Both the schedule and a manual run with `deploy` unchecked call
-  `scripts/publish_snapshot.sh --data-through "$DATE" --skip-archive --skip-deploy --yes`
-  -- snapshot generation, the read-only history sync, and the dashboard rebuild all happen
-  for real, but nothing is WRITTEN to R2 and nothing is deployed to Cloudflare Pages. This
-  is deliberate: it lets scheduled scoring + dashboard generation run unattended for a
-  while and be inspected (via the uploaded `dashboard/dist/` and snapshot-manifest
-  artifacts on each run) -- INCLUDING whether the season-to-date trend charts show the
-  full historical series, not just today's point -- before real R2 archive writes and
-  unattended production deploys are enabled. `publish_snapshot.sh` refuses `--skip-archive`
-  without `--skip-deploy` (see the flag table above), so this workflow only ever produces
-  one of two states: both flags, or neither.
-- **Enabling production scheduled deploys later**: set the repository variable
-  `PROSPECTIVE_AUTO_DEPLOY` to `true` (GitHub -> Settings -> Secrets and variables ->
-  Actions -> Variables). That is the *only* change needed -- the workflow YAML does not
-  change. With it unset (the default) or anything other than `true`, scheduled runs stay
-  dry-run. A manual run can independently opt into a real deploy any time via the
-  `deploy` checkbox, regardless of this variable.
+- **Current mode: `PROSPECTIVE_AUTO_DEPLOY` is set to `true` -- scheduled runs perform
+  real archive writes and real deploys.** The rollout gate this variable provides was
+  exercised as designed before being flipped: scheduled/dry-run cycles were inspected
+  (via the uploaded `dashboard/dist/` and snapshot-manifest artifacts) to confirm the
+  season-to-date trend charts showed the full historical series before any unattended
+  real deploy was allowed to happen -- see "Durable archival"/"Frozen input bundle
+  portability" below for that verification work, and the "known gap" note there for what
+  is still not automated. With the variable unset or anything other than `true`,
+  scheduled runs fall back to `scripts/publish_snapshot.sh --data-through "$DATE"
+  --skip-archive --skip-deploy --yes` -- snapshot generation, the read-only history sync,
+  and the dashboard rebuild happen for real, but nothing is written to R2 and nothing is
+  deployed. `publish_snapshot.sh` refuses `--skip-archive` without `--skip-deploy` (see
+  the flag table above), so this workflow only ever produces one of two states: both
+  flags, or neither.
+- **Toggling the mode**: set the repository variable `PROSPECTIVE_AUTO_DEPLOY` (GitHub ->
+  Settings -> Secrets and variables -> Actions -> Variables) to `true` for real scheduled
+  deploys, or to anything else (or unset it) to fall back to scheduled dry runs. That is
+  the *only* change needed either direction -- the workflow YAML does not change. A manual
+  run can independently opt into a real deploy any time via the `deploy` checkbox,
+  regardless of this variable.
 - **Required GitHub secrets.** `CLOUDFLARE_API_TOKEN` and the actual Cloudflare Pages
   deploy are only consumed when an actual deploy happens (scope the token to Pages edit
   access for this project only, not full account access). The four `R2_*` credentials
@@ -2620,8 +2652,9 @@ architectural change (a new runtime dependency on remote state) and deserves its
 explicit decision -- not something either tool does quietly.
 
 **Cloudflare R2 configuration.**
-- A bucket dedicated to this archive (e.g. `contact-luck-prospective-archive`) -- not yet
-  created; nothing in this codebase creates one automatically.
+- A bucket dedicated to this archive (`contact-luck-prospective-archive`) -- created and in
+  active use (see below); nothing in this codebase creates one automatically, so a future
+  fork/redeploy still needs this step done by hand.
 - An **R2 API token** scoped to Object Read & Write on that one bucket only (Cloudflare
   dashboard -> R2 -> Manage R2 API Tokens) -- deliberately narrower than the general
   `CLOUDFLARE_API_TOKEN` used for Pages deploys, and never full account/admin access.
@@ -2636,13 +2669,18 @@ explicit decision -- not something either tool does quietly.
   could be unit-tested against a plain in-memory fake
   (`tests/test_archive_snapshot.py`) without contacting real Cloudflare services or
   needing a mocking library.
-- The bucket (`contact-luck-prospective-archive`) has been created and a real R2
-  integration test has been run against it (archive, remote hash verification,
-  idempotent-rerun check, and a restore into an isolated temp directory that passed the
-  real dashboard integrity validator) using the existing, already-official `2026-08-09`
-  snapshot -- no new date was scored to test this, and nothing was deployed. History sync
-  itself has only been exercised against the in-memory test double so far, not yet against
-  the real bucket with real multi-date history.
+- The bucket (`contact-luck-prospective-archive`) has been created and is in active use.
+  It was first validated with a real R2 integration test (archive, remote hash
+  verification, idempotent-rerun check, and a restore into an isolated temp directory that
+  passed the real dashboard integrity validator) using the existing, already-official
+  `2026-08-09` snapshot -- no new date was scored to test this, and nothing was deployed.
+  Every pre-existing local snapshot (`2026-08-05`, `2026-08-06`, `2026-08-08`,
+  `2026-08-08__refreshed`, `2026-08-09`) was subsequently archived for real, and history
+  sync was independently verified against the real bucket with real multi-date history --
+  restoring all five into a fully empty simulated fresh-runner directory and confirming
+  the dashboard's own precedence logic picks `2026-08-08__refreshed` for that date's trend
+  point (both Aug 8 variants stay archived for auditability; Aug 7 correctly has no
+  entry).
 
 **Known gap this does not solve**: every CI run still starts with a cold local
 Statcast/game-metadata cache (`data/prospective/2026/` is gitignored and ephemeral on the
