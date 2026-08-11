@@ -1,21 +1,24 @@
 """Regression tests for scripts/publish_snapshot.sh's STAGE SEQUENCING --
-specifically: does an archive/history-sync (or scoring) failure actually
-prevent the dashboard build and the Cloudflare Pages deploy from ever
-running.
+specifically: does an ensure-frozen-inputs/archive/history-sync (or
+scoring) failure actually prevent the dashboard build and the Cloudflare
+Pages deploy from ever running, and does the frozen-input check actually
+run BEFORE scoring (see `TestFailuresBlockLaterStages.
+test_ensure_frozen_inputs_failure_prevents_everything_after_it`).
 
 This deliberately does NOT rely only on "the script has `set -euo
 pipefail`, so it must be fine" -- that's a reasonable design argument, but
 not a test. Instead it runs the REAL `scripts/publish_snapshot.sh` (copied
 byte-for-byte into an isolated fake project root, never a hand-written
 duplicate of its logic) against fake `.venv/bin/python` and `npx`
-executables that log every invocation (by clean stage name -- score,
-archive, history_sync, build) and can be told to fail on command. This
-proves the actual shell control flow, not just an assertion about it.
+executables that log every invocation (by clean stage name -- ensure,
+score, archive, history_sync, build) and can be told to fail on command.
+This proves the actual shell control flow, not just an assertion about it.
 
 Never scores real MLB data, never contacts R2, never contacts Cloudflare
-Pages: the fake `python` never runs real prospective/dashboard/archive
-code (it only inspects its own argv to decide what to log and whether to
-exit non-zero), and the fake `npx` never runs real wrangler.
+Pages: the fake `python` never runs real prospective/dashboard/archive/
+ensure-frozen-inputs code (it only inspects its own argv to decide what to
+log and whether to exit non-zero), and the fake `npx` never runs real
+wrangler.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ FAKE_PYTHON = """#!/usr/bin/env bash
 set -euo pipefail
 FIRST_ARG="${1:-}"
 case "$FIRST_ARG" in
+  scripts/ensure_frozen_inputs.py) STAGE_NAME="ensure" ;;
   prospective/run_v1_1_2026_scoring.py) STAGE_NAME="score" ;;
   scripts/archive_snapshot.py)
     if [[ "$*" == *"--sync-history"* ]]; then
@@ -130,6 +134,26 @@ def _log_lines(call_log: Path) -> list[str]:
 
 
 class TestFailuresBlockLaterStages:
+    def test_ensure_frozen_inputs_failure_prevents_everything_after_it(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """THE key orchestration proof this task adds: the frozen-input
+        check is the very first stage, and a failure there must prevent
+        scoring (and everything after it) from ever running -- scoring
+        cannot proceed without the frozen development input, so this
+        stage failing must behave exactly like scoring itself failing.
+        """
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="ensure")
+
+        assert result.returncode != 0, result.stderr
+        lines = _log_lines(call_log)
+        assert lines == ["python:ensure"]
+        assert "python:score" not in lines
+        assert not any(line.startswith("npx:") for line in lines), (
+            "deploy must never be attempted after a failed frozen-input check"
+        )
+
     def test_archive_failure_prevents_history_sync_build_and_deploy(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
@@ -138,7 +162,7 @@ class TestFailuresBlockLaterStages:
 
         assert result.returncode != 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:score", "python:archive"]
+        assert lines == ["python:ensure", "python:score", "python:archive"]
         assert "python:history_sync" not in lines
         assert not any(line.startswith("python:build") for line in lines), (
             "dashboard build must never run after a failed archive"
@@ -155,7 +179,12 @@ class TestFailuresBlockLaterStages:
 
         assert result.returncode != 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:score", "python:archive", "python:history_sync"]
+        assert lines == [
+            "python:ensure",
+            "python:score",
+            "python:archive",
+            "python:history_sync",
+        ]
         assert not any(line.startswith("python:build") for line in lines), (
             "dashboard build must never run after a failed history sync"
         )
@@ -166,29 +195,31 @@ class TestFailuresBlockLaterStages:
     def test_scoring_failure_prevents_everything_after_it(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
-        """The earliest possible failure -- confirms the same guarantee
-        holds transitively for every later stage, not just the one
-        immediately before the dashboard build.
+        """Confirms the same guarantee holds transitively for every later
+        stage, not just the one immediately before the dashboard build --
+        the frozen-input check succeeds first, then scoring itself fails.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log, fail_stage="score")
 
         assert result.returncode != 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:score"]
+        assert lines == ["python:ensure", "python:score"]
         assert not any(line.startswith("npx:") for line in lines)
 
-    def test_archive_then_history_sync_run_before_build_on_success(
+    def test_ensure_then_score_then_archive_then_history_sync_run_before_build_on_success(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
-        """Direct evidence of the documented ordering (score -> archive ->
-        history_sync -> build -> deploy), not just an assertion about it.
+        """Direct evidence of the documented ordering (ensure -> score ->
+        archive -> history_sync -> build -> deploy), not just an assertion
+        about it.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log)
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
+        assert lines.index("python:ensure") < lines.index("python:score")
         assert lines.index("python:score") < lines.index("python:archive")
         assert lines.index("python:archive") < lines.index("python:history_sync")
         assert lines.index("python:history_sync") < lines.index("python:build")
@@ -203,7 +234,13 @@ class TestSkipFlagSemantics:
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:score", "python:archive", "python:history_sync", "python:build"]
+        assert lines == [
+            "python:ensure",
+            "python:score",
+            "python:archive",
+            "python:history_sync",
+            "python:build",
+        ]
         assert not any(line.startswith("npx:") for line in lines), "--skip-deploy must never deploy"
 
     def test_skip_archive_and_skip_deploy_still_runs_history_sync_read_only(
@@ -211,16 +248,16 @@ class TestSkipFlagSemantics:
     ) -> None:
         """The key behavior change this task adds: a full dry run
         (--skip-archive --skip-deploy) skips the archive WRITE and the
-        Pages deploy, but history sync still runs -- it only READS from
-        R2, so it validates the real CI dashboard-build behavior even in
-        dry-run mode.
+        Pages deploy, but the frozen-input check and history sync still
+        run -- both only READ from R2 in this mode, so this validates the
+        real CI scoring/dashboard-build behavior even in dry-run mode.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log, "--skip-archive", "--skip-deploy")
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:score", "python:history_sync", "python:build"]
+        assert lines == ["python:ensure", "python:score", "python:history_sync", "python:build"]
         assert "python:archive" not in lines
         assert not any(line.startswith("npx:") for line in lines)
 
@@ -237,14 +274,15 @@ class TestSkipFlagSemantics:
     def test_full_success_reaches_deploy(self, fake_project: Path, tmp_path: Path) -> None:
         """Baseline happy path -- contrast for the failure tests above:
         when nothing fails and neither skip flag is passed, deploy IS
-        reached, after archive AND history sync.
+        reached, after ensure, archive, AND history sync.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log)
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines[:4] == [
+        assert lines[:5] == [
+            "python:ensure",
             "python:score",
             "python:archive",
             "python:history_sync",
