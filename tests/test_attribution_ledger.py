@@ -16,10 +16,13 @@ unavailable, whole row excluded from the identity check).
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from mlb_luck_score.config import CLASS_ORDER
 from mlb_luck_score.eligibility import (
     add_advancement_eligibility,
     add_infield_opportunity_eligibility,
@@ -347,6 +350,11 @@ def test_ledger_has_all_expected_columns(full_ledger):
     _, ledger = full_ledger
     for col in (
         "baseline_expected_contact_run_value",
+        "p_out",
+        "p_single",
+        "p_double",
+        "p_triple",
+        "p_home_run",
         "observed_contact_result_run_value",
         "contact_result_surprise",
         "defensive_opportunity_probability",
@@ -607,4 +615,132 @@ def test_confidence_status_reports_not_supplied_when_omitted():
         ledger.loc[outfield_mask, "component_confidence_status"]
         .str.contains("defense=not_supplied")
         .all()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Version 1.4.0 (Play Explorer foundation, Phase 3): native p_* probability
+# retention -- the ledger now carries the contact model's own probability
+# vector, computed via the SAME single predict_proba_ordered call `e0`
+# already used, never a second inference pass.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def contact_only_ledger():
+    """A smaller, contact-model-only ledger (no opportunity/advancement
+    models) -- enough to exercise the p_* retention path, including at
+    least one genuine unresolved (field_error) row, without the cost of
+    training three additional models."""
+    outfield_df = _synthetic_outfield_df()
+    ground_df = _synthetic_ground_ball_df()
+    df = pd.concat([outfield_df, ground_df], ignore_index=True)
+    df = compute_eligibility(df)
+    assert (df["outcome_class"].isna() & df["is_eligible"]).any(), (
+        "fixture must contain at least one genuine eligible-but-unresolved row "
+        "(e.g. field_error) to exercise the null-together p_* contract"
+    )
+
+    contact_elig = df[df["eligible_for_training"].fillna(False)]
+    contact_trained = train_model(contact_elig, class_weight=None)
+    contact_feature_cols = contact_trained.numeric_features + contact_trained.categorical_features
+
+    ledger = build_attribution_ledger(df, contact_trained)
+    return df, ledger, contact_trained, contact_feature_cols
+
+
+def test_ledger_probability_columns_equal_recomputed_contact_proba(contact_only_ledger):
+    """The ledger's own p_* columns must equal the contact model's
+    probability vector bit-for-bit on resolved rows -- proving they are a
+    verbatim re-labeling of the SAME already-computed values, not an
+    independently-drifting second source of truth."""
+    df, ledger, contact_trained, contact_feature_cols = contact_only_ledger
+    recomputed = predict_proba_ordered(contact_trained, df[contact_feature_cols])
+    resolved = ledger["baseline_expected_contact_run_value"].notna()
+    for cls in CLASS_ORDER:
+        pd.testing.assert_series_equal(
+            ledger.loc[resolved, f"p_{cls}"].astype("float64"),
+            recomputed.loc[resolved, cls].astype("float64"),
+            check_names=False,
+        )
+
+
+def test_ledger_probability_columns_null_for_unresolved_rows(contact_only_ledger):
+    """Unresolved rows must have p_* null together with every other
+    result-linked ledger column (same unresolved-nulling loop)."""
+    _, ledger, _, _ = contact_only_ledger
+    unresolved = ledger["baseline_expected_contact_run_value"].isna()
+    assert unresolved.any(), "fixture must contain unresolved rows"
+    for cls in CLASS_ORDER:
+        assert ledger.loc[unresolved, f"p_{cls}"].isna().all()
+
+
+def test_ledger_probability_columns_non_null_for_resolved_rows(contact_only_ledger):
+    _, ledger, _, _ = contact_only_ledger
+    resolved = ledger["baseline_expected_contact_run_value"].notna()
+    assert resolved.any()
+    for cls in CLASS_ORDER:
+        assert ledger.loc[resolved, f"p_{cls}"].notna().all()
+
+
+def test_ledger_probability_columns_in_class_order():
+    """`p_out`, `p_single`, `p_double`, `p_triple`, `p_home_run` must exist
+    in exactly `CLASS_ORDER`'s order/labels -- no renamed/reordered class."""
+    assert tuple(f"p_{cls}" for cls in CLASS_ORDER) == (
+        "p_out",
+        "p_single",
+        "p_double",
+        "p_triple",
+        "p_home_run",
+    )
+
+
+def test_build_attribution_ledger_calls_predict_proba_ordered_exactly_once(contact_only_ledger):
+    """Retaining contact_proba on the returned ledger must not introduce a
+    SECOND model inference call -- patch predict_proba_ordered at its
+    attribution_ledger import site (wrapping the real implementation so
+    behavior is unchanged) and assert it fires exactly once per
+    build_attribution_ledger call."""
+    df, _, contact_trained, _ = contact_only_ledger
+    from mlb_luck_score.scoring import attribution_ledger as attribution_ledger_module
+
+    real_predict_proba_ordered = attribution_ledger_module.predict_proba_ordered
+    with patch.object(
+        attribution_ledger_module,
+        "predict_proba_ordered",
+        wraps=real_predict_proba_ordered,
+    ) as spy:
+        build_attribution_ledger(df, contact_trained)
+    assert spy.call_count == 1
+
+
+def test_probability_retention_does_not_disturb_existing_ledger_columns(contact_only_ledger):
+    """Adding p_* must not change any pre-existing ledger column's values --
+    recompute e0/rc/contact_result_surprise independently (the same formulas
+    this module has always used) and confirm the ledger's own columns still
+    match exactly."""
+    from mlb_luck_score.scoring.weather_attribution import compute_expected_run_value_vectorized
+
+    df, ledger, contact_trained, contact_feature_cols = contact_only_ledger
+    contact_proba = predict_proba_ordered(contact_trained, df[contact_feature_cols])
+    resolved = ledger["baseline_expected_contact_run_value"].notna()
+
+    recomputed_e0 = compute_expected_run_value_vectorized(contact_proba)
+    pd.testing.assert_series_equal(
+        ledger.loc[resolved, "baseline_expected_contact_run_value"].astype("float64"),
+        recomputed_e0.loc[resolved].astype("float64"),
+        check_names=False,
+    )
+
+    recomputed_rc = df["outcome_class"].astype(object).map(DEFAULT_RUN_VALUE_MAP).astype(float)
+    pd.testing.assert_series_equal(
+        ledger.loc[resolved, "observed_contact_result_run_value"].astype("float64"),
+        recomputed_rc.loc[resolved].astype("float64"),
+        check_names=False,
+    )
+
+    pd.testing.assert_series_equal(
+        ledger.loc[resolved, "contact_result_surprise"].astype("float64"),
+        (recomputed_rc - recomputed_e0).loc[resolved].astype("float64"),
+        check_names=False,
     )

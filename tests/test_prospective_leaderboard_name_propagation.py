@@ -291,10 +291,17 @@ def _stub_network_and_training_only(
     # object itself (fixture is module/session-scoped and reused elsewhere).
     augmented_report = {**v012_public_score_artifacts.report, "component_model_status": {}}
     stub_artifacts = dataclasses.replace(v012_public_score_artifacts, report=augmented_report)
+    # Version 1.4.0 Phase 3: run_prospective_snapshot reads trained.contact_
+    # trained.variant for play_ledger_metadata's model_versions -- a bare
+    # SimpleNamespace() has no such attribute, so this stub needs a minimal
+    # stand-in matching the real TrainedComponents.contact_trained shape.
+    stub_trained = SimpleNamespace(
+        contact_trained=SimpleNamespace(variant="unweighted_probability_baseline")
+    )
     monkeypatch.setattr(
         runner,
         "train_and_score_2026",
-        lambda *a, **kw: (stub_artifacts, SimpleNamespace()),
+        lambda *a, **kw: (stub_artifacts, stub_trained),
     )
 
     def _fake_fetch_player_names(batter_ids: list[int]) -> pd.DataFrame:

@@ -85,6 +85,35 @@ class TestDiscoveryAndIntegrity:
         assert snapshots[0].integrity.valid
         assert snapshots[0].snapshot_type == sd.SNAPSHOT_TYPE_GENUINE
 
+    def test_snapshot_without_play_ledger_files_remains_valid(self, tmp_path: Path) -> None:
+        """Version 1.4.0 Phase 3, Section 7 (backward compatibility): a
+        snapshot predating play-ledger persistence -- `write_snapshot`
+        (this whole file's shared fixture) never writes `play_ledger.
+        parquet`/`play_ledger_metadata.json` -- must still validate, since
+        `_load_and_validate_snapshot`'s integrity check iterates whatever
+        `integrity_hashes.json` actually lists, never a hardcoded expected
+        -filename set requiring these two files to be present. Older
+        canonical snapshots stay valid under their historical schema; a
+        play ledger is a forward-only addition, never retroactively
+        required."""
+        out_root, art_root = tmp_path / "outputs", tmp_path / "artifacts"
+        write_snapshot(
+            out_root,
+            art_root,
+            directory_name="2026-01-01",
+            data_through_date="2026-01-01",
+            snapshot_label=None,
+            generated_at="2026-01-01T00:00:00+00:00",
+            players=_players(),
+        )
+        assert not (out_root / "2026-01-01" / "play_ledger.parquet").exists()
+        assert not (out_root / "2026-01-01" / "play_ledger_metadata.json").exists()
+
+        snapshots = sd.discover_snapshots(out_root, art_root)
+        assert len(snapshots) == 1
+        assert snapshots[0].integrity.valid
+        assert snapshots[0].snapshot_type == sd.SNAPSHOT_TYPE_GENUINE
+
     def test_missing_manifest_is_invalid_and_excluded(self, tmp_path: Path) -> None:
         out_root, art_root = tmp_path / "outputs", tmp_path / "artifacts"
         write_snapshot(
