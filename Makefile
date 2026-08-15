@@ -11,7 +11,8 @@
 	download-sprint-speed join-sprint-speed compare-infield-opportunity \
 	notebook-infield-opportunity compare-advancement-models notebook-advancement \
 	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation \
-	run-public-score notebook-public-score run-prospective-scoring notebook-prospective-review
+	run-public-score notebook-public-score run-prospective-scoring notebook-prospective-review \
+	build-demo-fixture
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -417,3 +418,14 @@ run-prospective-scoring:
 #   make notebook-prospective-review
 notebook-prospective-review:
 	$(PY) -m jupyter notebook notebooks/15_prospective_snapshot_review.ipynb
+
+# Version 1.3.0: regenerates the committed `/demo/` page fixture
+# (dashboard/demo_fixture.json). NOT part of `make check`, NOT run by
+# dashboard/build.py, and NOT run by CI -- it is a manual, occasionally-rerun
+# step (e.g. after a genuine change to the frozen baseline_v02 model or the
+# run-value table) whose output is reviewed and committed like any other
+# hand-reviewed reference data. Requires the full 2021-2024 development
+# dataset already cached locally (see `make clean-development-data`); no
+# network access.
+build-demo-fixture:
+	$(PY) demo/build_demo_fixture.py

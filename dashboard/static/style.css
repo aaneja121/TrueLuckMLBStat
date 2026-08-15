@@ -46,6 +46,24 @@ body {
   background: var(--page);
   color: var(--text-primary);
   line-height: 1.5;
+  /* Root-cause fix for site-wide mobile horizontal overflow: several
+     tables (`.component-table`'s reason-codes column, `.status-table`'s
+     snapshot-type column) and inline `<code>` reason codes (methodology
+     page) contain single long, unbroken snake_case tokens (e.g.
+     "calibrated_with_limited_subgroup_evidence") with no space/hyphen for
+     the browser's default line-breaking to use. Auto table layout then
+     sizes the column -- and the whole table, which none of those elements
+     wrap in an `.overflow-x` scroll container -- to that token's full
+     unbroken width, pushing the table (and therefore the page) wider than
+     the viewport at every width up to and including 768px. A single
+     shared `overflow-wrap` rule lets the browser break at ANY character
+     when (and only when) a line would otherwise overflow its container --
+     it does not affect any text that already fits, so normal prose is
+     unaffected at every viewport width tested. Fixing this here, once,
+     covers every current and future long-token case (`<code>`, table
+     cells, badges) without a per-component patch. See
+     tests/test_dashboard_responsive_overflow.py for the regression coverage. */
+  overflow-wrap: anywhere;
 }
 
 a { color: var(--diverging-positive); text-decoration: none; }
@@ -482,4 +500,256 @@ footer.site-footer {
      visible without needing horizontal scroll for the primary leaderboard
      use case. */
   .hide-mobile { display: none; }
+}
+
+/* "/demo/" -- Why Contact Luck Exists (v1.3.0) */
+.demo-controls {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0 22px;
+}
+
+.demo-play-button,
+.demo-replay-button {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.demo-play-button:hover,
+.demo-replay-button:hover { border-color: var(--diverging-positive); }
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 800px) {
+  .demo-grid { grid-template-columns: 1fr; }
+}
+
+.demo-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px 22px;
+  background: var(--surface);
+}
+
+.demo-card h2 { margin-top: 0; }
+
+.demo-card-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  margin: -4px 0 14px;
+}
+
+.demo-field {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+.demo-field-fence { fill: none; stroke: var(--baseline); stroke-width: 2; }
+.demo-field-foul-line { stroke: var(--gridline); stroke-width: 1; stroke-dasharray: 3 3; }
+.demo-field-infield {
+  fill: var(--diverging-mid);
+  stroke: var(--baseline);
+  stroke-width: 1;
+  opacity: 0.7;
+}
+.demo-ball-path {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.45;
+}
+/* Neutral (pre-Reality) treatment for BOTH balls -- `--text-secondary`,
+   NOT `--diverging-positive` (that's the site's FAVORABLE color; using it
+   as the "neutral" default would make the favorable ball's Stage-3
+   "transition" a no-op and bias the pre-reveal state toward "favorable" by
+   accident). `--text-secondary` carries no favorable/unfavorable meaning
+   anywhere else on the site (it's the general secondary-text/UI-chrome
+   color -- already used on this exact page for `.demo-prob-label`/
+   `.page-subtitle`), and it's defined per-theme specifically so it reads
+   clearly against both the light and dark `--page`/`--surface`
+   backgrounds (dark grayish-brown in light mode, light warm gray in dark
+   mode) -- unlike `--baseline`/`--gridline`, which are deliberately LOW
+   -contrast chart chrome (grid lines, zero lines) and would make the ball
+   hard to see against the field diagram. `transition: fill` gives the
+   Stage-3 sign change (below) a soft cross-fade rather than a hard cut;
+   disabled entirely under reduced motion, matching every other timed
+   transition on this page. */
+.demo-ball {
+  fill: var(--text-secondary);
+  stroke: var(--surface);
+  stroke-width: 2;
+  transition: fill 0.3s ease;
+}
+
+/* The ball's SIGNED color (Contact Luck favorable/unfavorable -- NOT
+   hit-vs-out; a future example's outcome class and Contact Luck sign need
+   not agree, see render_demo_field_svg's docstring) only takes effect once
+   Stage 3 ("Reality") has revealed the result -- gated behind the SAME
+   `.demo-card.demo-reality-revealed` ancestor class the probability-row
+   highlight above already uses, added/removed by static/demo.js at exactly
+   the right moment. `demo-ball-favorable`/`demo-ball-unfavorable` are
+   present on the ball from first paint (like `demo-prob-row-observed`
+   above) but have NO visual effect until that ancestor class exists, so
+   neither ball's eventual sign is visible during Stages 1-2. Both rules
+   below are genuine color CHANGES from the neutral `--text-secondary`
+   default -- every example now visibly transitions at Stage 3, favorable
+   or not. */
+.demo-card.demo-reality-revealed .demo-ball.demo-ball-favorable {
+  fill: var(--diverging-positive);
+}
+.demo-card.demo-reality-revealed .demo-ball.demo-ball-unfavorable {
+  fill: var(--diverging-negative);
+}
+
+.demo-field-caption {
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 6px 0 16px;
+}
+
+.demo-stage {
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  margin: 0;
+  transition: opacity 0.45s ease;
+}
+
+.demo-stage.demo-stage-revealed {
+  opacity: 1;
+  max-height: none;
+  margin: 14px 0;
+}
+
+.demo-stage h3 { margin: 0 0 8px; font-size: 0.94rem; }
+
+.demo-stat-row { display: flex; gap: 20px; flex-wrap: wrap; }
+.demo-stat { display: flex; flex-direction: column; gap: 2px; }
+.demo-stat-label { font-size: 0.76rem; color: var(--text-muted); }
+.demo-stat-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.demo-prob-bars { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.demo-prob-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 52px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+/* Which class was the ACTUAL outcome only gets visually called out once the
+   "Reality" stage has revealed it (`.demo-card.demo-reality-revealed`, set
+   by static/demo.js at the same moment) -- marking it earlier, while Stage
+   2 is still presented as a pre-outcome expectation, would spoil the
+   reveal the sequence is built around. The `demo-prob-row-observed` class
+   itself is still always present in the markup (for reduced-motion, which
+   reveals every stage at once, and for anyone reading the raw HTML). */
+.demo-card.demo-reality-revealed .demo-prob-row-observed .demo-prob-label {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.demo-prob-label { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.demo-prob-bar-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--gridline);
+  overflow: hidden;
+}
+.demo-prob-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: var(--diverging-positive);
+  border-radius: 5px;
+  transition: width 0.9s ease;
+}
+.demo-stage-revealed .demo-prob-bar-fill { width: var(--demo-target-width); }
+.demo-prob-pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+
+.demo-rv-line { margin: 6px 0 0; font-size: 0.92rem; }
+.demo-outcome { font-size: 1rem; margin: 0 0 4px; }
+
+/* Expected (a prediction) vs. Observed (a fact) run value get distinct,
+   deliberately NEUTRAL treatments -- neither is colored red/green, because
+   neither number is individually "good" or "bad": only their DIFFERENCE
+   (Contact Luck, below) has a genuine sign. Expected reads as a soft,
+   dashed-underline estimate; Observed reads as a solid, filled-in fact. The
+   same two classes are reused in `.demo-luck-diff` so the visual language
+   carries through from Stage 2/3 into the Stage 4 payoff. */
+.demo-rv-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.demo-rv-value-expected {
+  color: var(--text-secondary);
+  border-bottom: 1px dashed var(--baseline);
+}
+.demo-rv-value-observed {
+  color: var(--text-primary);
+  background: var(--diverging-mid);
+  border-radius: 4px;
+  padding: 1px 7px;
+}
+
+.demo-luck-diff {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+  margin-bottom: 6px;
+}
+.demo-luck-arrow { color: var(--text-muted); }
+
+.demo-luck-figure { font-size: 1.6rem; font-weight: 700; margin: 4px 0; }
+/* `.interval-positive`/`.interval-negative` (defined above) only carry
+   stroke/fill for SVG marks -- this pairs the same sign with TEXT color,
+   the same pattern `.player-hero-figure.interval-positive/negative` already
+   uses on the player detail page. */
+.demo-luck-figure.interval-positive { color: var(--diverging-positive); }
+.demo-luck-figure.interval-negative { color: var(--diverging-negative); }
+
+.demo-luck-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.demo-luck-badge-favorable { border-color: var(--diverging-positive); color: var(--diverging-positive); }
+.demo-luck-badge-unfavorable { border-color: var(--diverging-negative); color: var(--diverging-negative); }
+
+.demo-explanation { color: var(--text-secondary); font-size: 0.9rem; margin: 0; }
+
+.demo-des {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 18px;
+  border-top: 1px solid var(--gridline);
+  padding-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-stage { transition: none; }
+  .demo-prob-bar-fill { transition: none; }
+  .demo-ball { transition: none; }
 }

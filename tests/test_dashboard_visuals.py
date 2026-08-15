@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from visuals import compute_interval_domain, render_interval_bar_svg
+from visuals import compute_interval_domain, render_demo_field_svg, render_interval_bar_svg
 
 COMPACT_WIDTH, COMPACT_MARGIN = 220, 10
 
@@ -184,3 +184,96 @@ class TestSharedDomainAcrossRows:
         svg_a = render_interval_bar_svg(point=-7.0, lower=-10.0, upper=-4.0, domain=domain_a)
         svg_b = render_interval_bar_svg(point=6.0, lower=3.0, upper=9.0, domain=domain_b)
         assert _parse_positions(svg_a)["zero"] != _parse_positions(svg_b)["zero"]
+
+
+class TestDemoFieldSvg:
+    """Regression coverage for the SMIL `<animateMotion>` removal (Version
+    1.3.0 QA fix): real-browser verification showed `<animateMotion>`
+    animates via a transform that never touches `cx`/`cy` and does not
+    reliably restart after `fill="freeze"`, so `static/demo.js` now drives
+    the ball with `requestAnimationFrame` instead -- these tests lock in
+    the markup contract that JS depends on.
+    """
+
+    def test_svg_contains_no_smil_animate_motion_element(self) -> None:
+        svg = render_demo_field_svg(
+            example_id="hard_contact_out",
+            spray_angle_deg=-5.9,
+            hit_distance_ft=413.0,
+            favorable=False,
+        )
+        assert "<animateMotion" not in svg
+
+    def test_ball_circle_carries_start_control_and_end_coordinates(self) -> None:
+        svg = render_demo_field_svg(
+            example_id="weak_contact_single",
+            spray_angle_deg=46.5,
+            hit_distance_ft=171.0,
+            favorable=True,
+        )
+        for attr in (
+            "data-start-x",
+            "data-start-y",
+            "data-control-x",
+            "data-control-y",
+            "data-end-x",
+            "data-end-y",
+        ):
+            assert re.search(rf'{attr}="[\d.-]+"', svg), f"missing {attr} on the ball circle"
+
+    def test_ball_starts_at_home_plate_matching_the_dashed_preview_path(self) -> None:
+        svg = render_demo_field_svg(
+            example_id="hard_contact_out",
+            spray_angle_deg=0.0,
+            hit_distance_ft=300.0,
+            favorable=False,
+        )
+        cx = re.search(r'class="demo-ball [^"]*" r="7" cx="([\d.-]+)"', svg)
+        cy = re.search(r'cy="([\d.-]+)"', svg)
+        start_x = re.search(r'data-start-x="([\d.-]+)"', svg)
+        start_y = re.search(r'data-start-y="([\d.-]+)"', svg)
+        path_d = re.search(r'class="demo-ball-path" d="M ([\d.-]+),([\d.-]+)', svg)
+        assert cx and cy and start_x and start_y and path_d
+        assert cx.group(1) == start_x.group(1) == path_d.group(1)
+        assert cy.group(1) == start_y.group(1) == path_d.group(2)
+
+    def test_hard_contact_and_weak_contact_produce_visibly_different_endpoints(self) -> None:
+        """The two demo examples must animate to CLEARLY different
+        illustrative destinations -- a hard, deep line drive vs. a short,
+        shallow bloop -- not the same spot with different labels.
+        """
+        hard = render_demo_field_svg(
+            example_id="hard_contact_out",
+            spray_angle_deg=-5.9,
+            hit_distance_ft=413.0,
+            favorable=False,
+        )
+        weak = render_demo_field_svg(
+            example_id="weak_contact_single",
+            spray_angle_deg=46.5,
+            hit_distance_ft=171.0,
+            favorable=True,
+        )
+        hard_end_y = float(re.search(r'data-end-y="([\d.-]+)"', hard).group(1))
+        weak_end_y = float(re.search(r'data-end-y="([\d.-]+)"', weak).group(1))
+        # Smaller y == further from home plate (SVG y grows downward) -- the
+        # deep, hard-hit example must land meaningfully closer to the fence.
+        assert hard_end_y < weak_end_y - 50
+
+    def test_favorable_flag_selects_the_correct_sign_class(self) -> None:
+        favorable_svg = render_demo_field_svg(
+            example_id="weak_contact_single",
+            spray_angle_deg=46.5,
+            hit_distance_ft=171.0,
+            favorable=True,
+        )
+        unfavorable_svg = render_demo_field_svg(
+            example_id="hard_contact_out",
+            spray_angle_deg=-5.9,
+            hit_distance_ft=413.0,
+            favorable=False,
+        )
+        assert 'class="demo-ball demo-ball-favorable"' in favorable_svg
+        assert "demo-ball-unfavorable" not in favorable_svg
+        assert 'class="demo-ball demo-ball-unfavorable"' in unfavorable_svg
+        assert re.search(r'class="demo-ball demo-ball-favorable"\s', unfavorable_svg) is None

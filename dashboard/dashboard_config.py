@@ -27,7 +27,15 @@ DASHBOARD_TEMPLATES_DIR = DASHBOARD_SOURCE_ROOT / "templates"
 DASHBOARD_STATIC_DIR = DASHBOARD_SOURCE_ROOT / "static"
 DASHBOARD_DIST_DIR = DASHBOARD_SOURCE_ROOT / "dist"
 
-DASHBOARD_VERSION = "1.2.0"
+DASHBOARD_VERSION = "1.3.0"
+
+# Committed, hand-reviewed reference data (like `mlb_luck_score.data.
+# game_metadata_overrides`) produced ONCE, offline, by `demo/
+# build_demo_fixture.py` -- see that module's docstring. Dashboard code only
+# ever READS this file; nothing under `dashboard/` regenerates it, and
+# `tests/test_dashboard_isolation.py` enforces that no module here can even
+# import the generator (which itself imports `mlb_luck_score`).
+DEMO_FIXTURE_PATH = DASHBOARD_SOURCE_ROOT / "demo_fixture.json"
 
 # Reserved snapshot-label value for a future, separately-built retrospective
 # -backfill mechanism (not yet implemented as of this writing -- see the

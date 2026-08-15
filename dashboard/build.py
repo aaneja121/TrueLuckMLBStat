@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import content as c
+import demo_content as dc
 import snapshot_data as sd
 import visuals as v
 from dashboard_config import (
@@ -35,6 +36,7 @@ from dashboard_config import (
     DASHBOARD_STATIC_DIR,
     DASHBOARD_TEMPLATES_DIR,
     DASHBOARD_VERSION,
+    DEMO_FIXTURE_PATH,
     PROJECT_ROOT,
 )
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -167,6 +169,36 @@ def _player_view(
     }
 
 
+def _demo_view(page_data: dc.DemoPageData) -> dict[str, Any]:
+    examples = [
+        {
+            "example_id": ex.example_id,
+            "contact_description": ex.contact_description,
+            "batter_name": ex.batter_name,
+            "batter_team": ex.batter_team,
+            "opponent_team": ex.opponent_team,
+            "game_date": ex.game_date,
+            "description": ex.description,
+            "exit_velocity_mph": ex.exit_velocity_mph,
+            "launch_angle_deg": ex.launch_angle_deg,
+            "probability_rows": ex.probability_rows,
+            "expected_run_value": ex.expected_run_value,
+            "outcome_label": ex.outcome_label,
+            "observed_run_value": ex.observed_run_value,
+            "contact_luck_runs": ex.contact_luck_runs,
+            "explanation": ex.explanation,
+            "field_svg": v.render_demo_field_svg(
+                example_id=ex.example_id,
+                spray_angle_deg=ex.spray_angle_deg,
+                hit_distance_ft=ex.hit_distance_ft,
+                favorable=ex.contact_luck_runs >= 0,
+            ),
+        }
+        for ex in page_data.examples
+    ]
+    return {"examples": examples}
+
+
 @dataclass(frozen=True)
 class BuildResult:
     manifest: c.DashboardBuildManifest
@@ -179,6 +211,7 @@ def build_dashboard(
     out_dir: Path = DASHBOARD_DIST_DIR,
     outputs_root: Path = sd.PROSPECTIVE_OUTPUTS_ROOT,
     artifacts_root: Path = sd.PROSPECTIVE_ARTIFACTS_ROOT,
+    demo_fixture_path: Path = DEMO_FIXTURE_PATH,
     repo_root: Path = PROJECT_ROOT,
     build_timestamp: str | None = None,
 ) -> BuildResult:
@@ -271,6 +304,19 @@ def build_dashboard(
     methodology_dir.mkdir(parents=True, exist_ok=True)
     (methodology_dir / "index.html").write_text(
         env.get_template("methodology.html").render(**base_context, active_page="methodology")
+    )
+
+    # "/demo/" -- reads ONLY the committed, hand-reviewed demo fixture (see
+    # `demo/build_demo_fixture.py` and `dashboard/demo_content.py`'s module
+    # docstrings); this build never scores anything or regenerates that
+    # file.
+    demo_page_data = dc.load_demo_page_data(demo_fixture_path)
+    demo_dir = out_dir / "demo"
+    demo_dir.mkdir(parents=True, exist_ok=True)
+    (demo_dir / "index.html").write_text(
+        env.get_template("demo.html").render(
+            **base_context, active_page="demo", **_demo_view(demo_page_data)
+        )
     )
 
     status_dir = out_dir / "status"

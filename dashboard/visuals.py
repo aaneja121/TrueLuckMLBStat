@@ -19,6 +19,7 @@ path that varies opacity, size, or style by `interval_interpretation`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from datetime import date
 from typing import TYPE_CHECKING
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "compute_interval_domain",
+    "render_demo_field_svg",
     "render_interval_bar_svg",
     "render_trend_chart_svg",
 ]
@@ -191,4 +193,128 @@ def render_trend_chart_svg(
             f'text-anchor="middle">{d.strftime("%b %-d")}</text>'
         )
     parts.append("</svg>")
+    return "".join(parts)
+
+
+#: Version 1.3 demo field diagram: a deliberately schematic, illustrative
+#: fan shape (foul lines + an arc standing in for "the outfield wall"), NOT
+#: a scaled reconstruction of any real park's geometry, real ball
+#: trajectory physics, or real/assumed defender positioning -- see
+#: CLAUDE.md's demo constraints #9/#10. The template pairs this SVG with an
+#: explicit "illustrative, not a reconstruction" caption; this module has no
+#: code path that claims otherwise (no fielder markers, no distance-to-wall
+#: labels, no physics-derived hang time).
+_DEMO_FIELD_HOME_X = 150.0
+_DEMO_FIELD_HOME_Y = 250.0
+_DEMO_FIELD_FENCE_RADIUS = 190.0
+_DEMO_FIELD_MAX_DISTANCE_FT = 420.0
+_DEMO_FIELD_MAX_SPRAY_DEG = 45.0
+
+
+def _demo_ball_endpoint(spray_angle_deg: float, hit_distance_ft: float) -> tuple[float, float]:
+    clamped_spray = max(-_DEMO_FIELD_MAX_SPRAY_DEG, min(_DEMO_FIELD_MAX_SPRAY_DEG, spray_angle_deg))
+    clamped_distance = max(0.0, min(_DEMO_FIELD_MAX_DISTANCE_FT, hit_distance_ft))
+    radius_px = clamped_distance / _DEMO_FIELD_MAX_DISTANCE_FT * _DEMO_FIELD_FENCE_RADIUS
+    angle_rad = math.radians(clamped_spray)
+    x = _DEMO_FIELD_HOME_X + radius_px * math.sin(angle_rad)
+    y = _DEMO_FIELD_HOME_Y - radius_px * math.cos(angle_rad)
+    return x, y
+
+
+def render_demo_field_svg(
+    *,
+    example_id: str,
+    spray_angle_deg: float,
+    hit_distance_ft: float,
+    favorable: bool,
+    width: int = 300,
+    height: int = 280,
+) -> str:
+    """An illustrative field diagram with a ball-flight path for the `/demo/`
+    page.
+
+    The ball's motion is driven entirely by `static/demo.js` (a small
+    `requestAnimationFrame` loop interpolating `cx`/`cy` along the same
+    quadratic curve drawn below), not SVG SMIL (`<animateMotion>`) -- an
+    earlier version used `<animateMotion>`, but real-browser verification
+    (see the task that replaced it) showed its `fill="freeze"` end state
+    does not reliably restart on a second `beginElement()` call, and its
+    motion is applied as an independent transform that never touches
+    `cx`/`cy`, making the element's rendered position impossible to
+    verify/reset from the attributes alone. The circle's `data-start-*`/
+    `data-control-*`/`data-end-*` attributes are the SAME coordinates used
+    to draw the dashed preview path below (`example_id` is no longer
+    embedded in any element id -- there is nothing left to target) --
+    single source of truth for both the static preview line and the actual
+    animation, so they can never drift apart. A reduced-motion viewer is
+    placed directly at `data-end-x`/`data-end-y` with no animation at all.
+
+    `favorable` (whether this example's `contact_luck_runs >= 0`) becomes
+    a `demo-ball-favorable`/`demo-ball-unfavorable` class on the ball
+    circle -- see `static/style.css`, which gates the SIGNED fill color
+    behind the SAME `.demo-card.demo-reality-revealed` ancestor class
+    `static/demo.js` already adds/removes at Stage 3 ("Reality") for the
+    probability-row highlight (see `render_demo_field_svg`'s caller and
+    that CSS rule's docstring). This function needs no JS changes and adds
+    none here -- the class is present in the markup from first paint (the
+    same pattern already used for the probability-row observed-outcome
+    highlight), but has NO visual effect until that ancestor class is
+    added, so it never leaks the outcome's favorable/unfavorable sign
+    during Stages 1-2. This is Contact Luck's sign (favorable/unfavorable
+    relative to expectation), NOT the raw hit/out outcome class -- a future
+    example with an unfavorable hit or a mildly unfavorable out must still
+    color correctly by this same rule, since it only ever looks at the
+    sign of `contact_luck_runs`.
+    """
+    home_x, home_y = _DEMO_FIELD_HOME_X, _DEMO_FIELD_HOME_Y
+    end_x, end_y = _demo_ball_endpoint(spray_angle_deg, hit_distance_ft)
+    control_x = (home_x + end_x) / 2
+    control_y = min(home_y, end_y) - 60
+    path_d = (
+        f"M {home_x:.1f},{home_y:.1f} Q {control_x:.1f},{control_y:.1f} {end_x:.1f},{end_y:.1f}"
+    )
+
+    left_foul_x = home_x + _DEMO_FIELD_FENCE_RADIUS * math.sin(
+        math.radians(-_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+    left_foul_y = home_y - _DEMO_FIELD_FENCE_RADIUS * math.cos(
+        math.radians(-_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+    right_foul_x = home_x + _DEMO_FIELD_FENCE_RADIUS * math.sin(
+        math.radians(_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+    right_foul_y = home_y - _DEMO_FIELD_FENCE_RADIUS * math.cos(
+        math.radians(_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+
+    diamond_half = 16.0
+    infield_pts = (
+        f"{home_x:.1f},{home_y - diamond_half:.1f} "
+        f"{home_x + diamond_half:.1f},{home_y - 2 * diamond_half:.1f} "
+        f"{home_x:.1f},{home_y - 3 * diamond_half:.1f} "
+        f"{home_x - diamond_half:.1f},{home_y - 2 * diamond_half:.1f}"
+    )
+
+    sign_class = "demo-ball-favorable" if favorable else "demo-ball-unfavorable"
+
+    parts = [
+        f'<svg class="demo-field" viewBox="0 0 {width} {height}" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" '
+        f'aria-label="Illustrative field diagram (not a reconstruction of the actual play)" '
+        f'data-example-id="{example_id}">',
+        f'<path class="demo-field-fence" d="M {left_foul_x:.1f},{left_foul_y:.1f} '
+        f"A {_DEMO_FIELD_FENCE_RADIUS:.0f},{_DEMO_FIELD_FENCE_RADIUS:.0f} 0 0 1 "
+        f'{right_foul_x:.1f},{right_foul_y:.1f}"></path>',
+        f'<line class="demo-field-foul-line" x1="{home_x:.1f}" y1="{home_y:.1f}" '
+        f'x2="{left_foul_x:.1f}" y2="{left_foul_y:.1f}"></line>',
+        f'<line class="demo-field-foul-line" x1="{home_x:.1f}" y1="{home_y:.1f}" '
+        f'x2="{right_foul_x:.1f}" y2="{right_foul_y:.1f}"></line>',
+        f'<polygon class="demo-field-infield" points="{infield_pts}"></polygon>',
+        f'<path class="demo-ball-path" d="{path_d}"></path>',
+        f'<circle class="demo-ball {sign_class}" r="7" cx="{home_x:.1f}" cy="{home_y:.1f}" '
+        f'data-start-x="{home_x:.1f}" data-start-y="{home_y:.1f}" '
+        f'data-control-x="{control_x:.1f}" data-control-y="{control_y:.1f}" '
+        f'data-end-x="{end_x:.1f}" data-end-y="{end_y:.1f}"></circle>',
+        "</svg>",
+    ]
     return "".join(parts)

@@ -1,0 +1,127 @@
+{
+  "demo_fixture_version": "1.3.0",
+  "examples": [
+    {
+      "contact": {
+        "bb_type": "fly_ball",
+        "exit_velocity_mph": 107.6,
+        "hit_distance_ft": 413.0,
+        "launch_angle_deg": 33.0,
+        "spray_angle_deg": -5.945086052746109
+      },
+      "contact_description": "Hard line drive",
+      "contact_luck_runs": -1.5455718492443216,
+      "example_id": "hard_contact_out",
+      "expectation": {
+        "expected_run_value": 1.290656107968476,
+        "probabilities": {
+          "double": 0.019210357764228986,
+          "home_run": 0.9183699935705423,
+          "out": 0.05692444081479338,
+          "single": 0.0020191686532899677,
+          "triple": 0.003476039197145578
+        }
+      },
+      "narrative_label": "Hard-hit line drive that became an out",
+      "provenance": {
+        "batter_id": 682985,
+        "batter_name": "Riley Greene",
+        "batter_stand": "L",
+        "batter_team": "DET",
+        "description": "Riley Greene flies out sharply to center fielder Jake Meyers.",
+        "event_id": "746378-62-5",
+        "game_date": "2024-06-14",
+        "game_pk": 746378,
+        "opponent_team": "HOU",
+        "pitcher_name": "Hader, Josh",
+        "season": 2024
+      },
+      "reality": {
+        "observed_run_value": -0.25491574127584554,
+        "outcome_class": "out",
+        "outcome_label": "Out"
+      }
+    },
+    {
+      "contact": {
+        "bb_type": "popup",
+        "exit_velocity_mph": 60.4,
+        "hit_distance_ft": 171.0,
+        "launch_angle_deg": 26.0,
+        "spray_angle_deg": 46.45220434921705
+      },
+      "contact_description": "Weak bloop",
+      "contact_luck_runs": 0.7140154636899765,
+      "example_id": "weak_contact_single",
+      "expectation": {
+        "expected_run_value": -0.2507498706080466,
+        "probabilities": {
+          "double": 0.0011187421325366735,
+          "home_run": 4.984713444614708e-09,
+          "out": 0.9948726078952355,
+          "single": 0.0037487060236622467,
+          "triple": 0.00025993896385222577
+        }
+      },
+      "narrative_label": "Weak bloop that became a single",
+      "provenance": {
+        "batter_id": 596019,
+        "batter_name": "Francisco Lindor",
+        "batter_stand": "L",
+        "batter_team": "NYM",
+        "description": "Francisco Lindor singles on a pop up to right fielder Seiya Suzuki.",
+        "event_id": "746861-44-5",
+        "game_date": "2024-06-21",
+        "game_pk": 746861,
+        "opponent_team": "CHC",
+        "pitcher_name": "Wesneski, Hayden",
+        "season": 2024
+      },
+      "reality": {
+        "observed_run_value": 0.4632655930819298,
+        "outcome_class": "single",
+        "outcome_label": "Single"
+      }
+    }
+  ],
+  "generated_at_utc": "2026-08-14T22:30:04.466529+00:00",
+  "generator_config_fingerprint": "c8d400ebd28c943e155e872ed7a7e8631731106ac16ea42e46af8674d6777be0",
+  "generator_script": "demo/build_demo_fixture.py",
+  "model_configuration": {
+    "categorical_features": [
+      "bb_type",
+      "stand"
+    ],
+    "class_order": [
+      "out",
+      "single",
+      "double",
+      "triple",
+      "home_run"
+    ],
+    "class_weight": null,
+    "contact_model_variant": "unweighted_probability_baseline",
+    "numeric_features": [
+      "launch_speed",
+      "launch_angle",
+      "spray_angle_approx",
+      "hit_distance_sc"
+    ],
+    "package_version": "0.1.0",
+    "random_seed": 42,
+    "run_value_source": "FanGraphs Guts! constants (2021-2024 average) -- see mlb_luck_score.scoring.run_values.DEFAULT_RUN_VALUE_MAP",
+    "run_value_table": {
+      "double": 0.7630263274296025,
+      "home_run": 1.4002881731817336,
+      "out": -0.25491574127584554,
+      "single": 0.4632655930819298,
+      "triple": 1.0330675498361552
+    },
+    "scikit_learn_version": "1.9.0",
+    "train_seasons": [
+      2021,
+      2022,
+      2023
+    ]
+  }
+}

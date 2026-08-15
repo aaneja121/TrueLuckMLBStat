@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Why Contact Luck Exists — Contact Luck{% endblock %}
+{% block meta_description %}A 30-second interactive demo of what Contact Luck measures, using two real 2024 MLB batted balls.{% endblock %}
+{% block content %}
+<h1>Why Contact Luck Exists</h1>
+<p class="page-subtitle">
+  Two balls in play can tell completely different stories. Contact Luck measures the run-value
+  gap between what a batted ball was expected to produce and what actually happened.
+</p>
+
+<div class="demo-controls">
+  <button type="button" class="demo-play-button" data-role="demo-play-all">Play</button>
+</div>
+
+<div class="demo-grid">
+  {% for example in examples %}
+  <section class="demo-card" data-example-id="{{ example.example_id }}">
+    <h2>{{ example.contact_description }}</h2>
+    <p class="demo-card-subtitle">
+      {{ example.batter_name }} ({{ example.batter_team }}) vs {{ example.opponent_team }} — {{ example.game_date }}
+    </p>
+
+    {{ example.field_svg | safe }}
+    <p class="demo-field-caption">
+      Illustrative animation — not a reconstruction of the actual ball flight or defender positioning.
+    </p>
+
+    <div class="demo-stage" data-stage="1">
+      <h3>Contact</h3>
+      <div class="demo-stat-row">
+        <span class="demo-stat">
+          <span class="demo-stat-label">Exit velocity</span>
+          <span class="demo-stat-value">{{ "%.1f"|format(example.exit_velocity_mph) }} mph</span>
+        </span>
+        <span class="demo-stat">
+          <span class="demo-stat-label">Launch angle</span>
+          <span class="demo-stat-value">{{ "%.0f"|format(example.launch_angle_deg) }}&deg;</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="demo-stage" data-stage="2">
+      <h3>Expectation</h3>
+      <p class="page-subtitle" style="margin-bottom:8px;">
+        The model's outcome distribution for this batted ball, before the result is revealed.
+      </p>
+      <div class="demo-prob-bars">
+        {% for row in example.probability_rows %}
+        <div class="demo-prob-row{% if row.is_observed %} demo-prob-row-observed{% endif %}">
+          <span class="demo-prob-label">{{ row.label }}</span>
+          <span class="demo-prob-bar-track">
+            <span class="demo-prob-bar-fill" style="--demo-target-width: {{ "%.2f"|format(row.probability_pct) }}%"></span>
+          </span>
+          <span class="demo-prob-pct">{{ "%.1f"|format(row.probability_pct) }}%</span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="demo-rv-line">Expected run value:
+        <span class="demo-rv-value demo-rv-value-expected">{{ "%+.2f"|format(example.expected_run_value) }}</span>
+      </p>
+    </div>
+
+    <div class="demo-stage" data-stage="3">
+      <h3>Reality</h3>
+      <p class="demo-outcome">Result: <strong>{{ example.outcome_label }}</strong></p>
+      <p class="demo-rv-line">Observed run value:
+        <span class="demo-rv-value demo-rv-value-observed">{{ "%+.2f"|format(example.observed_run_value) }}</span>
+      </p>
+      <p class="demo-des">&ldquo;{{ example.description }}&rdquo;</p>
+    </div>
+
+    <div class="demo-stage" data-stage="4">
+      <h3>Contact Luck</h3>
+      <div class="demo-luck-diff">
+        <span class="demo-rv-value demo-rv-value-expected">{{ "%+.2f"|format(example.expected_run_value) }}</span>
+        <span class="demo-luck-arrow" aria-hidden="true">&rarr;</span>
+        <span class="demo-rv-value demo-rv-value-observed">{{ "%+.2f"|format(example.observed_run_value) }}</span>
+      </div>
+      <span class="demo-luck-badge {{ 'demo-luck-badge-favorable' if example.contact_luck_runs >= 0 else 'demo-luck-badge-unfavorable' }}">
+        {{ "Favorable" if example.contact_luck_runs >= 0 else "Unfavorable" }}
+      </span>
+      <p class="demo-luck-figure {{ 'interval-positive' if example.contact_luck_runs >= 0 else 'interval-negative' }}">
+        {{ "%+.2f"|format(example.contact_luck_runs) }} runs
+      </p>
+      <p class="demo-explanation">{{ example.explanation }}</p>
+    </div>
+  </section>
+  {% endfor %}
+</div>
+
+<p class="callout">
+  These two plays are real, individual batted balls from the 2024 MLB season, scored with the
+  same frozen Contact Luck model used throughout this site (see the recorded model configuration
+  in the methodology page's technical detail). They were chosen to illustrate two clear,
+  contrasting cases — they are not a representative sample of a typical batted ball, and a single
+  play like either of these is never treated as its own judgment; it only ever contributes to a
+  player's season-long total.
+</p>
+
+<p><a href="{{ root_prefix }}methodology/">Read the full methodology &rarr;</a></p>
+{% endblock %}
+{% block extra_scripts %}
+<script src="{{ asset_prefix }}static/demo.js"></script>
+{% endblock %}
