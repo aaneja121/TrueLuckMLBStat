@@ -160,6 +160,14 @@ def v011_full_ledger() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df["game_date"] = pd.Timestamp("2024-04-01") + pd.to_timedelta(
         rng.integers(0, 175, size=len(df)), unit="D"
     )
+    # Version 1.4.0: at_bat_number/pitch_number are native play-ledger
+    # identity columns (Phase 2.5 amendment) -- this fixture's own event_id
+    # scheme ("of-field_out-0", etc.) predates and is unrelated to the real
+    # game_pk-at_bat_number-pitch_number format, so these values need not
+    # decompose from event_id; they only need to exist and be non-null,
+    # matching real production scoring_df's shape for play_ledger_export.py.
+    df["at_bat_number"] = np.arange(1, len(df) + 1)
+    df["pitch_number"] = 1
 
     df = compute_eligibility(df)
     df = add_outfield_opportunity_eligibility(df)

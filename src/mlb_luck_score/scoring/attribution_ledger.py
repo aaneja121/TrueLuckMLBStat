@@ -323,13 +323,20 @@ def build_attribution_ledger(
 
     Returns:
         A DataFrame (same index as `df`) with `baseline_expected_contact_
-        run_value`, `observed_contact_result_run_value`, `contact_result_
-        surprise`, `defensive_opportunity_probability`, `defensive_
-        execution_contribution`, `expected_advancement_value`,
+        run_value`, `p_out`/`p_single`/`p_double`/`p_triple`/`p_home_run`
+        (the contact model's own probability vector, re-labeled verbatim --
+        added in Version 1.4.0 for the play-ledger exporter's use, computed
+        via the SAME single `predict_proba_ordered` call `e0` already uses,
+        never a second inference pass), `observed_contact_result_run_value`,
+        `contact_result_surprise`, `defensive_opportunity_probability`,
+        `defensive_execution_contribution`, `expected_advancement_value`,
         `advancement_execution_contribution`, `unexplained_residual`,
         `observed_final_run_value`, `component_eligibility_status`,
         `component_confidence_status`. See module docstring for the exact
-        accounting identity these reconcile to.
+        accounting identity these reconcile to. The `p_*` columns are
+        nulled together with every other result-linked column for a row
+        with an unresolved `outcome_class` -- see the unresolved-nulling
+        loop below.
     """
     required = ("event_id", "outcome_class", "bb_type", "events")
     missing = [c for c in required if c not in df.columns]
@@ -359,6 +366,16 @@ def build_attribution_ledger(
     contact_proba = predict_proba_ordered(contact_trained, df[contact_feature_cols])
     validate_probabilities(contact_proba)
     e0 = compute_expected_run_value_vectorized(contact_proba)
+
+    # Version 1.4.0 (Play Explorer foundation): retain the contact model's
+    # OWN already-computed 5-class probability vector on the returned
+    # ledger -- `contact_proba` above is the ONLY `predict_proba_ordered`
+    # call in this function; these five columns are a pure re-labeling
+    # (`p_<class>`) of its existing values, never a second inference pass.
+    # They participate in the SAME unresolved-nulling loop below as every
+    # other result-linked ledger column, so a downstream consumer never
+    # observes a probability for a play whose outcome_class is unresolved.
+    p_columns: dict[str, pd.Series] = {f"p_{cls}": contact_proba[cls].copy() for cls in CLASS_ORDER}
 
     has_outcome_class = df["outcome_class"].notna()
     is_reached_on_error = df["events"] == "field_error"
@@ -478,12 +495,14 @@ def build_attribution_ledger(
         rf,
         advancement_execution_contribution,
         unexplained_residual,
+        *p_columns.values(),
     ):
         series.loc[unresolved] = np.nan
 
     return pd.DataFrame(
         {
             "baseline_expected_contact_run_value": e0,
+            **p_columns,
             "observed_contact_result_run_value": rc,
             "contact_result_surprise": contact_result_surprise,
             "defensive_opportunity_probability": p_out_opportunity,

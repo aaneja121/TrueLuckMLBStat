@@ -73,6 +73,31 @@ decision, so a bug (or an incorrectly mocked decision) upstream cannot
 silently let stale data reach the model. See `tests/
 test_prospective_statcast_cache_coverage.py` for the regression tests and
 CLAUDE.md "Version 1.1.2" for the full incident writeup.
+
+## v1.4.0 Phase 3: canonical play-ledger persistence (Play Explorer foundation)
+
+Every snapshot produced by a version of this script from this point forward
+also writes `play_ledger.parquet` (`mlb_luck_score.scoring.play_ledger_
+export.build_play_ledger`) and `play_ledger_metadata.json` (`mlb_luck_score.
+scoring.play_ledger_metadata.build_play_ledger_metadata`) into `outputs_
+snapshot_dir`, alongside `public_score.*`. Both are projected from the SAME
+`artifacts.scoring_df`/`artifacts.ledger` in-memory state that `public_
+score_table` above is itself built from -- there is no separate
+reconstruction, rescoring, or extra model-inference call anywhere in this
+path (`attribution_ledger.build_attribution_ledger` computes the contact
+model's probability vector exactly once, as it always has; Version 1.4.0
+Phase 3 only stopped discarding it -- see that module's docstring). They are
+written BEFORE the existing generic `output_hashes` loop below, so they are
+automatically covered by the SAME per-file integrity hashing every other
+output already gets, with no special-case archive code (`scripts/
+archive_snapshot.py` is unmodified). Canonical scoring fields only --
+`batter_name`/`batter_team`/`opponent_team` are presentation overlays and
+are deliberately NOT written here (see `play_ledger_schema.py`'s module
+docstring). This is a forward-only addition: snapshots produced before this
+change landed have no play ledger and remain valid, unmodified, under their
+original schema -- nothing here retroactively touches them, and nothing in
+`dashboard/snapshot_data.py`'s validation requires a play ledger to be
+present.
 """
 
 from __future__ import annotations
@@ -91,6 +116,7 @@ from prospective_config import (
     PROSPECTIVE_2026_SEASON_START_DATE,
     PROSPECTIVE_ARTIFACTS_DIR,
     PROSPECTIVE_OUTPUTS_DIR,
+    PROSPECTIVE_SEASON,
     _assert_within_namespace,
     assert_not_sealed_v1_namespace,
 )
@@ -121,6 +147,11 @@ from mlb_luck_score.scoring.leaderboard import (
     assign_official_ranks,
     least_favorable_leaderboard,
     most_favorable_leaderboard,
+)
+from mlb_luck_score.scoring.play_ledger_export import build_play_ledger
+from mlb_luck_score.scoring.play_ledger_metadata import (
+    build_play_ledger_metadata,
+    validate_play_ledger_metadata,
 )
 from mlb_luck_score.scoring.public_score_table import build_public_score_table
 
@@ -300,7 +331,7 @@ def run_prospective_snapshot(
         data_through_date=data_through_date,
     )
 
-    artifacts, _trained = train_and_score_2026(
+    artifacts, trained = train_and_score_2026(
         training_df, scoring_df, threshold_set=DEFAULT_THRESHOLD_SET
     )
 
@@ -325,6 +356,30 @@ def run_prospective_snapshot(
     unfavorable = least_favorable_leaderboard(public_score_table)
 
     score_card = _build_score_card(public_score_table)
+
+    # Version 1.4.0 Phase 3: canonical play-ledger persistence, built from
+    # the SAME in-memory scoring state (artifacts.scoring_df/artifacts.
+    # ledger) that already produced public_score_table above -- no separate
+    # reconstruction/rescoring path, no additional model inference (the
+    # ledger's p_* columns are attribution_ledger.py's own already-computed
+    # probabilities; see that module's docstring). Validated immediately --
+    # fail fast, before any snapshot file is written -- rather than
+    # deferred to the generic hashing step below.
+    play_ledger = build_play_ledger(artifacts.scoring_df, artifacts.ledger)
+    play_ledger_metadata = build_play_ledger_metadata(
+        play_ledger,
+        season=PROSPECTIVE_SEASON,
+        score_version=score_card["score_version"],
+        model_versions={
+            "contact": trained.contact_trained.variant,
+            "outfield": artifacts.report["model_selection_winners"]["outfield"],
+            "infield": artifacts.report["model_selection_winners"]["infield"],
+            "advancement": artifacts.report["model_selection_winners"]["advancement"],
+        },
+        data_through_date=data_through_date,
+    )
+    validate_play_ledger_metadata(play_ledger_metadata, play_ledger)
+
     coverage_and_schema_report = {
         "statcast_schema_check": statcast_provenance["schema_check"],
         "missing_dates_within_range": statcast_provenance["missing_dates_within_range"],
@@ -430,6 +485,15 @@ def run_prospective_snapshot(
     )
     (outputs_snapshot_dir / "name_resolution_report.json").write_text(
         json.dumps(name_report.to_dict(), indent=2, default=str)
+    )
+
+    # Version 1.4.0 Phase 3: written BEFORE the generic output_hashes loop
+    # below so play_ledger.parquet/play_ledger_metadata.json are picked up
+    # automatically by the SAME generic per-file hashing this script has
+    # always used for every other output -- no special-case archive code.
+    play_ledger.to_parquet(outputs_snapshot_dir / "play_ledger.parquet", index=False)
+    (outputs_snapshot_dir / "play_ledger_metadata.json").write_text(
+        json.dumps(play_ledger_metadata, indent=2, default=str)
     )
 
     output_hashes = {

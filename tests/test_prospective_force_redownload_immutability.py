@@ -12,6 +12,7 @@ snapshot-immutability guarantee itself is exercised for real.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -158,14 +159,60 @@ def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, *, distinguishing_value: flo
         ),
     )
 
-    fake_artifacts = SimpleNamespace(
-        report={
-            "model_selection_winners": {"infield": "infield_hgb_v08"},
-            "component_model_status": {"infield": "calibrated"},
+    # Version 1.4.0 Phase 3: run_prospective_snapshot now also builds a
+    # canonical play ledger from artifacts.scoring_df/artifacts.ledger and
+    # reads trained.contact_trained.variant for its metadata -- this stub
+    # needs minimal-but-valid stand-ins for both (a single resolved row is
+    # enough; this test's own focus is snapshot-immutability/hashing
+    # behavior, not play-ledger content).
+    fake_scoring_df = pd.DataFrame(
+        {
+            "game_pk": [700001],
+            "at_bat_number": [10],
+            "pitch_number": [3],
+            "game_date": ["2026-04-15"],
+            "season": [2026],
+            "batter": [12345],
+            "stand": ["L"],
+            "launch_speed": [107.6],
+            "launch_angle": [33.0],
+            "bb_type": ["fly_ball"],
+            "spray_angle_approx": [-5.9],
+            "hit_distance_sc": [413.0],
+            "outcome_class": ["out"],
         }
     )
+    _fake_observed_rv = -0.25491574127584554
+    _fake_expected_rv = 1.290656107968476
+    fake_ledger = pd.DataFrame(
+        {
+            "observed_contact_result_run_value": [_fake_observed_rv],
+            "baseline_expected_contact_run_value": [_fake_expected_rv],
+            "contact_result_surprise": [_fake_observed_rv - _fake_expected_rv],
+            "p_out": [0.05692444081479338],
+            "p_single": [0.0020191686532899677],
+            "p_double": [0.019210357764228986],
+            "p_triple": [0.003476039197145578],
+            "p_home_run": [0.9183699935705423],
+        }
+    )
+    fake_artifacts = SimpleNamespace(
+        report={
+            "model_selection_winners": {
+                "outfield": "measured_contact_only_v07",
+                "infield": "infield_hgb_v08",
+                "advancement": "advancement_speed_v09",
+            },
+            "component_model_status": {"infield": "calibrated"},
+        },
+        scoring_df=fake_scoring_df,
+        ledger=fake_ledger,
+    )
+    fake_trained = SimpleNamespace(
+        contact_trained=SimpleNamespace(variant="unweighted_probability_baseline")
+    )
     monkeypatch.setattr(
-        runner, "train_and_score_2026", lambda *a, **kw: (fake_artifacts, SimpleNamespace())
+        runner, "train_and_score_2026", lambda *a, **kw: (fake_artifacts, fake_trained)
     )
 
     table = _make_public_score_table(distinguishing_value)
@@ -221,6 +268,52 @@ def test_first_run_writes_a_new_snapshot(
     assert result["status"] == "written"
     assert (outputs_root / "2026-04-15" / "public_score.json").exists()
     assert (artifacts_root / "2026-04-15" / "manifest.json").exists()
+
+
+def test_play_ledger_and_metadata_written_and_covered_by_generic_integrity_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _isolated_dirs: tuple[Path, Path]
+) -> None:
+    """Version 1.4.0 Phase 3, Section 6: play_ledger.parquet/play_ledger_
+    metadata.json must be written into the snapshot AND automatically
+    covered by the SAME generic, no-special-case output-hashing loop every
+    other output file already gets -- never a dedicated archive code path.
+    """
+    outputs_root, artifacts_root = _isolated_dirs
+    repo_root = _init_clean_repo(tmp_path)
+    _stub_pipeline(monkeypatch, distinguishing_value=1.0)
+
+    result = runner.run_prospective_snapshot(
+        data_through_date="2026-04-15",
+        repo_root=repo_root,
+        outputs_root=outputs_root,
+        artifacts_root=artifacts_root,
+    )
+    assert result["status"] == "written"
+
+    play_ledger_path = outputs_root / "2026-04-15" / "play_ledger.parquet"
+    play_ledger_metadata_path = outputs_root / "2026-04-15" / "play_ledger_metadata.json"
+    assert play_ledger_path.exists()
+    assert play_ledger_metadata_path.exists()
+
+    # The manifest's own output_hashes (built by the SAME generic
+    # `outputs_snapshot_dir.iterdir()` loop that hashes public_score.* etc.)
+    # must include both new files -- proving no special-case archive code
+    # was needed for them to participate in snapshot integrity.
+    output_hashes = result["manifest"]["output_hashes"]
+    assert "outputs/play_ledger.parquet" in output_hashes
+    assert "outputs/play_ledger_metadata.json" in output_hashes
+    assert output_hashes["outputs/play_ledger.parquet"] == pm.compute_file_sha256(play_ledger_path)
+    assert output_hashes["outputs/play_ledger_metadata.json"] == pm.compute_file_sha256(
+        play_ledger_metadata_path
+    )
+
+    # integrity_hashes.json (the artifact archive_snapshot.py/dashboard
+    # validation actually reads) must ALSO cover both files, via the same
+    # generic mechanism.
+    integrity_hashes_path = artifacts_root / "2026-04-15" / "integrity_hashes.json"
+    integrity_hashes = json.loads(integrity_hashes_path.read_text())
+    assert "outputs/play_ledger.parquet" in integrity_hashes
+    assert "outputs/play_ledger_metadata.json" in integrity_hashes
 
 
 def test_force_redownload_with_identical_result_is_idempotent_no_op(
