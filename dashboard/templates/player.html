@@ -5,8 +5,16 @@
 
 <div class="player-header">
   <div>
-    <h1>{{ player.batter_name }}</h1>
-    <p class="page-subtitle">MLBAM ID {{ player.batter_id }} · Data through {{ data_through_date }}</p>
+    <div class="player-name-row">
+      <h1>{{ player.batter_name }}</h1>
+      <div class="player-header-mark" aria-hidden="true">
+        <svg viewBox="0 0 160 50" preserveAspectRatio="xMidYMid meet" focusable="false">
+          <path d="M80,48 L14,14 M80,48 L146,14 M14,14 A66,66 0 0 1 146,14"
+                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></path>
+        </svg>
+      </div>
+    </div>
+    <p class="player-meta">MLBAM ID {{ player.batter_id }} &middot; Data through {{ data_through_date }}</p>
     <span class="badge{% if player.qualification_status == 'qualified' %} badge-qualified{% endif %}">
       {{ player.qualification_status | replace("_", " ") | capitalize }}
     </span>
@@ -31,8 +39,14 @@
     <div class="player-hero-figure {{ 'interval-positive' if player.score >= 0 else 'interval-negative' }}">
       {{ "%+.2f"|format(player.score) }} runs / 100
     </div>
-    <p class="page-subtitle" style="margin-top:2px;">
+    <p class="player-meta" style="margin-top:2px;">
       95% interval: [{{ "%+.2f"|format(player.lower) }}, {{ "%+.2f"|format(player.upper) }}]
+    </p>
+    <p class="player-orientation">
+      Runs / 100 compares the run value of this player's realized eligible batted-ball outcomes
+      with what those batted balls were expected to produce, retrospectively — here,
+      {{ "more" if player.score >= 0 else "less" }} favorable than expected.
+      <a href="{{ root_prefix }}demo/">How Contact Luck works &rarr;</a>
     </p>
   </div>
 </div>

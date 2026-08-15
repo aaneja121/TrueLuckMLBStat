@@ -97,8 +97,115 @@
   player's season-long total.
 </p>
 
+<div class="seam-divider" aria-hidden="true"><span class="seam-mark"></span></div>
+
+<section class="simulator-section" data-role="counterfactual-simulator">
+  <h2>Try It Yourself</h2>
+  <p class="page-subtitle">
+    Change exit velocity and launch angle to see how the frozen model responds. All other model
+    inputs are held fixed to the selected real play.
+  </p>
+  <p class="simulator-caveat">Model sensitivity analysis, not a reconstruction of physical ball flight.</p>
+
+  <div class="simulator-play-selector" role="tablist" aria-label="Reference play">
+    {% for example in examples %}
+    <button type="button" class="simulator-play-button" data-role="simulator-select-play"
+            data-example-id="{{ example.example_id }}" role="tab" aria-selected="false">
+      {{ example.batter_name }}
+    </button>
+    {% endfor %}
+  </div>
+
+  <p class="simulator-loading" data-role="simulator-loading">Loading the counterfactual grid&hellip;</p>
+
+  <div class="simulator-body" data-role="simulator-body" hidden>
+    <div class="simulator-layout">
+      <div class="simulator-field-column">
+        {{ simulator_field_svg | safe }}
+        <p class="demo-field-caption">
+          Illustrative field view driven by the selected exit velocity and launch angle &mdash;
+          a model sensitivity visualization, not a reconstruction of physical ball flight.
+        </p>
+      </div>
+
+      <div class="simulator-controls-column">
+        <div class="simulator-stage simulator-stage-contact">
+          <div class="simulator-controls">
+            <div class="simulator-control">
+              <label for="simulator-ev-slider">Exit velocity</label>
+              <input type="range" id="simulator-ev-slider" class="simulator-slider"
+                     data-role="simulator-ev-slider" min="0" max="1" value="0" step="1">
+              <span class="simulator-control-value" data-role="simulator-ev-value">&mdash;</span>
+            </div>
+            <div class="simulator-control">
+              <label for="simulator-la-slider">Launch angle</label>
+              <input type="range" id="simulator-la-slider" class="simulator-slider"
+                     data-role="simulator-la-slider" min="0" max="1" value="0" step="1">
+              <span class="simulator-control-value" data-role="simulator-la-value">&mdash;</span>
+            </div>
+          </div>
+
+          <div class="simulator-control-footer">
+            <p class="simulator-fixed-context" data-role="simulator-fixed-context"></p>
+            <button type="button" class="simulator-reset-button" data-role="simulator-reset">
+              Reset to real play
+            </button>
+          </div>
+        </div>
+
+        <div class="simulator-stage simulator-stage-expectation">
+          <h3 class="simulator-stage-label">Expected outcomes</h3>
+          <div class="demo-prob-bars">
+            {% for opt in simulator_outcome_options %}
+            <div class="demo-prob-row" data-role="simulator-prob-row" data-outcome-class="{{ opt.cls }}">
+              <span class="demo-prob-label">{{ opt.label }}</span>
+              <span class="demo-prob-bar-track">
+                <span class="demo-prob-bar-fill simulator-prob-bar-fill" data-role="simulator-prob-fill"
+                      style="--demo-target-width: 0%"></span>
+              </span>
+              <span class="demo-prob-pct" data-role="simulator-prob-pct">&mdash;</span>
+            </div>
+            {% endfor %}
+          </div>
+          <p class="demo-rv-line simulator-rv-summary">Expected run value
+            <span class="demo-rv-value demo-rv-value-expected" data-role="simulator-expected-rv">&mdash;</span>
+          </p>
+        </div>
+
+        <div class="simulator-stage simulator-stage-reality">
+          <h3 class="simulator-stage-label">What if the realized result were&hellip;</h3>
+          <div class="simulator-outcome-buttons" role="group" aria-label="Hypothetical realized outcome">
+            {% for opt in simulator_outcome_options %}
+            <button type="button" class="simulator-outcome-button" data-role="simulator-outcome-button"
+                    data-outcome-class="{{ opt.cls }}" aria-pressed="false">{{ opt.label }}</button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="simulator-stage simulator-stage-payoff">
+          <h3 class="simulator-payoff-label">Contact Luck</h3>
+          <div class="simulator-rv-compare">
+            <div class="simulator-rv-compare-row">
+              <span class="simulator-rv-compare-label">Expected RV</span>
+              <span class="demo-rv-value demo-rv-value-expected" data-role="simulator-expected-rv">&mdash;</span>
+            </div>
+            <div class="simulator-rv-compare-row">
+              <span class="simulator-rv-compare-label">Observed RV</span>
+              <span class="demo-rv-value demo-rv-value-observed" data-role="simulator-observed-rv">&mdash;</span>
+            </div>
+          </div>
+          <span class="demo-luck-badge" data-role="simulator-luck-badge">&mdash;</span>
+          <p class="demo-luck-figure simulator-luck-figure" data-role="simulator-luck-figure">&mdash;</p>
+          <p class="demo-explanation" data-role="simulator-luck-explanation"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <p><a href="{{ root_prefix }}methodology/">Read the full methodology &rarr;</a></p>
 {% endblock %}
 {% block extra_scripts %}
 <script src="{{ asset_prefix }}static/demo.js"></script>
+<script src="{{ asset_prefix }}static/demo_simulator.js"></script>
 {% endblock %}

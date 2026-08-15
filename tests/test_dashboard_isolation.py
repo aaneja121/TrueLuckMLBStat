@@ -24,6 +24,7 @@ _BANNED_IMPORT_PREFIXES = (
     "prospective_ingestion",  # performs the real Statcast download
     "pybaseball",  # the Statcast download library itself
     "build_demo_fixture",  # Version 1.3.0 demo-fixture generator (demo/) -- trains a real model
+    "build_counterfactual_grid",  # Version 1.3.1 counterfactual-grid generator (demo/) -- also trains a real model
 )
 
 _BANNED_SOURCE_SUBSTRINGS = (

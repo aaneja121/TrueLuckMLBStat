@@ -9,13 +9,16 @@ or the real demo fixture, and never invokes any model-training/scoring code.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import build as dashboard_build
 import demo_content as dc
+import demo_counterfactual_content as dcc
 import pytest
 
 from dashboard_snapshot_fixtures import default_player_record, write_snapshot
+from test_dashboard_counterfactual_content import _both_plays, _write_grid
 from test_dashboard_demo_content import _example, _write_fixture
 
 
@@ -60,15 +63,25 @@ def _seed_demo_fixture(tmp_path: Path) -> Path:
     )
 
 
+def _seed_counterfactual_grid(tmp_path: Path) -> Path:
+    # A tiny synthetic grid, distinct from the real committed one -- these
+    # tests only need "a structurally valid grid exists," not real model
+    # probabilities (that's covered end-to-end by
+    # tests/test_counterfactual_grid.py against the real committed file).
+    return _write_grid(tmp_path, _both_plays())
+
+
 class TestDemoPageBuild:
     def test_demo_index_html_is_generated(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         assert (tmp_path / "dist" / "demo" / "index.html").exists()
@@ -76,11 +89,13 @@ class TestDemoPageBuild:
     def test_both_examples_and_their_key_numbers_are_present(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "demo" / "index.html").read_text()
@@ -105,11 +120,13 @@ class TestDemoPageBuild:
         """
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "demo" / "index.html").read_text()
@@ -122,11 +139,13 @@ class TestDemoPageBuild:
     def test_field_animation_is_labeled_illustrative(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "demo" / "index.html").read_text()
@@ -136,11 +155,13 @@ class TestDemoPageBuild:
     def test_demo_nav_link_present_on_every_page(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         for page in (
@@ -155,15 +176,17 @@ class TestDemoPageBuild:
     def test_demo_active_page_marks_the_demo_nav_link(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "demo" / "index.html").read_text()
-        assert '<a href="/demo/" class="active">Demo</a>' in html
+        assert '<a href="/demo/" class="active">How It Works</a>' in html
 
     def test_build_fails_loudly_when_demo_fixture_is_missing(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
@@ -179,11 +202,13 @@ class TestDemoPageBuild:
     def test_build_is_deterministic_given_a_fixed_timestamp(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist_a",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         dashboard_build.build_dashboard(
@@ -191,6 +216,7 @@ class TestDemoPageBuild:
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html_a = (tmp_path / "dist_a" / "demo" / "index.html").read_text()
@@ -200,13 +226,177 @@ class TestDemoPageBuild:
     def test_normal_leaderboard_build_is_unaffected_by_the_demo_page(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
         demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
         result = dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
             outputs_root=out_root,
             artifacts_root=art_root,
             demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "index.html").read_text()
         assert "Alice Alpha" in html
         assert result.manifest.player_count == 1
+
+
+class TestSimulatorSectionBuild:
+    """Contact Luck v1.3.1: 'Try It Yourself' counterfactual simulator
+    section -- built against the SAME synthetic snapshot/fixture as
+    `TestDemoPageBuild` above, plus a synthetic counterfactual grid (never
+    the real committed `dashboard/demo_counterfactual_grid.json` -- that
+    file's own scientific correctness is covered end-to-end by
+    `tests/test_counterfactual_grid.py`).
+    """
+
+    def _build(self, tmp_path: Path) -> str:
+        out_root, art_root = _seed_snapshot(tmp_path)
+        demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
+            build_timestamp="2026-01-01T12:00:00+00:00",
+        )
+        return (tmp_path / "dist" / "demo" / "index.html").read_text()
+
+    def test_demo_index_html_still_builds_with_the_simulator_section(self, tmp_path: Path) -> None:
+        assert "Try It Yourself" in self._build(
+            tmp_path
+        )  # requirement #15/#20: section present, build succeeds
+
+    def test_existing_v1_3_0_walkthrough_content_remains_present(self, tmp_path: Path) -> None:
+        """Requirement #21: adding the simulator must not remove or alter
+        the existing two-play walkthrough.
+        """
+        html = self._build(tmp_path)
+        assert "Why Contact Luck Exists" in html
+        assert 'data-role="demo-play-all"' in html
+        assert "-1.55 runs" in html
+        assert "+0.71 runs" in html
+
+    def test_both_reference_plays_are_selectable(self, tmp_path: Path) -> None:
+        """Requirement #16. Attribute order/whitespace inside the button tag
+        is a template-formatting detail, not part of the contract -- match
+        with a whitespace-tolerant regex rather than an exact substring.
+        """
+        html = self._build(tmp_path)
+        assert re.search(
+            r'data-role="simulator-select-play"\s+data-example-id="hard_contact_out"', html
+        )
+        assert re.search(
+            r'data-role="simulator-select-play"\s+data-example-id="weak_contact_single"', html
+        )
+
+    def test_ev_and_la_sliders_are_present_as_index_based_range_inputs(
+        self, tmp_path: Path
+    ) -> None:
+        """Requirement #17/#19: sliders exist; per the amendment, the DOM
+        `value`/`max` are array INDICES (populated by JS from the fetched
+        grid), not raw EV/LA -- the static markup only needs min="0" as a
+        placeholder since real bounds depend on which play is selected.
+        """
+        html = self._build(tmp_path)
+        assert 'data-role="simulator-ev-slider"' in html
+        assert 'data-role="simulator-la-slider"' in html
+        assert 'type="range"' in html
+
+    def test_outcome_controls_exist_for_all_five_classes(self, tmp_path: Path) -> None:
+        """Requirement #18."""
+        html = self._build(tmp_path)
+        for cls in ("out", "single", "double", "triple", "home_run"):
+            assert re.search(
+                rf'data-role="simulator-outcome-button"\s+data-outcome-class="{cls}"', html
+            )
+
+    def test_current_ev_la_and_expected_rv_placeholders_are_represented(
+        self, tmp_path: Path
+    ) -> None:
+        """Requirement #19."""
+        html = self._build(tmp_path)
+        assert 'data-role="simulator-ev-value"' in html
+        assert 'data-role="simulator-la-value"' in html
+        assert 'data-role="simulator-expected-rv"' in html
+
+    def test_ceteris_paribus_ui_copy_is_present_and_not_physics_language(
+        self, tmp_path: Path
+    ) -> None:
+        html = self._build(tmp_path)
+        assert "held fixed to the selected real play" in html
+        assert "Model sensitivity analysis, not a reconstruction of physical ball flight." in html
+        for banned_phrase in (
+            "physics simulator",
+            "simulated trajectory",
+            "what this ball would actually travel",
+            "predicted distance",
+            "exact flight path",
+            "exact spray chart",
+            "real trajectory reconstruction",
+        ):
+            assert banned_phrase not in html.lower()
+
+    def test_reset_control_and_grid_fetch_script_are_present(self, tmp_path: Path) -> None:
+        html = self._build(tmp_path)
+        assert 'data-role="simulator-reset"' in html
+        assert "demo_simulator.js" in html
+
+    def test_simulator_field_visualization_is_present_and_labeled_illustrative(
+        self, tmp_path: Path
+    ) -> None:
+        html = self._build(tmp_path)
+        assert 'data-role="simulator-field-svg"' in html
+        assert 'data-role="simulator-field-path"' in html
+        assert 'data-role="simulator-field-ball"' in html
+        assert (
+            "Illustrative field view driven by the selected exit velocity and launch angle" in html
+        )
+        assert "not a reconstruction of physical ball flight" in html
+
+    def test_counterfactual_grid_json_is_copied_into_dist_demo(self, tmp_path: Path) -> None:
+        out_root, art_root = _seed_snapshot(tmp_path)
+        demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            demo_fixture_path=demo_fixture_path,
+            demo_counterfactual_grid_path=counterfactual_grid_path,
+            build_timestamp="2026-01-01T12:00:00+00:00",
+        )
+        copied = tmp_path / "dist" / "demo" / "counterfactual-grid.json"
+        assert copied.exists()
+        assert copied.read_text() == counterfactual_grid_path.read_text()
+
+    def test_build_fails_loudly_when_counterfactual_grid_is_missing(self, tmp_path: Path) -> None:
+        out_root, art_root = _seed_snapshot(tmp_path)
+        demo_fixture_path = _seed_demo_fixture(tmp_path)
+        with pytest.raises(dcc.CounterfactualContentError):
+            dashboard_build.build_dashboard(
+                out_dir=tmp_path / "dist",
+                outputs_root=out_root,
+                artifacts_root=art_root,
+                demo_fixture_path=demo_fixture_path,
+                demo_counterfactual_grid_path=tmp_path / "does_not_exist.json",
+                build_timestamp="2026-01-01T12:00:00+00:00",
+            )
+
+    def test_build_is_deterministic_with_the_simulator_section(self, tmp_path: Path) -> None:
+        out_root, art_root = _seed_snapshot(tmp_path)
+        demo_fixture_path = _seed_demo_fixture(tmp_path)
+        counterfactual_grid_path = _seed_counterfactual_grid(tmp_path)
+        for label in ("dist_a", "dist_b"):
+            dashboard_build.build_dashboard(
+                out_dir=tmp_path / label,
+                outputs_root=out_root,
+                artifacts_root=art_root,
+                demo_fixture_path=demo_fixture_path,
+                demo_counterfactual_grid_path=counterfactual_grid_path,
+                build_timestamp="2026-01-01T12:00:00+00:00",
+            )
+        html_a = (tmp_path / "dist_a" / "demo" / "index.html").read_text()
+        html_b = (tmp_path / "dist_b" / "demo" / "index.html").read_text()
+        assert html_a == html_b

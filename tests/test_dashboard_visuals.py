@@ -18,9 +18,15 @@ domain -- see `TestSharedDomainAcrossRows` and `TestFourSyntheticExamples`.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
-from visuals import compute_interval_domain, render_demo_field_svg, render_interval_bar_svg
+from visuals import (
+    compute_interval_domain,
+    render_demo_field_svg,
+    render_interval_bar_svg,
+    render_simulator_field_svg,
+)
 
 COMPACT_WIDTH, COMPACT_MARGIN = 220, 10
 
@@ -277,3 +283,98 @@ class TestDemoFieldSvg:
         assert "demo-ball-unfavorable" not in favorable_svg
         assert 'class="demo-ball demo-ball-unfavorable"' in unfavorable_svg
         assert re.search(r'class="demo-ball demo-ball-favorable"\s', unfavorable_svg) is None
+
+
+class TestSimulatorFieldSvg:
+    """`render_simulator_field_svg` (Version 1.3.1 field-view addition) is a
+    STATIC skeleton -- `static/demo_simulator.js` owns the ball/path
+    coordinates from then on, driven live by slider state. These tests lock
+    in the markup contract that script depends on, and confirm this
+    function cannot regress `render_demo_field_svg`'s own output (they
+    share no code).
+    """
+
+    def test_svg_contains_no_smil_animate_motion_element(self) -> None:
+        svg = render_simulator_field_svg()
+        assert "<animateMotion" not in svg
+
+    def test_ball_and_path_start_as_empty_placeholders_at_home_plate(self) -> None:
+        svg = render_simulator_field_svg()
+        path_d = re.search(r'class="simulator-field-path"[^>]*\sd="([^"]*)"', svg)
+        assert path_d is not None
+        assert path_d.group(1) == ""
+        ball = re.search(r'class="simulator-field-ball"[^>]*\scx="([\d.-]+)"\scy="([\d.-]+)"', svg)
+        assert ball is not None
+        home = re.search(r'data-home-x="([\d.-]+)"\sdata-home-y="([\d.-]+)"', svg)
+        assert home is not None
+        assert ball.group(1) == home.group(1)
+        assert ball.group(2) == home.group(2)
+
+    def test_svg_exposes_the_same_coordinate_constants_the_walkthrough_uses(self) -> None:
+        # `static/demo_simulator.js` reads these data-* attributes rather
+        # than hardcoding a second copy of visuals.py's field constants --
+        # this locks the exposed values to the walkthrough's own diagram so
+        # the two visuals share one coordinate system.
+        simulator_svg = render_simulator_field_svg()
+        walkthrough_svg = render_demo_field_svg(
+            example_id="hard_contact_out",
+            spray_angle_deg=-5.9,
+            hit_distance_ft=413.0,
+            favorable=False,
+        )
+        home_x = re.search(r'data-home-x="([\d.-]+)"', simulator_svg).group(1)
+        home_y = re.search(r'data-home-y="([\d.-]+)"', simulator_svg).group(1)
+        start_x = re.search(r'data-start-x="([\d.-]+)"', walkthrough_svg).group(1)
+        start_y = re.search(r'data-start-y="([\d.-]+)"', walkthrough_svg).group(1)
+        assert home_x == start_x
+        assert home_y == start_y
+        assert re.search(r'data-fence-radius="([\d.-]+)"', simulator_svg) is not None
+        assert re.search(r'data-max-spray-deg="([\d.-]+)"', simulator_svg) is not None
+
+    def test_arc_height_and_depth_use_different_scalars_in_the_companion_js(self) -> None:
+        """This SVG's ball/path are driven entirely by `static/demo_simulator.js`
+        (see that module's `computeFieldVisualState`), so the actual numeric
+        monotonicity guarantee lives there and was verified via real-browser
+        QA, not here. This test locks in the STRUCTURAL contract that bug
+        depended on breaking: an earlier version computed arc height as
+        `Math.min(homeY, endY) - liftPx`, coupling it to the depth-dependent
+        endpoint and (because depth uses a bell curve peaking at 45 degrees)
+        making an 80-87 degree popup render with a LOWER arc than a
+        45-60 degree hit. The fix anchors arc height purely from `homeY`,
+        with `liftPx` a linear (not bell-shaped) function of launch angle --
+        this asserts that contract holds in the shipped source, so a future
+        edit can't silently reintroduce the coupling.
+        """
+        js_path = (
+            Path(__file__).resolve().parent.parent / "dashboard" / "static" / "demo_simulator.js"
+        )
+        source = js_path.read_text()
+
+        control_y_line = re.search(r"var controlY = ([^\n;]+);", source)
+        assert control_y_line is not None, "expected a single `controlY = ...` assignment"
+        assert "endY" not in control_y_line.group(1), (
+            "arc height (controlY) must not depend on the depth-derived endpoint -- "
+            f"found: {control_y_line.group(1)!r}"
+        )
+        assert control_y_line.group(1).strip() == "field.homeY - liftPx"
+
+        arc_height_fn = re.search(r"function arcHeightFactor\(laDeg\) \{[^}]*\}", source)
+        assert arc_height_fn is not None
+        assert "Math.sin" not in arc_height_fn.group(0), (
+            "arc height must be a monotonic (not bell-shaped) function of launch angle"
+        )
+
+        depth_shape_fn = re.search(r"function laDepthShapeFactor\(laDeg\) \{[^}]*\}", source)
+        assert depth_shape_fn is not None
+        assert "Math.sin" in depth_shape_fn.group(0), (
+            "depth may still use the bell-shaped shaping curve -- only arc height may not"
+        )
+
+    def test_aria_label_disclaims_reconstruction_and_names_no_specific_play(self) -> None:
+        svg = render_simulator_field_svg()
+        assert "not a reconstruction" in svg
+        assert "hard_contact_out" not in svg
+        assert "weak_contact_single" not in svg
+
+    def test_output_is_deterministic(self) -> None:
+        assert render_simulator_field_svg() == render_simulator_field_svg()

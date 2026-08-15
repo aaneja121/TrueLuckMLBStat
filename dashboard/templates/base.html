@@ -11,11 +11,11 @@
   <header class="site-header">
     <div class="site-header-inner">
       <div>
-        <a class="site-title" href="{{ root_prefix }}">Contact Luck</a>
+        <a class="site-title" href="{{ root_prefix }}"><span class="seam-mark" aria-hidden="true"></span>Contact Luck</a>
       </div>
       <nav class="site-nav">
         <a href="{{ root_prefix }}"{% if active_page == 'leaderboard' %} class="active"{% endif %}>Leaderboard</a>
-        <a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="active"{% endif %}>Demo</a>
+        <a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="active"{% endif %}>How It Works</a>
         <a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="active"{% endif %}>Methodology</a>
         <a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="active"{% endif %}>Data &amp; status</a>
       </nav>

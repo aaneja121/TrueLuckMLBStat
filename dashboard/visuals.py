@@ -31,6 +31,7 @@ __all__ = [
     "compute_interval_domain",
     "render_demo_field_svg",
     "render_interval_bar_svg",
+    "render_simulator_field_svg",
     "render_trend_chart_svg",
 ]
 
@@ -315,6 +316,82 @@ def render_demo_field_svg(
         f'data-start-x="{home_x:.1f}" data-start-y="{home_y:.1f}" '
         f'data-control-x="{control_x:.1f}" data-control-y="{control_y:.1f}" '
         f'data-end-x="{end_x:.1f}" data-end-y="{end_y:.1f}"></circle>',
+        "</svg>",
+    ]
+    return "".join(parts)
+
+
+def render_simulator_field_svg(*, width: int = 300, height: int = 280) -> str:
+    """A static field-diagram SKELETON for the "Try It Yourself" simulator
+    (Version 1.3.1), reusing the same schematic fan-shaped chrome (fence
+    arc, foul lines, infield diamond) as `render_demo_field_svg` above, at
+    the SAME `_DEMO_FIELD_*` coordinates -- so the two visuals read as one
+    consistent field, not two different diagrams.
+
+    This function deliberately does NOT share code with
+    `render_demo_field_svg` (the small amount of fence/foul-line/infield
+    geometry below is duplicated, not factored into a shared helper) so
+    that nothing here can ever change that function's own output -- the
+    v1.3.0 walkthrough's rendering must stay provably untouched by this
+    v1.3.1 addition.
+
+    Unlike `render_demo_field_svg`, this SVG carries NO baked-in ball
+    position: it renders a `simulator-field-path`/`simulator-field-ball`
+    placeholder sitting at home plate with an empty path, and
+    `static/demo_simulator.js` is the sole owner of both elements'
+    coordinates from then on -- driven live by the selected exit
+    velocity/launch angle/reference play, via a deterministic heuristic
+    that is explicitly NOT a physics simulation (see that script's
+    module docstring). This mirrors `render_demo_field_svg`'s own
+    single-source-of-truth pattern (there, `data-start/control/end-*`
+    attributes feed a `requestAnimationFrame` loop instead of SMIL), just
+    with the JS computing the coordinates itself instead of reading them
+    off the markup, since here they must change continuously as the user
+    drags a slider rather than play once on reveal.
+    """
+    home_x, home_y = _DEMO_FIELD_HOME_X, _DEMO_FIELD_HOME_Y
+
+    left_foul_x = home_x + _DEMO_FIELD_FENCE_RADIUS * math.sin(
+        math.radians(-_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+    left_foul_y = home_y - _DEMO_FIELD_FENCE_RADIUS * math.cos(
+        math.radians(-_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+    right_foul_x = home_x + _DEMO_FIELD_FENCE_RADIUS * math.sin(
+        math.radians(_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+    right_foul_y = home_y - _DEMO_FIELD_FENCE_RADIUS * math.cos(
+        math.radians(_DEMO_FIELD_MAX_SPRAY_DEG)
+    )
+
+    diamond_half = 16.0
+    infield_pts = (
+        f"{home_x:.1f},{home_y - diamond_half:.1f} "
+        f"{home_x + diamond_half:.1f},{home_y - 2 * diamond_half:.1f} "
+        f"{home_x:.1f},{home_y - 3 * diamond_half:.1f} "
+        f"{home_x - diamond_half:.1f},{home_y - 2 * diamond_half:.1f}"
+    )
+
+    parts = [
+        f'<svg class="demo-field simulator-field" viewBox="0 0 {width} {height}" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" '
+        f'aria-label="Illustrative field view driven by the selected exit velocity and '
+        f'launch angle (not a reconstruction of physical ball flight)" '
+        f'data-role="simulator-field-svg" '
+        f'data-home-x="{home_x:.1f}" data-home-y="{home_y:.1f}" '
+        f'data-fence-radius="{_DEMO_FIELD_FENCE_RADIUS:.1f}" '
+        f'data-max-spray-deg="{_DEMO_FIELD_MAX_SPRAY_DEG:.1f}">',
+        f'<path class="demo-field-fence" d="M {left_foul_x:.1f},{left_foul_y:.1f} '
+        f"A {_DEMO_FIELD_FENCE_RADIUS:.0f},{_DEMO_FIELD_FENCE_RADIUS:.0f} 0 0 1 "
+        f'{right_foul_x:.1f},{right_foul_y:.1f}"></path>',
+        f'<line class="demo-field-foul-line" x1="{home_x:.1f}" y1="{home_y:.1f}" '
+        f'x2="{left_foul_x:.1f}" y2="{left_foul_y:.1f}"></line>',
+        f'<line class="demo-field-foul-line" x1="{home_x:.1f}" y1="{home_y:.1f}" '
+        f'x2="{right_foul_x:.1f}" y2="{right_foul_y:.1f}"></line>',
+        f'<polygon class="demo-field-infield" points="{infield_pts}"></polygon>',
+        '<path class="simulator-field-path" data-role="simulator-field-path" d=""></path>',
+        f'<circle class="simulator-field-ball" data-role="simulator-field-ball" r="7" '
+        f'cx="{home_x:.1f}" cy="{home_y:.1f}"></circle>',
         "</svg>",
     ]
     return "".join(parts)

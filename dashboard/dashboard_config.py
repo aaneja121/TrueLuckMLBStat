@@ -27,7 +27,7 @@ DASHBOARD_TEMPLATES_DIR = DASHBOARD_SOURCE_ROOT / "templates"
 DASHBOARD_STATIC_DIR = DASHBOARD_SOURCE_ROOT / "static"
 DASHBOARD_DIST_DIR = DASHBOARD_SOURCE_ROOT / "dist"
 
-DASHBOARD_VERSION = "1.3.0"
+DASHBOARD_VERSION = "1.3.1"
 
 # Committed, hand-reviewed reference data (like `mlb_luck_score.data.
 # game_metadata_overrides`) produced ONCE, offline, by `demo/
@@ -36,6 +36,13 @@ DASHBOARD_VERSION = "1.3.0"
 # `tests/test_dashboard_isolation.py` enforces that no module here can even
 # import the generator (which itself imports `mlb_luck_score`).
 DEMO_FIXTURE_PATH = DASHBOARD_SOURCE_ROOT / "demo_fixture.json"
+
+# Version 1.3.1: the "Try It Yourself" counterfactual EV/launch-angle grid --
+# same committed-reference-data convention as DEMO_FIXTURE_PATH above,
+# produced ONCE, offline, by `demo/build_counterfactual_grid.py`. Dashboard
+# code only ever reads and copies this file (into dist/demo/ for the
+# browser to fetch once) -- never regenerates or recomputes it.
+DEMO_COUNTERFACTUAL_GRID_PATH = DASHBOARD_SOURCE_ROOT / "demo_counterfactual_grid.json"
 
 # Reserved snapshot-label value for a future, separately-built retrospective
 # -backfill mechanism (not yet implemented as of this writing -- see the

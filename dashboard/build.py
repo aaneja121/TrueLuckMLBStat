@@ -29,6 +29,7 @@ from typing import Any
 
 import content as c
 import demo_content as dc
+import demo_counterfactual_content as dcc
 import snapshot_data as sd
 import visuals as v
 from dashboard_config import (
@@ -36,6 +37,7 @@ from dashboard_config import (
     DASHBOARD_STATIC_DIR,
     DASHBOARD_TEMPLATES_DIR,
     DASHBOARD_VERSION,
+    DEMO_COUNTERFACTUAL_GRID_PATH,
     DEMO_FIXTURE_PATH,
     PROJECT_ROOT,
 )
@@ -196,7 +198,44 @@ def _demo_view(page_data: dc.DemoPageData) -> dict[str, Any]:
         }
         for ex in page_data.examples
     ]
-    return {"examples": examples}
+    return {"examples": examples, "simulator_field_svg": v.render_simulator_field_svg()}
+
+
+def _homepage_proof_examples(page_data: dc.DemoPageData) -> list[dict[str, Any]]:
+    """Version 1.3.3 homepage "BELIEVE" teaser -- the SAME two committed,
+    hand-reviewed examples `_demo_view` renders on `/demo/`, reduced to just
+    the fields the compact homepage proof strip needs. This reads directly
+    from the already-loaded `page_data` (never a second fixture load, never
+    a re-derivation) so the homepage numbers can never drift from `/demo/`'s
+    own -- if the fixture ever changes, both pages update together from the
+    one source of truth.
+    """
+    return [
+        {
+            "batter_name": ex.batter_name,
+            "exit_velocity_mph": ex.exit_velocity_mph,
+            "launch_angle_deg": ex.launch_angle_deg,
+            "expected_run_value": ex.expected_run_value,
+            "outcome_label": ex.outcome_label,
+            "contact_luck_runs": ex.contact_luck_runs,
+            "favorable": ex.contact_luck_runs >= 0,
+        }
+        for ex in page_data.examples
+    ]
+
+
+#: Display labels for the "Try It Yourself" simulator's probability rows AND
+#: its realized-outcome buttons -- ONE list reused for both (the outcome
+#: buttons are styled uppercase via CSS, not a second label set), matching
+#: `demo_content.CLASS_DISPLAY_LABELS`' existing short labels for visual
+#: consistency with the walkthrough above.
+_SIMULATOR_OUTCOME_OPTIONS: list[dict[str, str]] = [
+    {"cls": "out", "label": "Out"},
+    {"cls": "single", "label": "1B"},
+    {"cls": "double", "label": "2B"},
+    {"cls": "triple", "label": "3B"},
+    {"cls": "home_run", "label": "HR"},
+]
 
 
 @dataclass(frozen=True)
@@ -212,6 +251,7 @@ def build_dashboard(
     outputs_root: Path = sd.PROSPECTIVE_OUTPUTS_ROOT,
     artifacts_root: Path = sd.PROSPECTIVE_ARTIFACTS_ROOT,
     demo_fixture_path: Path = DEMO_FIXTURE_PATH,
+    demo_counterfactual_grid_path: Path = DEMO_COUNTERFACTUAL_GRID_PATH,
     repo_root: Path = PROJECT_ROOT,
     build_timestamp: str | None = None,
 ) -> BuildResult:
@@ -268,6 +308,13 @@ def build_dashboard(
 
     status_data = c.build_status_page_data(payloads, history)
 
+    # Loaded here (before the index page renders) rather than down in the
+    # "/demo/" section below, so the homepage's compact proof strip can read
+    # from the SAME loaded `demo_page_data` `_demo_view` uses for `/demo/`
+    # itself -- one fixture load, one source of truth, no second copy of
+    # Greene's/Lindor's numbers that could drift from the committed fixture.
+    demo_page_data = dc.load_demo_page_data(demo_fixture_path)
+
     env = _make_jinja_env()
     base_context = {
         "root_prefix": root_prefix,
@@ -297,6 +344,7 @@ def build_dashboard(
             ),
             qualified_count=status_data.qualified_count,
             player_count=len(player_index),
+            proof_examples=_homepage_proof_examples(demo_page_data),
         )
     )
 
@@ -309,13 +357,27 @@ def build_dashboard(
     # "/demo/" -- reads ONLY the committed, hand-reviewed demo fixture (see
     # `demo/build_demo_fixture.py` and `dashboard/demo_content.py`'s module
     # docstrings); this build never scores anything or regenerates that
-    # file.
-    demo_page_data = dc.load_demo_page_data(demo_fixture_path)
+    # file. `demo_page_data` was already loaded above (before the index page
+    # render) so the homepage proof strip and this page share one load.
     demo_dir = out_dir / "demo"
     demo_dir.mkdir(parents=True, exist_ok=True)
+
+    # "Try It Yourself" counterfactual grid (v1.3.1) -- same read-only
+    # contract as the fixture above (see `demo/build_counterfactual_grid.py`
+    # and `dashboard/demo_counterfactual_content.py`'s module docstrings).
+    # Validated here, then the RAW committed file is copied byte-for-byte
+    # into dist/demo/ for the browser to fetch once on page load -- never
+    # re-serialized, so there is exactly one copy of this (large) grid on
+    # the wire, identical to what was validated.
+    dcc.load_counterfactual_grid_data(demo_counterfactual_grid_path)
+    shutil.copy(demo_counterfactual_grid_path, demo_dir / "counterfactual-grid.json")
+
     (demo_dir / "index.html").write_text(
         env.get_template("demo.html").render(
-            **base_context, active_page="demo", **_demo_view(demo_page_data)
+            **base_context,
+            active_page="demo",
+            **_demo_view(demo_page_data),
+            simulator_outcome_options=_SIMULATOR_OUTCOME_OPTIONS,
         )
     )
 
