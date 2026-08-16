@@ -44,6 +44,85 @@ principle be derived deterministically via `inning_topbot` without any
 overlay-timing dependency. Reported per your instruction, not added, since
 it is not in the approved field list below.)
 
+## Version 2.0: `observed_run_value`/`contact_luck_runs` corrected to Rf - E0
+
+The real 2026-08-15 canonical production snapshot (Version 1.0 of this
+schema, the FIRST naturally-generated snapshot to carry a play ledger) was
+independently reconciled against that same snapshot's published
+`public_score` and FAILED for 261 of 630 batters on Total Contact Luck Runs
+and Runs/100 (BBE and Scored Games both matched exactly for every batter).
+Root cause: Version 1.0 sourced `observed_run_value`/`contact_luck_runs`
+from the attribution ledger's `observed_contact_result_run_value`/`contact_
+result_surprise` columns -- `Rc - E0`, the raw Version 0.2 contact-luck
+quantity -- which `attribution_ledger.py`'s own module docstring already
+documented as NOT the same as the full telescoping-identity quantity `Rf -
+E0` whenever a play has nonzero defensive/advancement execution
+contribution. `aggregate_attribution.aggregate_to_batter_season` (and
+therefore every published `total_contact_luck_runs`/`contact_luck_runs_
+per_100` figure) has ALWAYS summed `Rf - E0`, never `Rc - E0`. Phase 2's
+development-data reconciliation never caught this because it deliberately
+used a contact-only ledger (no outfield/infield/advancement models
+trained), where `Rc - E0` and `Rf - E0` coincide trivially -- see `tests/
+test_attribution_ledger.py::test_full_ledger_fixture_has_zero_naturally_
+diverging_rows` for why even a full-four-model SYNTHETIC fixture can
+accidentally mask this same class of bug, and the deterministic fixture
+next to it for the actual regression.
+
+Version 2.0 corrects this: `observed_run_value = Rf` (`ledger["observed_
+final_run_value"]`), `expected_run_value = E0` (unchanged, `ledger
+["baseline_expected_contact_run_value"]`), `contact_luck_runs = Rf - E0`
+(`ledger["final_result_surprise"]`, added to `attribution_ledger.py`
+specifically for this fix -- see that module's docstring). The five `p_*`
+probabilities are UNCHANGED (still the same already-computed frozen contact
+probabilities, zero new inference). No model fitting, scoring formula,
+component-attribution formula, or `public_score` aggregation changed --
+this is purely a play-ledger PROJECTION fix: `public_score` was always
+correct, and always used `Rf - E0`.
+
+### `outcome_class` represents Rc, not Rf -- and that is correct, unchanged
+
+Audited directly (`mlb_luck_score.eligibility`'s `ELIGIBLE_EVENTS_V0_1`/
+`_DIRECT_HIT_EVENTS`/`_AMBIGUOUS_OUTCOME_EVENTS`): `outcome_class` is
+derived SOLELY from Statcast's raw `events` field -- the officially
+recorded contact result of the batted-ball event itself (out/single/
+double/triple/home_run), completely independent of what happens on the
+bases afterward. It is Rc-level by definition and was NEVER intended to
+represent Rf. For the large majority of rows (no advancement modeled, or
+advancement modeled but the batter-runner's real final base matches the
+recorded hit type exactly), `Rc == Rf` and `outcome_class` already
+describes both. For a minority of advancement-MODELED rows, the batter-
+runner's true final base (`mlb_luck_score.eligibility.add_advancement_
+eligibility`'s own native `batter_final_base` column, one of `ADVANCEMENT_
+LABELS` -- e.g. `advanced_to_second` for a recorded `single`) can
+legitimately differ from what the recorded hit type alone implies, which
+is exactly what makes `Rf != Rc` for that row. This is NOT a data error --
+`outcome_class` ("what was officially recorded") and `observed_run_value`/
+`contact_luck_runs` ("what the full accounting system computed, including
+realized advancement") are two different, both-correct pieces of
+information about the same play.
+
+`batter_final_base`/`ADVANCEMENT_LABELS` IS the system's existing native
+representation of the true final outcome for the subset of rows where it
+can diverge -- but it uses a different vocabulary (base-count labels, not
+out/single/double/triple/home_run) and only exists for advancement-eligible
+rows, and per the v1.4.0 scope decision it is an advancement-component
+field, deliberately NOT exposed on the canonical play ledger (see "Do not
+expose defensive or advancement component fields," CLAUDE.md's Version
+1.4.0 task). The smallest scientifically correct schema adjustment is
+therefore: keep `outcome_class` exactly as-is (unchanged name, unchanged
+values, unchanged nullability), documented precisely as the Rc-level
+recorded-contact-result classification, and fix the ACTUAL internal-
+consistency defect this uncovered -- `_validate_contact_luck_identity`'s
+Version 1.0 cross-check against `mlb_luck_score.scoring.contact_luck.
+compute_raw_contact_luck_runs` implicitly assumed `contact_luck_runs`
+reconstructs from `outcome_class` via `DEFAULT_RUN_VALUE_MAP` (i.e. that it
+equals `Rc - E0`), which is no longer true in Version 2.0 for advancement-
+modeled rows with real advancement execution. That specific cross-check is
+REMOVED (see `_validate_contact_luck_identity`'s own docstring) -- the
+self-referential identity `contact_luck_runs == observed_run_value -
+expected_run_value` remains fully enforced and is the actual defining
+guarantee.
+
 ## Why `p_out`..`p_home_run`/`expected_run_value`/`outcome_class`/
 ## `observed_run_value`/`contact_luck_runs` are nullable together
 
@@ -90,8 +169,6 @@ import numpy as np
 import pandas as pd
 
 from mlb_luck_score.config import CLASS_ORDER
-from mlb_luck_score.scoring.contact_luck import compute_raw_contact_luck_runs
-from mlb_luck_score.scoring.run_values import DEFAULT_RUN_VALUE_MAP
 
 __all__ = [
     "PLAY_LEDGER_VERSION",
@@ -106,14 +183,31 @@ __all__ = [
 ]
 
 #: Bump on any schema change (new/renamed/retyped column, changed
-#: nullability rule, changed validation rule) -- independent of
+#: nullability rule, changed validation rule, or -- new in Version 2.0 --
+#: a changed SEMANTIC MEANING of an existing column) -- independent of
 #: `mlb_luck_score.config`'s `score_version`/model versions, exactly
 #: mirroring `demo_counterfactual_grid_version`/`demo_fixture_version`'s
 #: existing precedent (see `dashboard/demo_counterfactual_grid.json`/
-#: `dashboard/demo_fixture.json`). A future component-attribution addition
-#: (explicitly OUT of v1.4.0's schema -- see module docstring) would bump
-#: this to "2.0", not silently widen "1.0"'s contract.
-PLAY_LEDGER_VERSION = "1.0"
+#: `dashboard/demo_fixture.json`).
+#:
+#: "1.0" -> "2.0" (Phase 3.1): `observed_run_value`/`contact_luck_runs`
+#: changed from `Rc`/`Rc - E0` to `Rf`/`Rf - E0` -- see module docstring's
+#: "Version 2.0: observed_run_value/contact_luck_runs corrected to Rf - E0"
+#: section. Column NAMES/dtypes/nullability are unchanged from 1.0; only
+#: the meaning of two already-named fields changed, which is exactly why a
+#: version bump (not a silent 1.0 patch) is required -- see CLAUDE.md
+#: "Never silently redefine the Luck Score." The ONE real-production
+#: v1.0 snapshot (2026-08-15, sealed, immutable, archived in R2) is
+#: PERMANENTLY a v1.0 artifact and must never be reinterpreted as v2.0 --
+#: any future Play Explorer/browser-artifact generator MUST explicitly
+#: require `play_ledger_version == PLAY_LEDGER_VERSION` (or an allow-list
+#: of known-compatible versions) before treating a snapshot's play ledger
+#: as consumable, exactly like `prospective.prospective_manifest.
+#: verify_v1_seal_unchanged`'s precedent for cross-version compatibility
+#: checks elsewhere in this codebase. A future component-attribution
+#: addition (explicitly OUT of v1.4.0's schema -- see module docstring)
+#: would bump this again, not silently widen "2.0"'s contract.
+PLAY_LEDGER_VERSION = "2.0"
 
 #: `p_<class>` columns, in `CLASS_ORDER` order -- the contact model's own
 #: ordered 5-class probability vector, unchanged from `mlb_luck_score.
@@ -317,11 +411,15 @@ def validate_play_ledger(df: pd.DataFrame) -> None:
     together (never a partial resolution); every probability column is
     finite and in [0, 1] and the five sum to ~1.0 on every row; and, for
     every row with a resolved outcome, `contact_luck_runs` reconciles
-    EXACTLY to `observed_run_value - expected_run_value` (the same
-    identity `mlb_luck_score.scoring.contact_luck.compute_raw_contact_luck_
-    runs` computes) within `_CONTACT_LUCK_IDENTITY_ATOL` -- this is the
-    "never silently redefine the Luck Score" guardrail (CLAUDE.md) applied
-    to this new artifact.
+    EXACTLY to `observed_run_value - expected_run_value` within
+    `_CONTACT_LUCK_IDENTITY_ATOL` -- this is the "never silently redefine
+    the Luck Score" guardrail (CLAUDE.md) applied to this new artifact.
+    NOTE (Version 2.0, Phase 3.1): this identity check is deliberately
+    self-referential (`observed_run_value - expected_run_value ==
+    contact_luck_runs`, using only this schema's own three fields), NOT a
+    cross-check against `mlb_luck_score.scoring.contact_luck.compute_raw_
+    contact_luck_runs` -- see this module's docstring for why that
+    specific cross-check was removed in Version 2.0.
 
     Raises:
         PlayLedgerValidationError: on any violation, with the exact
@@ -448,6 +546,25 @@ def _validate_probabilities(df: pd.DataFrame, *, atol: float = _PROBABILITY_SUM_
 def _validate_contact_luck_identity(
     df: pd.DataFrame, *, atol: float = _CONTACT_LUCK_IDENTITY_ATOL
 ) -> None:
+    """Version 2.0: checks ONLY the self-referential identity
+    `contact_luck_runs == observed_run_value - expected_run_value`.
+
+    An earlier (Version 1.0) draft of this check ALSO cross-checked against
+    `mlb_luck_score.scoring.contact_luck.compute_raw_contact_luck_runs`
+    (which reconstructs `run_value(outcome_class) - E[run_value|proba]`,
+    i.e. `Rc - E0`). That cross-check is REMOVED in Version 2.0: `contact_
+    luck_runs` is now deliberately sourced from `Rf - E0` (`final_result_
+    surprise`, via `play_ledger_export.py`), which no longer equals `Rc -
+    E0` for any row with nonzero defensive/advancement execution
+    contribution -- `outcome_class` documents the RECORDED contact result
+    (Rc), not necessarily the batter-runner's final position after
+    advancement (Rf), so reconstructing an "expected contact_luck_runs"
+    from `outcome_class` alone is no longer a valid independent check (see
+    module docstring's "outcome_class represents Rc, not Rf" section).
+    This is not a weakening of the guardrail: the identity checked here is
+    the actual DEFINING relationship of `contact_luck_runs`, regardless of
+    which quantity (Rc - E0 or Rf - E0) it is defined to equal.
+    """
     resolved = df["outcome_class"].notna()
     if not resolved.any():
         return
@@ -464,23 +581,6 @@ def _validate_contact_luck_identity(
             f"{int(mismatch.sum())} row(s) have contact_luck_runs != observed_run_value - "
             f"expected_run_value (first 10 play_id: {bad_ids[:10]})"
         )
-
-    # Cross-check against the reusable canonical formula itself (never a
-    # second, independently-drifting implementation -- see CLAUDE.md
-    # "Never silently redefine the Luck Score").
-    for _, row in sub.head(200).iterrows():  # sampled, not every row -- pure-Python loop below
-        probabilities = {c: float(row[f"p_{c}"]) for c in CLASS_ORDER}
-        expected = compute_raw_contact_luck_runs(
-            probabilities,
-            observed_outcome=str(row["outcome_class"]),
-            run_value_map=DEFAULT_RUN_VALUE_MAP,
-        )
-        if not np.isclose(float(row["contact_luck_runs"]), expected, atol=1e-6):
-            raise PlayLedgerValidationError(
-                f"play_id={row['play_id']!r}: contact_luck_runs does not match "
-                f"compute_raw_contact_luck_runs(...) (schema value={row['contact_luck_runs']!r}, "
-                f"canonical formula value={expected!r})"
-            )
 
 
 def resolved_rows(df: pd.DataFrame) -> pd.DataFrame:

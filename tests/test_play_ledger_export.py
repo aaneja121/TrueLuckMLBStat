@@ -154,11 +154,11 @@ def test_exporter_copies_ledger_values_verbatim_bit_for_bit(synthetic_ledger):
     """
     df, ledger = synthetic_ledger
     result = build_play_ledger(df, ledger)
-    resolved = ledger["observed_contact_result_run_value"].notna()
+    resolved = ledger["observed_final_run_value"].notna()
 
     pd.testing.assert_series_equal(
         result.loc[resolved, "observed_run_value"].astype("float64"),
-        ledger.loc[resolved, "observed_contact_result_run_value"].astype("float64"),
+        ledger.loc[resolved, "observed_final_run_value"].astype("float64"),
         check_names=False,
         check_index=False,
     )
@@ -170,7 +170,7 @@ def test_exporter_copies_ledger_values_verbatim_bit_for_bit(synthetic_ledger):
     )
     pd.testing.assert_series_equal(
         result.loc[resolved, "contact_luck_runs"].astype("float64"),
-        ledger.loc[resolved, "contact_result_surprise"].astype("float64"),
+        ledger.loc[resolved, "final_result_surprise"].astype("float64"),
         check_names=False,
         check_index=False,
     )
@@ -258,8 +258,8 @@ def test_ledger_missing_probability_column_raises(synthetic_ledger):
 
 def test_ledger_missing_observed_run_value_column_raises(synthetic_ledger):
     df, ledger = synthetic_ledger
-    bad_ledger = ledger.drop(columns=["observed_contact_result_run_value"])
-    with pytest.raises(PlayLedgerExportError, match="observed_contact_result_run_value"):
+    bad_ledger = ledger.drop(columns=["observed_final_run_value"])
+    with pytest.raises(PlayLedgerExportError, match="observed_final_run_value"):
         build_play_ledger(df, bad_ledger)
 
 
