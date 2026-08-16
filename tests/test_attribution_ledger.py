@@ -54,6 +54,7 @@ from mlb_luck_score.scoring.attribution_ledger import (
     compute_opportunity_adjusted_expected_run_value,
     verify_attribution_identity,
 )
+from mlb_luck_score.scoring.play_ledger_export import build_play_ledger
 from mlb_luck_score.scoring.run_values import DEFAULT_RUN_VALUE_MAP
 
 # ---------------------------------------------------------------------------
@@ -346,6 +347,130 @@ def full_ledger():
     return df, ledger
 
 
+@pytest.fixture(scope="module")
+def full_ledger_with_known_advancement_divergence():
+    """Identical construction to `full_ledger`, PLUS one deterministically
+    crafted extra row: a recorded `single` whose `des` text unambiguously
+    parses (`parse_batter_advancement_des`) to `advanced_to_second` -- i.e.
+    the batter-runner's REAL final base (2nd) differs from what the
+    recorded hit type alone implies (1st). This guarantees `Rf != Rc` for
+    that row by construction, regardless of what the rest of the synthetic
+    fixture happens to contain -- `full_ledger` itself (checked empirically)
+    contains ZERO such rows, which is exactly why a naive "train all four
+    models and hope for divergence" fixture is not a reliable regression
+    (see test_final_result_surprise_diverges_from_contact_result_surprise_
+    on_a_deterministic_advancement_row below).
+    """
+    outfield_df = _synthetic_outfield_df()
+    ground_df = _synthetic_ground_ball_df()
+
+    divergent_row = pd.DataFrame(
+        [
+            {
+                "event_id": "of-single-divergent-0",
+                "game_pk": 4999,
+                "launch_speed": 90.0,
+                "launch_angle": 8.0,
+                "spray_angle_approx": 2.0,
+                "hit_distance_sc": 180.0,
+                "bb_type": "fly_ball",
+                "stand": "R",
+                "venue": "Synthetic Park",
+                "events": "single",
+                "des": (
+                    "Someone singles on a fly ball to center fielder Other Player. Someone to 2nd."
+                ),
+                "hit_location": 8,
+                "of_fielding_alignment": "Standard",
+                "fielder_7": 111,
+                "fielder_8": 222,
+                "fielder_9": 333,
+                "sprint_speed": 27.0,
+                "eligible_for_training": True,
+                "season": 2023,
+            }
+        ]
+    )
+    df = pd.concat([outfield_df, ground_df, divergent_row], ignore_index=True)
+
+    # Identity columns build_play_ledger requires (event_id already exists
+    # per-row above) -- absent from the plain _synthetic_outfield_df/
+    # _synthetic_ground_ball_df fixtures, added here since this fixture is
+    # also used to exercise the play-ledger exporter, not just the ledger.
+    rng = np.random.default_rng(7)
+    df["batter"] = rng.integers(1000, 1010, size=len(df))
+    df["at_bat_number"] = np.arange(1, len(df) + 1)
+    df["pitch_number"] = 1
+    df["game_date"] = pd.Timestamp("2023-04-01") + pd.to_timedelta(
+        rng.integers(0, 175, size=len(df)), unit="D"
+    )
+    df["game_date"] = df["game_date"].dt.strftime("%Y-%m-%d")
+
+    df = compute_eligibility(df)
+    df = add_outfield_opportunity_eligibility(df)
+    df = add_infield_opportunity_eligibility(df)
+    df = add_advancement_eligibility(df)
+    df = add_opportunity_features_by_domain(df)
+    df = add_advancement_features(df)
+
+    divergent_mask = df["event_id"] == "of-single-divergent-0"
+    assert bool(df.loc[divergent_mask, "advancement_eligible"].iloc[0]), (
+        "the crafted row must actually be advancement-eligible for this fixture to work"
+    )
+    assert df.loc[divergent_mask, "batter_final_base"].iloc[0] == "advanced_to_second"
+
+    contact_elig = df[df["eligible_for_training"].fillna(False)]
+    contact_trained = train_model(contact_elig, class_weight=None)
+
+    contact_feature_cols = contact_trained.numeric_features + contact_trained.categorical_features
+    contact_proba_all = predict_proba_ordered(contact_trained, df[contact_feature_cols])
+    df = add_advancement_contact_probability_features(df, contact_proba_all)
+
+    outfield_elig = df[df["outfield_opportunity_eligible"].astype(bool)]
+    outfield_trained = train_opportunity_model(outfield_elig, class_weight=None)
+
+    infield_elig = df[df["infield_opportunity_eligible"].astype(bool)]
+    infield_trained = train_opportunity_model(
+        infield_elig,
+        numeric_features=[
+            "launch_speed",
+            "launch_angle",
+            "spray_angle_approx",
+            "hit_distance_sc",
+            "sprint_speed",
+            "outs_when_up",
+            "on_1b_occupied",
+        ],
+        categorical_features=[
+            "stand",
+            "if_fielding_alignment",
+            "assigned_infield_position",
+            "surface_type",
+        ],
+        class_weight=None,
+        target_column=INFIELD_OPPORTUNITY_TARGET_COLUMN,
+    )
+
+    advancement_elig = df[df["advancement_eligible"].astype(bool)]
+    advancement_trained = train_advancement_model(
+        advancement_elig,
+        numeric_features=ADVANCEMENT_NUMERIC,
+        categorical_features=ADVANCEMENT_CATEGORICAL,
+    )
+
+    ledger = build_attribution_ledger(
+        df,
+        contact_trained,
+        outfield_trained=outfield_trained,
+        infield_trained=infield_trained,
+        advancement_trained=advancement_trained,
+        outfield_confidence_status="calibrated",
+        infield_confidence_status="calibrated_with_limited_subgroup_evidence",
+        advancement_confidence_status="calibrated_with_limited_subgroup_evidence",
+    )
+    return df, ledger, divergent_mask
+
+
 def test_ledger_has_all_expected_columns(full_ledger):
     _, ledger = full_ledger
     for col in (
@@ -362,11 +487,82 @@ def test_ledger_has_all_expected_columns(full_ledger):
         "expected_advancement_value",
         "advancement_execution_contribution",
         "observed_final_run_value",
+        "final_result_surprise",
         "unexplained_residual",
         "component_eligibility_status",
         "component_confidence_status",
     ):
         assert col in ledger.columns
+
+
+def test_final_result_surprise_equals_rf_minus_e0(full_ledger):
+    _, ledger = full_ledger
+    resolved = ledger["baseline_expected_contact_run_value"].notna()
+    expected = (
+        ledger.loc[resolved, "observed_final_run_value"]
+        - ledger.loc[resolved, "baseline_expected_contact_run_value"]
+    )
+    pd.testing.assert_series_equal(
+        ledger.loc[resolved, "final_result_surprise"].astype("float64"),
+        expected.astype("float64"),
+        check_names=False,
+    )
+
+
+def test_full_ledger_fixture_has_zero_naturally_diverging_rows(full_ledger):
+    """Documents WHY a naive 'train all four models and hope' fixture is
+    not a reliable regression for the Rc-vs-Rf class of error: even though
+    `full_ledger` trains real outfield/infield/advancement models, none of
+    its synthetic `des` text happens to describe advancement beyond the
+    recorded hit type, so Rf == Rc for every single row here. A contact-
+    only OR an all-models-but-accidentally-degenerate fixture both mask
+    this bug identically -- see the deterministic fixture/test below for
+    the actual regression.
+    """
+    _, ledger = full_ledger
+    resolved = ledger["baseline_expected_contact_run_value"].notna()
+    diff = (
+        ledger.loc[resolved, "final_result_surprise"]
+        - ledger.loc[resolved, "contact_result_surprise"]
+    ).abs()
+    assert int((diff > 1e-9).sum()) == 0
+
+
+def test_final_result_surprise_diverges_from_contact_result_surprise_on_a_deterministic_advancement_row(
+    full_ledger_with_known_advancement_divergence,
+):
+    """Version 1.4.0 Phase 3.1 regression: CANNOT pass merely because
+    defense/advancement contributions happen to be zero -- uses a row
+    deterministically crafted (via a real `des` string parsed by the
+    production advancement parser) so the batter's true final base
+    (2nd, from `advanced_to_second`) differs from the recorded hit type
+    (`single`, 1st base). This reproduces exactly the class of error the
+    contact-only Phase 2 reconciliation, and even `full_ledger`'s own
+    all-four-models-but-accidentally-degenerate configuration (previous
+    test), could never have caught: Rc - E0 (`contact_result_surprise`)
+    and Rf - E0 (`final_result_surprise`) are DIFFERENT numbers here.
+    """
+    df, ledger, divergent_mask = full_ledger_with_known_advancement_divergence
+    row = ledger.loc[divergent_mask].iloc[0]
+
+    assert row["observed_contact_result_run_value"] != row["observed_final_run_value"], (
+        "the crafted row must have Rc != Rf, otherwise it doesn't exercise the bug"
+    )
+
+    rc_minus_e0 = (
+        row["observed_contact_result_run_value"] - row["baseline_expected_contact_run_value"]
+    )
+    rf_minus_e0 = row["observed_final_run_value"] - row["baseline_expected_contact_run_value"]
+    assert abs(rc_minus_e0 - row["contact_result_surprise"]) < 1e-9
+    assert abs(rf_minus_e0 - row["final_result_surprise"]) < 1e-9
+    assert abs(row["contact_result_surprise"] - row["final_result_surprise"]) > 1e-9
+
+    # And the exported canonical contact_luck_runs must equal Rf - E0, NOT Rc - E0.
+    exported = build_play_ledger(df, ledger)
+    exported_row = exported.loc[exported["play_id"] == "of-single-divergent-0"].iloc[0]
+    assert abs(exported_row["contact_luck_runs"] - rf_minus_e0) < 1e-9
+    assert abs(exported_row["contact_luck_runs"] - rc_minus_e0) > 1e-9
+    assert abs(exported_row["observed_run_value"] - row["observed_final_run_value"]) < 1e-9
 
 
 def test_ledger_preserves_row_count_and_index(full_ledger):

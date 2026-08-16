@@ -91,6 +91,25 @@ independent additive term in the identity above -- it already contains
 contribution together would be the exact double-count this module exists to
 prevent.
 
+## `final_result_surprise = Rf - E0`: the published headline quantity
+
+Version 1.4.0 Phase 3.1 added `final_result_surprise` (`Rf - E0`) as its own
+named, row-level, additive column -- by construction it equals `unexplained_
+residual + defensive_execution_contribution + advancement_execution_
+contribution` (the full right-hand side of the identity above), and it is
+the EXACT quantity `mlb_luck_score.scoring.aggregate_attribution.
+aggregate_to_batter_season` already sums into the published `total_contact_
+luck_runs`/`contact_luck_runs_per_100` metrics (`observed_minus_expected =
+ledger["observed_final_run_value"] - ledger["baseline_expected_contact_
+run_value"]`). `contact_result_surprise` (`Rc - E0`, above) and `final_
+result_surprise` (`Rf - E0`) are DIFFERENT numbers whenever a play has any
+nonzero defensive or advancement execution contribution -- do not confuse
+them, and never publish `contact_result_surprise` as if it reconciled to
+the player-season headline metric (`mlb_luck_score.scoring.play_ledger_
+schema`'s Version 2.0 canonical `contact_luck_runs` field is deliberately
+sourced from `final_result_surprise`, not `contact_result_surprise` -- see
+that module's docstring for the incident this corrects).
+
 ## Scope and honest gaps
 
   - Reached-on-error rows (`events == "field_error"`): Version 0.1's
@@ -328,15 +347,20 @@ def build_attribution_ledger(
         added in Version 1.4.0 for the play-ledger exporter's use, computed
         via the SAME single `predict_proba_ordered` call `e0` already uses,
         never a second inference pass), `observed_contact_result_run_value`,
-        `contact_result_surprise`, `defensive_opportunity_probability`,
-        `defensive_execution_contribution`, `expected_advancement_value`,
-        `advancement_execution_contribution`, `unexplained_residual`,
-        `observed_final_run_value`, `component_eligibility_status`,
+        `contact_result_surprise` (Rc - E0, NOT the published headline
+        metric -- see module docstring), `defensive_opportunity_
+        probability`, `defensive_execution_contribution`, `expected_
+        advancement_value`, `advancement_execution_contribution`,
+        `observed_final_run_value`, `final_result_surprise` (Rf - E0 --
+        added in Version 1.4.0 Phase 3.1; this IS the same quantity
+        `aggregate_attribution.aggregate_to_batter_season` sums into the
+        published `total_contact_luck_runs`/`contact_luck_runs_per_100`),
+        `unexplained_residual`, `component_eligibility_status`,
         `component_confidence_status`. See module docstring for the exact
-        accounting identity these reconcile to. The `p_*` columns are
-        nulled together with every other result-linked column for a row
-        with an unresolved `outcome_class` -- see the unresolved-nulling
-        loop below.
+        accounting identity these reconcile to. The `p_*` columns and
+        `final_result_surprise` are nulled together with every other
+        result-linked column for a row with an unresolved `outcome_class`
+        -- see the unresolved-nulling loop below.
     """
     required = ("event_id", "outcome_class", "bb_type", "events")
     missing = [c for c in required if c not in df.columns]
@@ -441,8 +465,21 @@ def build_attribution_ledger(
     )
 
     contact_result_surprise = rc - e0
+    # Version 1.4.0 Phase 3.1: the FULL telescoping headline quantity
+    # (Rf - E0) -- distinct from contact_result_surprise (Rc - E0) above,
+    # which does NOT include defensive/advancement execution and is
+    # therefore NOT the same number as the published `total_contact_luck_
+    # runs` metric (see `aggregate_attribution.aggregate_to_batter_season`,
+    # whose `observed_minus_expected` is exactly `observed_final_run_value
+    # - baseline_expected_contact_run_value`). Computed ONCE, here, and
+    # reused below for `unexplained_residual` (previously computed inline
+    # as `(rf - e0)`) -- this is the single appropriate place to create
+    # this additive field, per the Phase 3.1 audit: no such row-level
+    # column previously existed on the returned ledger, even though `(rf -
+    # e0)` was already being computed inline for `unexplained_residual`.
+    final_result_surprise = rf - e0
     unexplained_residual = (
-        (rf - e0)
+        final_result_surprise
         - defensive_execution_contribution.fillna(0.0)
         - advancement_execution_contribution.fillna(0.0)
     )
@@ -491,6 +528,7 @@ def build_attribution_ledger(
         rc,
         e0,
         contact_result_surprise,
+        final_result_surprise,
         defensive_execution_contribution,
         rf,
         advancement_execution_contribution,
@@ -510,6 +548,7 @@ def build_attribution_ledger(
             "expected_advancement_value": ea,
             "advancement_execution_contribution": advancement_execution_contribution,
             "observed_final_run_value": rf,
+            "final_result_surprise": final_result_surprise,
             "unexplained_residual": unexplained_residual,
             "component_eligibility_status": component_status,
             "component_confidence_status": component_confidence_status,

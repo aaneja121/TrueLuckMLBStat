@@ -186,9 +186,16 @@ def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, *, distinguishing_value: flo
     _fake_expected_rv = 1.290656107968476
     fake_ledger = pd.DataFrame(
         {
-            "observed_contact_result_run_value": [_fake_observed_rv],
+            # Phase 3.1: play_ledger_export.py sources observed_run_value/
+            # contact_luck_runs from the Rf columns (observed_final_run_
+            # value/final_result_surprise), not the Rc columns -- this stub
+            # only needs to be internally consistent (Rf - E0 ==
+            # final_result_surprise), not to model any real Rc/Rf
+            # divergence, since this test's focus is snapshot-immutability/
+            # hashing, not play-ledger semantics.
+            "observed_final_run_value": [_fake_observed_rv],
             "baseline_expected_contact_run_value": [_fake_expected_rv],
-            "contact_result_surprise": [_fake_observed_rv - _fake_expected_rv],
+            "final_result_surprise": [_fake_observed_rv - _fake_expected_rv],
             "p_out": [0.05692444081479338],
             "p_single": [0.0020191686532899677],
             "p_double": [0.019210357764228986],

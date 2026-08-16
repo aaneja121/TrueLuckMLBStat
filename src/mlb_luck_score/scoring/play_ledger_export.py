@@ -27,6 +27,32 @@ by the SAME unresolved-nulling step. This exporter now reads those columns
 directly off `ledger`, exactly like every other scoring field -- there is
 no `contact_proba` parameter, no masking/reconstruction step, and no
 second inference call anywhere in this module.
+
+## Phase 3.1: `observed_run_value`/`contact_luck_runs` corrected to Rf - E0
+
+The real 2026-08-15 canonical production snapshot's per-batter reconciliation
+against `public_score` FAILED for 261/630 batters on Total Contact Luck and
+Runs/100 (BBE and Scored Games matched exactly). Root cause: this exporter
+was sourcing `observed_run_value`/`contact_luck_runs` from `ledger["observed_
+contact_result_run_value"]`/`ledger["contact_result_surprise"]` -- the raw
+Version 0.2 quantity `Rc - E0`, which `attribution_ledger.py`'s own module
+docstring explicitly documents as NOT the same as the published headline
+metric whenever a play has nonzero defensive/advancement execution
+contribution. Phase 2's development-data reconciliation never caught this
+because it deliberately used a contact-only ledger (no outfield/infield/
+advancement models), where `Rc - E0` and `Rf - E0` coincide trivially.
+
+Fixed by re-sourcing both fields from the ledger's `observed_final_run_
+value`/`final_result_surprise` columns (`Rf`/`Rf - E0` -- the FULL
+telescoping-identity quantity `aggregate_attribution.aggregate_to_batter_
+season` itself sums into `total_contact_luck_runs`/`contact_luck_runs_per_
+100`). This is a pure constant-rename in this module (see `_LEDGER_OBSERVED_
+COLUMN`/`_LEDGER_CONTACT_LUCK_COLUMN` below) -- `final_result_surprise` was
+added to `attribution_ledger.py` as the single new computed field this fix
+required; nothing here recomputes it. `play_ledger_schema.PLAY_LEDGER_
+VERSION` was bumped to `"2.0"` for this semantic change -- see that
+module's docstring for the outcome_class/Rc-vs-Rf finding and the sealed
+v1.0 2026-08-15 snapshot's disposition.
 """
 
 from __future__ import annotations
@@ -57,9 +83,17 @@ _REQUIRED_DF_COLUMNS: tuple[str, ...] = (
 #: Ledger columns this module reads verbatim -- never recomputes. Named
 #: explicitly so a future ledger-column rename fails loudly here rather
 #: than silently reading the wrong (or a stale, pre-rename) column.
-_LEDGER_OBSERVED_COLUMN = "observed_contact_result_run_value"
+#:
+#: Phase 3.1: `_LEDGER_OBSERVED_COLUMN`/`_LEDGER_CONTACT_LUCK_COLUMN` are
+#: deliberately Rf-based (`observed_final_run_value`/`final_result_
+#: surprise`), NOT Rc-based (`observed_contact_result_run_value`/`contact_
+#: result_surprise`) -- see module docstring for the real-production
+#: reconciliation failure this corrects. `_LEDGER_EXPECTED_COLUMN` (E0) is
+#: unchanged; the two quantities being differenced always share the same
+#: baseline.
+_LEDGER_OBSERVED_COLUMN = "observed_final_run_value"
 _LEDGER_EXPECTED_COLUMN = "baseline_expected_contact_run_value"
-_LEDGER_CONTACT_LUCK_COLUMN = "contact_result_surprise"
+_LEDGER_CONTACT_LUCK_COLUMN = "final_result_surprise"
 _LEDGER_PROBABILITY_COLUMNS: tuple[str, ...] = tuple(f"p_{cls}" for cls in CLASS_ORDER)
 
 
@@ -135,12 +169,15 @@ def build_play_ledger(df: pd.DataFrame, ledger: pd.DataFrame) -> pd.DataFrame:
     out["hit_distance_sc"] = df["hit_distance_sc"].astype("Float64")
 
     # `is_scored` mirrors `aggregate_attribution.aggregate_to_batter_
-    # season`'s OWN denominator rule EXACTLY (`resolved = ledger[
-    # "observed_contact_result_run_value"].notna()`) -- Phase 2.5
-    # amendment: keyed on `observed_run_value.notna()` primarily, so it
-    # directly mirrors the published `eligible_batted_balls` denominator's
-    # own defining column. See play_ledger_schema.py's `_validate_is_
-    # scored_matches_resolution` for the enforced invariant.
+    # season`'s OWN denominator rule (`resolved = ledger["observed_contact_
+    # result_run_value"].notna()`) -- Phase 3.1 note: `_LEDGER_OBSERVED_
+    # COLUMN` is now the Rf column (`observed_final_run_value`), not the Rc
+    # column that rule literally names, but `attribution_ledger.py` nulls
+    # both together for every unresolved row (rf starts as rc.copy() and
+    # is only ever overwritten for rows already guaranteed resolved), so
+    # their null patterns are always identical -- `is_scored`'s boolean
+    # values are unaffected by this rename. See play_ledger_schema.py's
+    # `_validate_is_scored_matches_resolution` for the enforced invariant.
     out["is_scored"] = ledger[_LEDGER_OBSERVED_COLUMN].notna().astype("boolean")
 
     # Everything below is copied verbatim from the ALREADY-SCORED ledger --
