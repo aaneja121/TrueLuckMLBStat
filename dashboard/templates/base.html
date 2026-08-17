@@ -15,6 +15,9 @@
       </div>
       <nav class="site-nav">
         <a href="{{ root_prefix }}"{% if active_page == 'leaderboard' %} class="active"{% endif %}>Leaderboard</a>
+        {% if explore_available %}
+        <a href="{{ root_prefix }}explore/"{% if active_page == 'explore' %} class="active"{% endif %}>Explore Plays</a>
+        {% endif %}
         <a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="active"{% endif %}>How It Works</a>
         <a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="active"{% endif %}>Methodology</a>
         <a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="active"{% endif %}>Data &amp; status</a>

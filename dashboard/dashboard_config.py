@@ -44,6 +44,34 @@ DEMO_FIXTURE_PATH = DASHBOARD_SOURCE_ROOT / "demo_fixture.json"
 # browser to fetch once) -- never regenerates or recomputes it.
 DEMO_COUNTERFACTUAL_GRID_PATH = DASHBOARD_SOURCE_ROOT / "demo_counterfactual_grid.json"
 
+# Version 1.4.0 Phase 4 (sharded browser artifacts since Phase 4.2): the
+# Play Explorer's committed, bounded, real-2024-data browser artifacts --
+# same committed-reference-data convention as DEMO_FIXTURE_PATH/
+# DEMO_COUNTERFACTUAL_GRID_PATH above, produced ONCE, offline, by `demo/
+# build_play_explorer_fixture.py` (a projection-only generator that itself
+# requires its INPUT canonical ledger to have `play_ledger_version ==
+# "2.0"`, fail-closed) fed by `demo/build_play_explorer_dev_ledger.py`
+# (which trains real models on real 2021-2023/2024 development data --
+# local dev only, never 2025, never a prospective 2026 run). Dashboard code
+# only ever reads and copies these files -- never regenerates, rescoring,
+# or recomputes any value in them.
+#
+# Phase 4.2 replaced the single monolithic `search-index.json` (~29.3 MiB
+# at full 2024 development-data scale -- over Cloudflare Pages' 25 MiB
+# per-asset limit) with a small `players.json` catalog plus one
+# `players/<batter_id>.json` file per batter, so the Explorer only ever
+# fetches one hitter's plays at a time -- see `demo/
+# build_play_explorer_fixture.py`'s module docstring.
+EXPLORE_PLAYERS_PATH = DASHBOARD_SOURCE_ROOT / "explore_fixture" / "players.json"
+EXPLORE_PLAYERS_DIR = DASHBOARD_SOURCE_ROOT / "explore_fixture" / "players"
+EXPLORE_GAMES_DIR = DASHBOARD_SOURCE_ROOT / "explore_fixture" / "games"
+# Phase 4.1: file-level provenance sidecar (never repeated per row) -- see
+# `demo/build_play_explorer_fixture.build_explore_metadata`/`dashboard/
+# explore_content.load_explore_metadata` for the SECOND, independent
+# fail-closed `play_ledger_version`/`explorer_artifact_version` check this
+# enables at build time, after the generator's own.
+EXPLORE_METADATA_PATH = DASHBOARD_SOURCE_ROOT / "explore_fixture" / "explore-metadata.json"
+
 # Reserved snapshot-label value for a future, separately-built retrospective
 # -backfill mechanism (not yet implemented as of this writing -- see the
 # 2026-08-07 gap discussion). An ordinary rerun of

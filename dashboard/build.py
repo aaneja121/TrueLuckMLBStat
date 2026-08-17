@@ -30,6 +30,7 @@ from typing import Any
 import content as c
 import demo_content as dc
 import demo_counterfactual_content as dcc
+import explore_content as ec
 import snapshot_data as sd
 import visuals as v
 from dashboard_config import (
@@ -39,6 +40,10 @@ from dashboard_config import (
     DASHBOARD_VERSION,
     DEMO_COUNTERFACTUAL_GRID_PATH,
     DEMO_FIXTURE_PATH,
+    EXPLORE_GAMES_DIR,
+    EXPLORE_METADATA_PATH,
+    EXPLORE_PLAYERS_DIR,
+    EXPLORE_PLAYERS_PATH,
     PROJECT_ROOT,
 )
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -252,6 +257,10 @@ def build_dashboard(
     artifacts_root: Path = sd.PROSPECTIVE_ARTIFACTS_ROOT,
     demo_fixture_path: Path = DEMO_FIXTURE_PATH,
     demo_counterfactual_grid_path: Path = DEMO_COUNTERFACTUAL_GRID_PATH,
+    explore_players_path: Path = EXPLORE_PLAYERS_PATH,
+    explore_players_dir: Path = EXPLORE_PLAYERS_DIR,
+    explore_games_dir: Path = EXPLORE_GAMES_DIR,
+    explore_metadata_path: Path = EXPLORE_METADATA_PATH,
     repo_root: Path = PROJECT_ROOT,
     build_timestamp: str | None = None,
 ) -> BuildResult:
@@ -315,6 +324,55 @@ def build_dashboard(
     # Greene's/Lindor's numbers that could drift from the committed fixture.
     demo_page_data = dc.load_demo_page_data(demo_fixture_path)
 
+    # Version 1.4.0 Phase 4: the Play Explorer fixture is OPTIONAL at build
+    # time (unlike the demo fixture/counterfactual grid above) -- a build
+    # against a repo checkout that hasn't generated
+    # `dashboard/explore_fixture/` yet (e.g. a fresh clone before `demo/
+    # build_play_explorer_dev_ledger.py` has been run locally) must still
+    # produce a complete, working site with every other page unaffected.
+    # `explore_available` gates both the nav link (never a link that
+    # predictably 404s) and the `/explore/`+`/plays/` generation below.
+    #
+    # Phase 4.1: if `explore-metadata.json` EXISTS (i.e. the fixture is
+    # present at all), its `play_ledger_version`/`explorer_artifact_version`
+    # are validated here -- a SECOND, independent fail-closed check (see
+    # `explore_content.load_explore_metadata`'s docstring), after the
+    # generator's own. A present-but-incompatible fixture is a hard build
+    # failure, never silently skipped like a genuinely ABSENT one.
+    #
+    # Phase 4.2: the fixture is now sharded (`players.json` +
+    # `players/<batter_id>.json`, replacing the monolithic
+    # `search-index.json`) -- `ec.load_explore_catalog` loads and
+    # cross-validates every shard (see that function's docstring for why
+    # this offline build-time validation is unrelated to what the browser
+    # itself fetches at runtime).
+    explore_available = explore_players_path.exists()
+    explore_data: ec.ExploreLoadedData | None = None
+    if explore_available:
+        explore_metadata = ec.load_explore_metadata(explore_metadata_path)
+        explore_data = ec.load_explore_catalog(
+            explore_players_path, explore_players_dir, explore_games_dir
+        )
+        if explore_metadata.play_count != explore_data.total_play_count:
+            raise DashboardBuildError(
+                f"explore-metadata.json play_count={explore_metadata.play_count} does not match "
+                f"the actual total row count across players/*.json ({explore_data.total_play_count}) "
+                "-- refusing to build a Play Explorer whose own provenance disagrees with its data."
+            )
+        if explore_metadata.player_count != len(explore_data.players):
+            raise DashboardBuildError(
+                f"explore-metadata.json player_count={explore_metadata.player_count} does not "
+                f"match the actual players.json row count ({len(explore_data.players)}) -- "
+                "refusing to build a Play Explorer whose own provenance disagrees with its data."
+            )
+        if explore_metadata.game_count != len(explore_data.game_pks):
+            raise DashboardBuildError(
+                f"explore-metadata.json game_count={explore_metadata.game_count} does not match "
+                f"the actual distinct game_pk count referenced by players/*.json "
+                f"({len(explore_data.game_pks)}) -- refusing to build a Play Explorer whose own "
+                "provenance disagrees with its data."
+            )
+
     env = _make_jinja_env()
     base_context = {
         "root_prefix": root_prefix,
@@ -327,6 +385,7 @@ def build_dashboard(
         "snapshot_directory_name": latest.directory_name,
         "build_timestamp": build_timestamp,
         "player_index_json": player_index_json,
+        "explore_available": explore_available,
     }
 
     if out_dir.exists():
@@ -401,6 +460,50 @@ def build_dashboard(
         view = _player_view(detail, trend_points, qualified_intervals)
         (player_dir / "index.html").write_text(
             player_template.render(**base_context, active_page=None, **view)
+        )
+
+    # "/explore/" + "/plays/" -- Version 1.4.0 Phase 4 (routing revised in
+    # Phase 4.1: a SINGLE static play-page shell, never one directory per
+    # play -- see `dashboard/templates/play.html`/`dashboard/static/
+    # play.js`'s module docstrings for why: at full-season scale (~95K-125K
+    # scored plays), one HTML directory per play is an unnecessary,
+    # operationally undesirable multiplication of files that are all just
+    # an identical shell around the same client-side renderer). Reads ONLY
+    # the committed, bounded Play Explorer fixture (see `demo/
+    # build_play_explorer_fixture.py`/`dashboard/explore_content.py`'s
+    # module docstrings); this build never scores anything, never derives
+    # Rf, and never touches `mlb_luck_score`. `players.json`, every
+    # `players/<batter_id>.json` and `games/<game_pk>.json` file, and
+    # `explore-metadata.json` are copied byte-for-byte (already validated
+    # above) -- never re-serialized, so the wire copy is identical to what
+    # was validated.
+    #
+    # Phase 4.2: `players.json` replaced the monolithic search-index.json
+    # (see `dashboard_config.EXPLORE_PLAYERS_PATH`'s docstring for the
+    # 25 MiB Cloudflare Pages asset-size motivation). The Explorer landing
+    # page fetches only `players.json` up front; a hitter's own
+    # `players/<batter_id>.json` is fetched only after that hitter is
+    # selected (`dashboard/static/explore.js`). The single play-page shell
+    # is unchanged from Phase 4.1: it embeds NOTHING play-specific -- it
+    # reads `?id=<play_id>` from the URL client-side, derives `game_pk`
+    # from that same stable identity, and fetches ONLY that one
+    # already-copied per-game JSON file, lazily, on page load.
+    if explore_available and explore_data is not None:
+        explore_dir = out_dir / "explore"
+        explore_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(explore_players_path, explore_dir / "players.json")
+        shutil.copy(explore_metadata_path, explore_dir / "explore-metadata.json")
+        shutil.copytree(explore_players_dir, explore_dir / "players", dirs_exist_ok=True)
+        shutil.copytree(explore_games_dir, explore_dir / "games", dirs_exist_ok=True)
+
+        (explore_dir / "index.html").write_text(
+            env.get_template("explore.html").render(**base_context, active_page="explore")
+        )
+
+        plays_dir = out_dir / "plays"
+        plays_dir.mkdir(parents=True, exist_ok=True)
+        (plays_dir / "index.html").write_text(
+            env.get_template("play.html").render(**base_context, active_page=None)
         )
 
     shutil.copytree(DASHBOARD_STATIC_DIR, out_dir / "static", dirs_exist_ok=True)

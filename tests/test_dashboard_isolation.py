@@ -25,6 +25,16 @@ _BANNED_IMPORT_PREFIXES = (
     "pybaseball",  # the Statcast download library itself
     "build_demo_fixture",  # Version 1.3.0 demo-fixture generator (demo/) -- trains a real model
     "build_counterfactual_grid",  # Version 1.3.1 counterfactual-grid generator (demo/) -- also trains a real model
+    "build_play_explorer_dev_ledger",  # Version 1.4.0 Phase 4 (demo/) -- trains real models on 2021-2023/2024 data
+    "measure_play_ledger_full_stack_reconciliation",  # Version 1.4.0 Phase 3.1 (demo/) -- also trains real models
+    # Version 1.4.0 Phase 4 (demo/): the Play Explorer browser-artifact
+    # generator itself never trains a model, but it DOES import
+    # `mlb_luck_score.scoring.play_ledger_schema`/`play_ledger_metadata`
+    # (pure validation, no training) -- banned by NAME here anyway so a
+    # future `dashboard/*.py` importing it can't reach `mlb_luck_score`
+    # transitively without this AST-based check (which only inspects each
+    # dashboard file's own direct import names) catching it.
+    "build_play_explorer_fixture",
 )
 
 _BANNED_SOURCE_SUBSTRINGS = (

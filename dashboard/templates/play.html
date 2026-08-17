@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Play — Contact Luck{% endblock %}
+{% block meta_description %}A single scored batted ball: recorded result, exit velocity, launch angle, frozen model probabilities, expected run value, and Contact Luck.{% endblock %}
+{% block content %}
+<p><a href="{{ root_prefix }}explore/">&larr; Back to Explore Plays</a></p>
+
+{#
+  Version 1.4.0 Phase 4.1: ONE static shell for every play (never one
+  directory per play_id -- see dashboard/build.py's own comment on why).
+  This template embeds NOTHING play-specific -- play.js reads `?id=` from
+  the URL itself, derives game_pk from that same play_id (its stable
+  identity is `game_pk-at_bat_number-pitch_number`), and fetches only that
+  one game's already-copied per-game JSON. A shareable URL therefore looks
+  like /plays/?id=<play_id> -- the query string IS the addressable state.
+#}
+<div data-role="play-page">
+  <p class="explore-loading" data-role="play-loading">Loading play&hellip;</p>
+
+  <div data-role="play-not-found" hidden>
+    <h1>Play not found</h1>
+    <p class="page-subtitle">
+      This play could not be loaded — the link may be out of date, malformed, or incorrect.
+      <a href="{{ root_prefix }}explore/">Return to Explore Plays</a>.
+    </p>
+  </div>
+
+  <div data-role="play-body" hidden>
+    <div class="player-header">
+      <div>
+        <h1 data-role="play-batter-name"></h1>
+        <p class="player-meta" data-role="play-meta"></p>
+      </div>
+      <div>
+        <span class="demo-luck-badge" data-role="play-luck-badge">&mdash;</span>
+      </div>
+    </div>
+
+    <div class="demo-field" data-role="play-field-wrap">
+      <svg class="demo-field-svg" viewBox="0 0 300 280" preserveAspectRatio="xMidYMid meet"
+           focusable="false" data-role="play-field-svg"
+           data-home-x="150" data-home-y="260" data-fence-radius="215" data-max-spray-deg="45">
+        <path class="demo-field-fence"
+              d="M -65,260 A 215,215 0 0 1 365,260" data-role="play-field-fence"></path>
+        <path class="demo-field-foul-line" d="M 150,260 L -65,260" data-role="play-field-foul-left"></path>
+        <path class="demo-field-foul-line" d="M 150,260 L 365,260" data-role="play-field-foul-right"></path>
+        <path class="demo-field-infield" d="M 150,260 L 105,215 L 150,170 L 195,215 Z"></path>
+        <circle class="demo-ball" data-role="play-field-ball" cx="150" cy="260" r="6"></circle>
+      </svg>
+      <p class="demo-field-caption">
+        Illustrative landing spot from recorded spray angle and hit distance — not a
+        reconstruction of the actual ball flight or defender positioning.
+      </p>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">Exit velocity</div>
+        <div class="stat-value" data-role="play-ev">&mdash;</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Launch angle</div>
+        <div class="stat-value" data-role="play-la">&mdash;</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Batted-ball type</div>
+        <div class="stat-value" data-role="play-bb-type">&mdash;</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label" title="The officially recorded contact result of this batted ball -- see the callout below for how this relates to the run-value accounting on this page.">Recorded result</div>
+        <div class="stat-value" data-role="play-outcome">&mdash;</div>
+      </div>
+    </div>
+
+    <h2>Frozen model outcome probabilities</h2>
+    <p class="page-subtitle" style="margin-bottom:8px;">
+      The model's outcome distribution for this batted ball, computed before the result is known.
+    </p>
+    <div class="demo-prob-bars" data-role="play-prob-bars"></div>
+
+    <h2>Run value accounting</h2>
+    <div class="demo-luck-diff">
+      <span class="demo-rv-value demo-rv-value-expected" data-role="play-expected-rv">&mdash;</span>
+      <span class="demo-luck-arrow" aria-hidden="true">&rarr;</span>
+      <span class="demo-rv-value demo-rv-value-observed" data-role="play-observed-rv">&mdash;</span>
+    </div>
+    <p class="player-meta" style="margin:2px 0 10px;">Expected RV &rarr; Final observed RV</p>
+    <p class="demo-luck-figure" data-role="play-luck-figure">&mdash;</p>
+
+    <p class="callout">
+      Recorded result is the officially scored outcome of this batted ball; Final observed RV
+      reflects the complete run-value accounting, including any baserunner advancement — the two
+      are closely related but not guaranteed to be identical. Contact Luck is always
+      <code>Final observed RV &minus; Expected RV</code>, copied directly from the canonical
+      scoring record. See the <a href="{{ root_prefix }}methodology/">methodology page</a> for
+      the full accounting.
+    </p>
+  </div>
+</div>
+{% endblock %}
+{% block extra_scripts %}
+<script src="{{ asset_prefix }}static/play.js"></script>
+{% endblock %}
