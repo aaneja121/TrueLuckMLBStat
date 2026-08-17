@@ -52,6 +52,26 @@
     return entry.batter_name || "Player " + entry.batter_id;
   }
 
+  // Search matching only -- NEVER used for display (playerLabel/DOM text
+  // always renders the original, accented entry.batter_name verbatim).
+  // Case-insensitive, diacritic-insensitive (Unicode NFD decomposes an
+  // accented character into a base letter plus a separate combining-mark
+  // codepoint, e.g. U+00E9 "e-acute" -> "e" + U+0301; \u0300-\u036f is the
+  // Unicode "Combining Diacritical Marks" block, stripped here so the base
+  // letter is all that remains), and whitespace-normalized (trims both
+  // ends, collapses any internal run of whitespace to a single space) --
+  // so "jose ramirez", "JOSE RAMIREZ", and "Jose   Ramirez" all normalize
+  // to the identical search key "jose ramirez", the same key "Jose
+  // Ramirez" and the real, accented "José Ramírez" also normalize to.
+  function normalizeSearchText(text) {
+    return (text || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
   function initExplorePage() {
     var root = qs('[data-role="explore-selected"]');
     if (!root) return;
@@ -242,13 +262,13 @@
     }
 
     function onSearchInput() {
-      var q = searchInput.value.trim().toLowerCase();
+      var q = normalizeSearchText(searchInput.value);
       if (!q) {
         renderSuggestions([]);
         return;
       }
       var matches = playersCatalog.filter(function (entry) {
-        return (entry.batter_name || "").toLowerCase().indexOf(q) !== -1 || String(entry.batter_id) === q;
+        return normalizeSearchText(entry.batter_name).indexOf(q) !== -1 || String(entry.batter_id) === q;
       });
       renderSuggestions(matches);
     }
