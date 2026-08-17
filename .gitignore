@@ -59,6 +59,15 @@ artifacts/prospective/*
 !outputs/prospective/.gitkeep
 !artifacts/prospective/.gitkeep
 
+# Version 1.4.0 Phase 5: ephemeral Play Explorer browser-artifact build
+# output (scripts/generate_production_explorer_artifacts.py), one
+# subdirectory per snapshot. Deployment artifacts, not canonical scoring
+# artifacts -- never archived into the canonical R2 snapshot, and (like the
+# prospective namespace above) gitignored so a snapshot's own build output
+# can never falsely dirty the working-tree-clean guard for a later run.
+outputs/explorer_build/*
+!outputs/explorer_build/.gitkeep
+
 # macOS
 .DS_Store
 

@@ -11,8 +11,9 @@ not a test. Instead it runs the REAL `scripts/publish_snapshot.sh` (copied
 byte-for-byte into an isolated fake project root, never a hand-written
 duplicate of its logic) against fake `.venv/bin/python` and `npx`
 executables that log every invocation (by clean stage name -- ensure,
-score, archive, history_sync, build) and can be told to fail on command.
-This proves the actual shell control flow, not just an assertion about it.
+score, archive, history_sync, generate_explorer, build) and can be told to
+fail on command. This proves the actual shell control flow, not just an
+assertion about it.
 
 Never scores real MLB data, never contacts R2, never contacts Cloudflare
 Pages: the fake `python` never runs real prospective/dashboard/archive/
@@ -52,6 +53,7 @@ case "$FIRST_ARG" in
       STAGE_NAME="archive"
     fi
     ;;
+  scripts/generate_production_explorer_artifacts.py) STAGE_NAME="generate_explorer" ;;
   dashboard/build.py) STAGE_NAME="build" ;;
   *) STAGE_NAME="unknown" ;;
 esac
@@ -185,11 +187,43 @@ class TestFailuresBlockLaterStages:
             "python:archive",
             "python:history_sync",
         ]
+        assert "python:generate_explorer" not in lines, (
+            "Explorer artifact generation must never run after a failed history sync"
+        )
         assert not any(line.startswith("python:build") for line in lines), (
             "dashboard build must never run after a failed history sync"
         )
         assert not any(line.startswith("npx:") for line in lines), (
             "deploy must never be attempted after a failed history sync"
+        )
+
+    def test_generate_explorer_failure_prevents_build_and_deploy(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """Version 1.4.0 Phase 5: Explorer artifact generation is its own
+        pipeline stage, between history sync and the dashboard build -- a
+        failure there (e.g. the just-scored snapshot fails its own
+        integrity check, or is somehow not play_ledger_version 2.0) must
+        prevent the dashboard from being built or deployed, exactly like
+        every earlier stage's failure does.
+        """
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="generate_explorer")
+
+        assert result.returncode != 0, result.stderr
+        lines = _log_lines(call_log)
+        assert lines == [
+            "python:ensure",
+            "python:score",
+            "python:archive",
+            "python:history_sync",
+            "python:generate_explorer",
+        ]
+        assert not any(line.startswith("python:build") for line in lines), (
+            "dashboard build must never run after a failed Explorer artifact generation"
+        )
+        assert not any(line.startswith("npx:") for line in lines), (
+            "deploy must never be attempted after a failed Explorer artifact generation"
         )
 
     def test_scoring_failure_prevents_everything_after_it(
@@ -207,12 +241,12 @@ class TestFailuresBlockLaterStages:
         assert lines == ["python:ensure", "python:score"]
         assert not any(line.startswith("npx:") for line in lines)
 
-    def test_ensure_then_score_then_archive_then_history_sync_run_before_build_on_success(
+    def test_ensure_then_score_then_archive_then_history_sync_then_explore_run_before_build_on_success(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
         """Direct evidence of the documented ordering (ensure -> score ->
-        archive -> history_sync -> build -> deploy), not just an assertion
-        about it.
+        archive -> history_sync -> generate_explorer -> build -> deploy),
+        not just an assertion about it.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log)
@@ -222,7 +256,8 @@ class TestFailuresBlockLaterStages:
         assert lines.index("python:ensure") < lines.index("python:score")
         assert lines.index("python:score") < lines.index("python:archive")
         assert lines.index("python:archive") < lines.index("python:history_sync")
-        assert lines.index("python:history_sync") < lines.index("python:build")
+        assert lines.index("python:history_sync") < lines.index("python:generate_explorer")
+        assert lines.index("python:generate_explorer") < lines.index("python:build")
 
 
 class TestSkipFlagSemantics:
@@ -239,25 +274,34 @@ class TestSkipFlagSemantics:
             "python:score",
             "python:archive",
             "python:history_sync",
+            "python:generate_explorer",
             "python:build",
         ]
         assert not any(line.startswith("npx:") for line in lines), "--skip-deploy must never deploy"
 
-    def test_skip_archive_and_skip_deploy_still_runs_history_sync_read_only(
+    def test_skip_archive_and_skip_deploy_still_runs_history_sync_and_explore_read_only(
         self, fake_project: Path, tmp_path: Path
     ) -> None:
         """The key behavior change this task adds: a full dry run
         (--skip-archive --skip-deploy) skips the archive WRITE and the
-        Pages deploy, but the frozen-input check and history sync still
-        run -- both only READ from R2 in this mode, so this validates the
-        real CI scoring/dashboard-build behavior even in dry-run mode.
+        Pages deploy, but the frozen-input check, history sync, AND
+        Explorer artifact generation still run -- none of the three touch
+        the archive WRITE path (generation only reads this run's own local
+        outputs), so this validates the real CI scoring/dashboard-build
+        behavior even in dry-run mode.
         """
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log, "--skip-archive", "--skip-deploy")
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:ensure", "python:score", "python:history_sync", "python:build"]
+        assert lines == [
+            "python:ensure",
+            "python:score",
+            "python:history_sync",
+            "python:generate_explorer",
+            "python:build",
+        ]
         assert "python:archive" not in lines
         assert not any(line.startswith("npx:") for line in lines)
 
@@ -281,11 +325,12 @@ class TestSkipFlagSemantics:
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines[:5] == [
+        assert lines[:6] == [
             "python:ensure",
             "python:score",
             "python:archive",
             "python:history_sync",
+            "python:generate_explorer",
             "python:build",
         ]
         assert any(line.startswith("npx:wrangler pages deploy") for line in lines)

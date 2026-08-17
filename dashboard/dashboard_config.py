@@ -27,7 +27,7 @@ DASHBOARD_TEMPLATES_DIR = DASHBOARD_SOURCE_ROOT / "templates"
 DASHBOARD_STATIC_DIR = DASHBOARD_SOURCE_ROOT / "static"
 DASHBOARD_DIST_DIR = DASHBOARD_SOURCE_ROOT / "dist"
 
-DASHBOARD_VERSION = "1.3.1"
+DASHBOARD_VERSION = "1.4.0"
 
 # Committed, hand-reviewed reference data (like `mlb_luck_score.data.
 # game_metadata_overrides`) produced ONCE, offline, by `demo/
