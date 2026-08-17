@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Explore Plays — Contact Luck{% endblock %}
+{% block meta_description %}Search a hitter and browse their individual scored batted balls from the Contact Luck play ledger.{% endblock %}
+{% block content %}
+<div class="page-hero">
+  <div class="page-hero-top">
+    <h1>Explore Plays</h1>
+  </div>
+  <div class="callout explainer-callout">
+    <p>
+      Search for a hitter, then browse, filter, and sort their scored batted balls — open an
+      individual play to see the frozen model's outcome probabilities alongside what actually
+      happened. Every number here is copied directly from the same canonical scoring record that
+      produces this site's published Contact Luck totals — nothing on this page is recomputed in
+      the browser.
+    </p>
+  </div>
+</div>
+
+{#
+  Phase 4.2: player-first flow. The page loads ONLY the small players.json
+  catalog up front (see dashboard/static/explore.js's module docstring) --
+  no play data of any kind is fetched until a hitter is selected below.
+#}
+<div class="explore-player-search-wrap">
+  <input type="text" class="leaderboard-search" data-role="explore-player-search"
+         placeholder="Find a batter…" autocomplete="off" aria-label="Find a batter" disabled>
+  <div class="search-results-dropdown" data-role="explore-player-search-results" hidden></div>
+</div>
+
+<p class="explore-loading" data-role="explore-catalog-loading">Loading players&hellip;</p>
+<p class="explore-empty" data-role="explore-prompt" hidden>
+  Search for a hitter above to explore their scored plays.
+</p>
+
+<div data-role="explore-selected" hidden>
+  <div class="player-header">
+    <div>
+      <h2 data-role="explore-selected-name"></h2>
+      <p class="player-meta" data-role="explore-selected-meta"></p>
+    </div>
+    <div>
+      <button type="button" class="explore-change-player" data-role="explore-change-player">Change hitter</button>
+    </div>
+  </div>
+
+  <div class="explore-controls">
+    <select class="explore-select" data-role="explore-outcome-filter" aria-label="Filter by recorded result">
+      <option value="">All recorded results</option>
+      <option value="home_run">Home run</option>
+      <option value="triple">Triple</option>
+      <option value="double">Double</option>
+      <option value="single">Single</option>
+      <option value="out">Out</option>
+    </select>
+    <select class="explore-select" data-role="explore-luck-filter" aria-label="Filter by Contact Luck">
+      <option value="all">Favorable &amp; unfavorable</option>
+      <option value="favorable">Favorable only</option>
+      <option value="unfavorable">Unfavorable only</option>
+    </select>
+    <select class="explore-select" data-role="explore-sort" aria-label="Sort plays">
+      <option value="most_favorable">Most favorable Contact Luck</option>
+      <option value="most_unfavorable">Most unfavorable Contact Luck</option>
+      <option value="newest">Newest</option>
+      <option value="hardest_hit">Hardest hit (exit velocity)</option>
+    </select>
+  </div>
+
+  <p class="explore-loading" data-role="explore-loading" hidden>Loading plays&hellip;</p>
+  <p class="explore-empty" data-role="explore-empty" hidden>No plays match these filters.</p>
+  <p class="explore-result-count" data-role="explore-result-count" hidden></p>
+
+  <div class="overflow-x">
+  <table class="leaderboard explore-results-table" data-role="explore-results-table" hidden>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Batter</th>
+        <th class="numeric">EV</th>
+        <th class="numeric">LA</th>
+        <th>Recorded result</th>
+        <th class="numeric">Expected RV</th>
+        <th class="numeric explore-luck-col">Contact Luck</th>
+      </tr>
+    </thead>
+    <tbody data-role="explore-results-body"></tbody>
+  </table>
+  </div>
+</div>
+
+<p class="callout">
+  Contact Luck shown per play is copied directly from the canonical scoring record
+  (<code>observed_run_value − expected_run_value</code>) — it always telescopes exactly to this
+  site's published Total Contact Luck for the batter across their season. See
+  <a href="{{ root_prefix }}status/#play-data-source">Data &amp; status</a> for the play-level
+  data source.
+</p>
+{% endblock %}
+{% block extra_scripts %}
+<script src="{{ asset_prefix }}static/explore.js"></script>
+{% endblock %}

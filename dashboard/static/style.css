@@ -1554,3 +1554,109 @@ footer.site-footer {
   .simulator-prob-bar-fill { transition: none; }
   .simulator-field-ball { transition: none; }
 }
+
+/* "/explore/" + "/plays/<id>/" -- Version 1.4.0 Phase 4 Play Explorer.
+   Reuses existing components wherever possible (table.leaderboard,
+   .demo-prob-bars, .demo-luck-badge/.demo-luck-figure, .demo-field*,
+   .stat-grid/.stat-card, .callout) so this page fits the established
+   "modern baseball scorebook at night" identity without introducing a
+   second visual language. Only genuinely new elements (the filter/sort
+   control row, the loading/empty states, the Contact Luck column's
+   emphasis) get new classes below. */
+/* Phase 4.2: player-first search -- reuses the SAME .search-results-
+   dropdown/.search-result-item components the site header's global player
+   search already uses (see .global-search-wrap above), just scoped to
+   this page's own positioned wrapper instead of the header. Suggestion
+   items are <button> elements here (selecting a hitter triggers a fetch,
+   never a navigation), so they need the same block/full-width/no-chrome
+   reset a plain <a> gets for free. */
+.explore-player-search-wrap {
+  position: relative;
+  max-width: 420px;
+  margin-bottom: 14px;
+}
+
+.explore-player-search-wrap .leaderboard-search {
+  width: 100%;
+}
+
+button.search-result-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.explore-change-player {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.explore-change-player:hover {
+  background: var(--page);
+}
+
+.explore-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 4px 0 14px;
+}
+
+.explore-select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+  font-size: 0.92rem;
+}
+
+.explore-loading,
+.explore-empty {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.explore-result-count {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin: 0 0 6px;
+}
+
+table.explore-results-table td,
+table.explore-results-table th {
+  white-space: nowrap;
+}
+
+/* Contact Luck is the visually primary column on the results table --
+   bolder weight and larger than the other numeric columns, colored via
+   the SAME .interval-positive/.interval-negative sign classes used
+   everywhere else on the site (never a new color pair). */
+.explore-luck-col {
+  font-weight: 700;
+  font-size: 1.02em;
+}
+
+@media (max-width: 640px) {
+  table.explore-results-table { font-size: 0.84rem; }
+  .explore-controls { gap: 8px; }
+  .explore-select,
+  .explore-controls .leaderboard-search { flex: 1 1 100%; }
+}
+
+/* Individual play page -- the field ball's favorable/unfavorable sign is
+   shown immediately (the result is already known; there is no staged
+   reveal on this page, unlike the "/demo/" walkthrough), so it is colored
+   directly rather than gated behind `.demo-card.demo-reality-revealed`. */
+[data-role="play-field-wrap"] .demo-ball.demo-ball-favorable { fill: var(--diverging-positive); }
+[data-role="play-field-wrap"] .demo-ball.demo-ball-unfavorable { fill: var(--diverging-negative); }

@@ -14,10 +14,33 @@ Run: `.venv/bin/python dashboard/build.py`. Output lands in
 this repo) -- serve it locally with `python -m http.server` from that
 directory, or point any static host at it (see the Phase 10 delivery
 report for the recommended target).
+
+## Play Explorer: fail-closed by default (Version 1.4.0 Phase 5)
+
+A bare invocation with no flags builds the Play Explorer DISABLED -- there
+is no default Explorer artifact source, and in particular no implicit
+fallback to the committed, bounded `dashboard/explore_fixture/`
+development fixture. Pass `--explore-artifacts-dir DIR` to enable it, where
+`DIR` contains `players.json`, `players/<batter_id>.json`,
+`games/<game_pk>.json`, and `explore-metadata.json`:
+
+    .venv/bin/python dashboard/build.py --explore-artifacts-dir dashboard/explore_fixture
+
+for local/dev use of the committed fixture, or
+
+    .venv/bin/python dashboard/build.py --explore-artifacts-dir outputs/explorer_build/<snapshot>
+
+for a real snapshot's own generated artifacts (see
+`scripts/generate_production_explorer_artifacts.py`, which
+`scripts/publish_snapshot.sh` always invokes and passes explicitly before
+building -- see `tests/test_dashboard_build_cli.py` for the regression
+proving a normal production invocation can never publish
+`dashboard/explore_fixture/` accidentally).
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import subprocess
@@ -30,6 +53,7 @@ from typing import Any
 import content as c
 import demo_content as dc
 import demo_counterfactual_content as dcc
+import explore_content as ec
 import snapshot_data as sd
 import visuals as v
 from dashboard_config import (
@@ -252,6 +276,10 @@ def build_dashboard(
     artifacts_root: Path = sd.PROSPECTIVE_ARTIFACTS_ROOT,
     demo_fixture_path: Path = DEMO_FIXTURE_PATH,
     demo_counterfactual_grid_path: Path = DEMO_COUNTERFACTUAL_GRID_PATH,
+    explore_players_path: Path | None = None,
+    explore_players_dir: Path | None = None,
+    explore_games_dir: Path | None = None,
+    explore_metadata_path: Path | None = None,
     repo_root: Path = PROJECT_ROOT,
     build_timestamp: str | None = None,
 ) -> BuildResult:
@@ -315,6 +343,80 @@ def build_dashboard(
     # Greene's/Lindor's numbers that could drift from the committed fixture.
     demo_page_data = dc.load_demo_page_data(demo_fixture_path)
 
+    # Version 1.4.0 Phase 4: the Play Explorer artifact directory is
+    # OPTIONAL at build time (unlike the demo fixture/counterfactual grid
+    # above) -- a build with no Explorer source given must still produce a
+    # complete, working site with every other page unaffected.
+    # `explore_available` gates both the nav link (never a link that
+    # predictably 404s) and the `/explore/`+`/plays/` generation below.
+    #
+    # Phase 5 fail-closed rule: this function has NO default Explorer
+    # source of its own -- `explore_players_path`/`explore_players_dir`/
+    # `explore_games_dir`/`explore_metadata_path` default to `None`
+    # (Explorer disabled), never to the committed, bounded
+    # `dashboard/explore_fixture/` development fixture. A caller must pass
+    # all four explicitly to enable the Explorer, whether that's the
+    # committed fixture (local/dev/tests, see
+    # `demo/build_play_explorer_fixture.py`) or a real production
+    # snapshot's generated artifacts (see
+    # `scripts/generate_production_explorer_artifacts.py`). The CLI wrapper
+    # (`main()` below) mirrors this: a bare `dashboard/build.py` invocation
+    # with no `--explore-artifacts-dir` flag builds with the Explorer
+    # disabled, never falling back to the fixture -- see
+    # `tests/test_dashboard_build_cli.py` for the regression proving a
+    # normal production invocation can never publish
+    # `dashboard/explore_fixture/` accidentally.
+    #
+    # Phase 4.1: if `explore-metadata.json` EXISTS (i.e. an Explorer source
+    # was given), its `play_ledger_version`/`explorer_artifact_version` are
+    # validated here -- a SECOND, independent fail-closed check (see
+    # `explore_content.load_explore_metadata`'s docstring), after the
+    # generator's own. A present-but-incompatible artifact set is a hard
+    # build failure, never silently skipped like a genuinely ABSENT one.
+    #
+    # Phase 4.2: the artifact set is sharded (`players.json` +
+    # `players/<batter_id>.json`, replacing the monolithic
+    # `search-index.json`) -- `ec.load_explore_catalog` loads and
+    # cross-validates every shard (see that function's docstring for why
+    # this offline build-time validation is unrelated to what the browser
+    # itself fetches at runtime).
+    explore_available = (
+        explore_players_path is not None
+        and explore_players_dir is not None
+        and explore_games_dir is not None
+        and explore_metadata_path is not None
+        and explore_players_path.exists()
+    )
+    explore_data: ec.ExploreLoadedData | None = None
+    if explore_available:
+        assert explore_players_path is not None
+        assert explore_players_dir is not None
+        assert explore_games_dir is not None
+        assert explore_metadata_path is not None
+        explore_metadata = ec.load_explore_metadata(explore_metadata_path)
+        explore_data = ec.load_explore_catalog(
+            explore_players_path, explore_players_dir, explore_games_dir
+        )
+        if explore_metadata.play_count != explore_data.total_play_count:
+            raise DashboardBuildError(
+                f"explore-metadata.json play_count={explore_metadata.play_count} does not match "
+                f"the actual total row count across players/*.json ({explore_data.total_play_count}) "
+                "-- refusing to build a Play Explorer whose own provenance disagrees with its data."
+            )
+        if explore_metadata.player_count != len(explore_data.players):
+            raise DashboardBuildError(
+                f"explore-metadata.json player_count={explore_metadata.player_count} does not "
+                f"match the actual players.json row count ({len(explore_data.players)}) -- "
+                "refusing to build a Play Explorer whose own provenance disagrees with its data."
+            )
+        if explore_metadata.game_count != len(explore_data.game_pks):
+            raise DashboardBuildError(
+                f"explore-metadata.json game_count={explore_metadata.game_count} does not match "
+                f"the actual distinct game_pk count referenced by players/*.json "
+                f"({len(explore_data.game_pks)}) -- refusing to build a Play Explorer whose own "
+                "provenance disagrees with its data."
+            )
+
     env = _make_jinja_env()
     base_context = {
         "root_prefix": root_prefix,
@@ -327,6 +429,7 @@ def build_dashboard(
         "snapshot_directory_name": latest.directory_name,
         "build_timestamp": build_timestamp,
         "player_index_json": player_index_json,
+        "explore_available": explore_available,
     }
 
     if out_dir.exists():
@@ -403,6 +506,54 @@ def build_dashboard(
             player_template.render(**base_context, active_page=None, **view)
         )
 
+    # "/explore/" + "/plays/" -- Version 1.4.0 Phase 4 (routing revised in
+    # Phase 4.1: a SINGLE static play-page shell, never one directory per
+    # play -- see `dashboard/templates/play.html`/`dashboard/static/
+    # play.js`'s module docstrings for why: at full-season scale (~95K-125K
+    # scored plays), one HTML directory per play is an unnecessary,
+    # operationally undesirable multiplication of files that are all just
+    # an identical shell around the same client-side renderer). Reads ONLY
+    # the committed, bounded Play Explorer fixture (see `demo/
+    # build_play_explorer_fixture.py`/`dashboard/explore_content.py`'s
+    # module docstrings); this build never scores anything, never derives
+    # Rf, and never touches `mlb_luck_score`. `players.json`, every
+    # `players/<batter_id>.json` and `games/<game_pk>.json` file, and
+    # `explore-metadata.json` are copied byte-for-byte (already validated
+    # above) -- never re-serialized, so the wire copy is identical to what
+    # was validated.
+    #
+    # Phase 4.2: `players.json` replaced the monolithic search-index.json
+    # (see `dashboard_config.EXPLORE_PLAYERS_PATH`'s docstring for the
+    # 25 MiB Cloudflare Pages asset-size motivation). The Explorer landing
+    # page fetches only `players.json` up front; a hitter's own
+    # `players/<batter_id>.json` is fetched only after that hitter is
+    # selected (`dashboard/static/explore.js`). The single play-page shell
+    # is unchanged from Phase 4.1: it embeds NOTHING play-specific -- it
+    # reads `?id=<play_id>` from the URL client-side, derives `game_pk`
+    # from that same stable identity, and fetches ONLY that one
+    # already-copied per-game JSON file, lazily, on page load.
+    if explore_available and explore_data is not None:
+        assert explore_players_path is not None
+        assert explore_players_dir is not None
+        assert explore_games_dir is not None
+        assert explore_metadata_path is not None
+        explore_dir = out_dir / "explore"
+        explore_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(explore_players_path, explore_dir / "players.json")
+        shutil.copy(explore_metadata_path, explore_dir / "explore-metadata.json")
+        shutil.copytree(explore_players_dir, explore_dir / "players", dirs_exist_ok=True)
+        shutil.copytree(explore_games_dir, explore_dir / "games", dirs_exist_ok=True)
+
+        (explore_dir / "index.html").write_text(
+            env.get_template("explore.html").render(**base_context, active_page="explore")
+        )
+
+        plays_dir = out_dir / "plays"
+        plays_dir.mkdir(parents=True, exist_ok=True)
+        (plays_dir / "index.html").write_text(
+            env.get_template("play.html").render(**base_context, active_page=None)
+        )
+
     shutil.copytree(DASHBOARD_STATIC_DIR, out_dir / "static", dirs_exist_ok=True)
 
     manifest = c.build_dashboard_manifest(
@@ -421,8 +572,85 @@ def build_dashboard(
     return BuildResult(manifest=manifest, invalid_snapshot_count=len(invalid), out_dir=out_dir)
 
 
-if __name__ == "__main__":
-    result = build_dashboard()
+def _resolve_explore_paths(
+    explore_artifacts_dir: Path | None,
+) -> tuple[Path | None, Path | None, Path | None, Path | None]:
+    """`--explore-artifacts-dir DIR` -> the four Explorer artifact paths
+    `build_dashboard()` expects, all `None` if no directory was given.
+
+    Deliberately generic over WHICH directory is passed -- the committed,
+    bounded `dashboard/explore_fixture/` (local/dev/tests, opted into
+    explicitly) and a real production snapshot's generated artifact
+    directory (`scripts/generate_production_explorer_artifacts.py`) are
+    both just directories with this same four-file shape to this function.
+    There is no implicit fallback to the fixture: `None` in, `(None, None,
+    None, None)` out -- see `build_dashboard()`'s "Phase 5 fail-closed
+    rule" docstring above.
+    """
+    if explore_artifacts_dir is None:
+        return None, None, None, None
+    return (
+        explore_artifacts_dir / "players.json",
+        explore_artifacts_dir / "players",
+        explore_artifacts_dir / "games",
+        explore_artifacts_dir / "explore-metadata.json",
+    )
+
+
+def _build_cli_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--explore-artifacts-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory containing the Play Explorer browser artifacts "
+            "(players.json, players/<batter_id>.json, games/<game_pk>.json, "
+            "explore-metadata.json). NOT defaulted -- omitting this flag builds the "
+            "site with the Play Explorer disabled, it never falls back to the "
+            "committed, bounded dashboard/explore_fixture/ development fixture. "
+            "scripts/publish_snapshot.sh always passes this explicitly, pointing at "
+            "that run's own generated production artifacts (see "
+            "scripts/generate_production_explorer_artifacts.py). For local/dev use "
+            "of the committed fixture, pass "
+            "--explore-artifacts-dir dashboard/explore_fixture explicitly."
+        ),
+    )
+    return parser
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    outputs_root: Path | None = None,
+    artifacts_root: Path | None = None,
+    out_dir: Path | None = None,
+) -> BuildResult:
+    """CLI entry point. `outputs_root`/`artifacts_root`/`out_dir` are
+    injectable only for tests (e.g. to point a build at a synthetic
+    snapshot without touching the real `outputs/prospective/v1_1/` on
+    disk) -- ordinary invocations (including `scripts/publish_snapshot.sh`)
+    never pass them and get `build_dashboard()`'s own real-path defaults.
+    """
+    args = _build_cli_arg_parser().parse_args(argv)
+    players_path, players_dir, games_dir, metadata_path = _resolve_explore_paths(
+        args.explore_artifacts_dir
+    )
+
+    kwargs: dict[str, Any] = {
+        "explore_players_path": players_path,
+        "explore_players_dir": players_dir,
+        "explore_games_dir": games_dir,
+        "explore_metadata_path": metadata_path,
+    }
+    if outputs_root is not None:
+        kwargs["outputs_root"] = outputs_root
+    if artifacts_root is not None:
+        kwargs["artifacts_root"] = artifacts_root
+    if out_dir is not None:
+        kwargs["out_dir"] = out_dir
+
+    result = build_dashboard(**kwargs)
     print(f"[dashboard build] wrote {result.out_dir}")
     print(
         f"[dashboard build] preferred snapshot: {result.manifest.preferred_snapshot_directory_name}"
@@ -431,7 +659,13 @@ if __name__ == "__main__":
     print(
         f"[dashboard build] players: {result.manifest.player_count} (qualified: {result.manifest.qualified_count})"
     )
+    print(f"[dashboard build] explore available: {args.explore_artifacts_dir is not None}")
     if result.invalid_snapshot_count:
         print(
             f"[dashboard build] WARNING: {result.invalid_snapshot_count} invalid snapshot(s) excluded -- see warnings above"
         )
+    return result
+
+
+if __name__ == "__main__":
+    main()

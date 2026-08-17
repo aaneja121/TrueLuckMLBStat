@@ -3,9 +3,10 @@
 # Contact Luck operational loop: ensure every gitignored frozen input
 # artifact is present, generate a new Version 1.1 prospective snapshot for
 # a completed MLB date, durably archive it, repopulate any OTHER historical
-# snapshots missing on this machine from the durable archive, rebuild the
-# Version 1.2 static dashboard from the complete local history, and deploy
-# the result to Cloudflare Pages.
+# snapshots missing on this machine from the durable archive, generate Play
+# Explorer browser artifacts from that SAME snapshot, rebuild the Version
+# 1.4 static dashboard (with the Explorer wired in) from the complete local
+# history, and deploy the result to Cloudflare Pages.
 #
 #     completed MLB slate
 #         -> scripts/ensure_frozen_inputs.py         (frozen input bundle:
@@ -21,7 +22,19 @@
 #         -> scripts/archive_snapshot.py --sync-history
 #                                                     (repopulate missing
 #                                                      local history from R2)
-#         -> dashboard/build.py                     (dashboard/dist/)
+#         -> scripts/generate_production_explorer_artifacts.py
+#                                                     (Play Explorer browser
+#                                                      artifacts, projected
+#                                                      from THIS run's own
+#                                                      local canonical
+#                                                      outputs -- no
+#                                                      re-download, no
+#                                                      rescoring -- written
+#                                                      to an ephemeral build
+#                                                      dir, never into the
+#                                                      canonical snapshot)
+#         -> dashboard/build.py --explore-artifacts-dir <that ephemeral dir>
+#                                                     (dashboard/dist/)
 #         -> wrangler pages deploy                  (static hosting)
 #
 # WHY THE FROZEN-INPUT STAGE EXISTS: a GitHub Actions runner starts from a
@@ -61,16 +74,20 @@
 #
 # ORDERING: the frozen-input check happens BEFORE scoring (scoring cannot
 # proceed without it), archive happens BEFORE history sync, which happens
-# BEFORE the dashboard build, and the dashboard is never built (let alone
-# deployed) if ANY earlier stage fails. This is deliberate -- the raw
-# scoring output is the precious, hard-to-reproduce artifact (re-scoring
-# depends on the same historical Statcast data still being fetchable
-# later); the dashboard build is comparatively cheap and
+# BEFORE Explorer artifact generation, which happens BEFORE the dashboard
+# build, and no later stage ever runs if ANY earlier stage fails. This is
+# deliberate -- the raw scoring output is the precious, hard-to-reproduce
+# artifact (re-scoring depends on the same historical Statcast data still
+# being fetchable later); the dashboard build is comparatively cheap and
 # frequently-iterated. Archiving first means an official snapshot survives
 # runner destruction even if something goes wrong in a LATER stage, and it
 # means "the public site must never deploy if durable archival failed" is
 # satisfied by simple sequential ordering under `set -e`, not by any
-# special-cased check.
+# special-cased check. Explorer artifact generation reads ONLY this run's
+# own already-scored local outputs (`outputs/prospective/v1_1/<snapshot>/`)
+# -- it never re-downloads Statcast or rescores, and it writes to an
+# ephemeral build directory under `outputs/explorer_build/`, never into the
+# canonical snapshot directory the archive step already wrote to R2.
 #
 # This script performs no modeling/scoring/build/archival logic of its
 # own -- it only invokes the existing, already-guarded entry points and
@@ -86,6 +103,9 @@
 #     overwrites a differently-coded snapshot already in R2)
 #   - the history sync's never-overwrite-a-local-snapshot guarantee
 #   - the dashboard's snapshot integrity/precedence rules
+#   - the Explorer generator's own canonical-source-integrity and
+#     play_ledger_version=="2.0" fail-closed checks (scripts/
+#     generate_production_explorer_artifacts.py)
 #
 # --skip-archive and --skip-deploy are INDEPENDENTLY controllable, so real
 # R2 archival can be validated on its own before production deploys are
@@ -95,11 +115,14 @@
 # dashboard-build behavior -- both only ever READ from R2 in the common
 # case (the frozen-input check writes to R2 only via the separate, never
 # automatically invoked --upload seeding action), so this doesn't
-# compromise "dry run touches no external WRITE path." Their combinations:
+# compromise "dry run touches no external WRITE path." Explorer artifact
+# generation and the dashboard build ALWAYS run regardless of these flags
+# (same reasoning as history sync -- generation reads only this run's own
+# local outputs, no R2 write involved). Their combinations:
 #
-#   (neither flag)                  ensure -> score -> archive -> sync -> build -> deploy
-#   --skip-deploy                   ensure -> score -> archive -> sync -> build -> stop
-#   --skip-archive --skip-deploy    ensure -> score -> sync (read-only) -> build -> stop
+#   (neither flag)                  ensure -> score -> archive -> sync -> explore -> build -> deploy
+#   --skip-deploy                   ensure -> score -> archive -> sync -> explore -> build -> stop
+#   --skip-archive --skip-deploy    ensure -> score -> sync (read-only) -> explore -> build -> stop
 #   --skip-archive (alone)          REFUSED -- see below.
 #
 # --skip-archive without --skip-deploy is deliberately refused: this
@@ -249,11 +272,12 @@ if [[ -n "$SNAPSHOT_LABEL" ]]; then
 fi
 
 SEASON="${DATA_THROUGH:0:4}"
+EXPLORER_BUILD_DIR="$PROJECT_ROOT/outputs/explorer_build/$SNAPSHOT_DIR_NAME"
 
-echo "==> [1/6] Ensuring the frozen input bundle (dev parquet + 3 detail JSONs) is present and verified"
+echo "==> [1/7] Ensuring the frozen input bundle (dev parquet + 3 detail JSONs) is present and verified"
 R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/ensure_frozen_inputs.py
 
-echo "==> [2/6] Generating prospective snapshot for --data-through $DATA_THROUGH"
+echo "==> [2/7] Generating prospective snapshot for --data-through $DATA_THROUGH"
 SNAPSHOT_ARGS=(--data-through "$DATA_THROUGH")
 if [[ -n "$SNAPSHOT_LABEL" ]]; then
   SNAPSHOT_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
@@ -261,9 +285,9 @@ fi
 "$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}"
 
 if [[ "$SKIP_ARCHIVE" -eq 1 ]]; then
-  echo "==> [3/6] Skipping durable archive (--skip-archive)."
+  echo "==> [3/7] Skipping durable archive (--skip-archive)."
 else
-  echo "==> [3/6] Archiving snapshot $SNAPSHOT_DIR_NAME to R2 bucket '$ARCHIVE_BUCKET'"
+  echo "==> [3/7] Archiving snapshot $SNAPSHOT_DIR_NAME to R2 bucket '$ARCHIVE_BUCKET'"
   ARCHIVE_ARGS=(--data-through "$DATA_THROUGH")
   if [[ -n "$SNAPSHOT_LABEL" ]]; then
     ARCHIVE_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
@@ -271,14 +295,21 @@ else
   R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/archive_snapshot.py "${ARCHIVE_ARGS[@]}"
 fi
 
-echo "==> [4/6] Syncing missing historical snapshots from R2 (read-only) for season $SEASON"
+echo "==> [4/7] Syncing missing historical snapshots from R2 (read-only) for season $SEASON"
 R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/archive_snapshot.py --sync-history --season "$SEASON"
 
-echo "==> [5/6] Rebuilding the dashboard"
-"$PYTHON" dashboard/build.py
+echo "==> [5/7] Generating Play Explorer browser artifacts from snapshot $SNAPSHOT_DIR_NAME"
+EXPLORE_ARGS=(--data-through "$DATA_THROUGH" --output-dir "$EXPLORER_BUILD_DIR")
+if [[ -n "$SNAPSHOT_LABEL" ]]; then
+  EXPLORE_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
+fi
+"$PYTHON" scripts/generate_production_explorer_artifacts.py "${EXPLORE_ARGS[@]}"
+
+echo "==> [6/7] Rebuilding the dashboard"
+"$PYTHON" dashboard/build.py --explore-artifacts-dir "$EXPLORER_BUILD_DIR"
 
 if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
-  echo "==> [6/6] Skipping deploy (--skip-deploy)."
+  echo "==> [7/7] Skipping deploy (--skip-deploy)."
   echo "    Preview locally with: cd dashboard/dist && python3 -m http.server 8000"
   exit 0
 fi
@@ -305,5 +336,5 @@ if [[ "$ASSUME_YES" -ne 1 ]]; then
   esac
 fi
 
-echo "==> [6/6] Deploying dashboard/dist to Cloudflare Pages project '$PROJECT_NAME'"
+echo "==> [7/7] Deploying dashboard/dist to Cloudflare Pages project '$PROJECT_NAME'"
 npx wrangler pages deploy dashboard/dist --project-name="$PROJECT_NAME" --commit-dirty=true
