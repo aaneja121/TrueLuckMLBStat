@@ -175,6 +175,7 @@ class TestVersionSafety:
             output_dir=tmp_path / "explorer_build",
             outputs_root=outputs_root,
             artifacts_root=artifacts_root,
+            generate_sensitivity=False,
         )
         assert result["play_ledger_version"] == "2.0"
         assert (tmp_path / "explorer_build" / "players.json").exists()
@@ -187,6 +188,7 @@ class TestVersionSafety:
                 output_dir=tmp_path / "explorer_build",
                 outputs_root=outputs_root,
                 artifacts_root=artifacts_root,
+                generate_sensitivity=False,
             )
         assert not (tmp_path / "explorer_build").exists()
 
@@ -205,6 +207,7 @@ class TestIntegrity:
                 output_dir=tmp_path / "explorer_build",
                 outputs_root=outputs_root,
                 artifacts_root=artifacts_root,
+                generate_sensitivity=False,
             )
 
     def test_tampered_ledger_fails_integrity_check(self, tmp_path: Path) -> None:
@@ -223,6 +226,7 @@ class TestIntegrity:
                 output_dir=tmp_path / "explorer_build",
                 outputs_root=outputs_root,
                 artifacts_root=artifacts_root,
+                generate_sensitivity=False,
             )
         assert not (tmp_path / "explorer_build").exists()
 
@@ -242,6 +246,7 @@ class TestIntegrity:
                 output_dir=tmp_path / "explorer_build",
                 outputs_root=outputs_root,
                 artifacts_root=artifacts_root,
+                generate_sensitivity=False,
             )
 
     def test_missing_public_score_is_rejected(self, tmp_path: Path) -> None:
@@ -261,6 +266,7 @@ class TestIntegrity:
                 output_dir=tmp_path / "explorer_build",
                 outputs_root=outputs_root,
                 artifacts_root=artifacts_root,
+                generate_sensitivity=False,
             )
 
 
@@ -279,6 +285,7 @@ class TestBatterNames:
             output_dir=tmp_path / "explorer_build",
             outputs_root=outputs_root,
             artifacts_root=artifacts_root,
+            generate_sensitivity=False,
         )
         catalog = json.loads((tmp_path / "explorer_build" / "players.json").read_text())
         assert catalog == [
@@ -330,6 +337,7 @@ class TestOutputLocation:
             output_dir=explorer_build_dir,
             outputs_root=outputs_root,
             artifacts_root=artifacts_root,
+            generate_sensitivity=False,
         )
         after = _snapshot_files()
         assert before == after, (
@@ -353,6 +361,7 @@ class TestArtifactReconciliation:
             output_dir=tmp_path / "explorer_build",
             outputs_root=outputs_root,
             artifacts_root=artifacts_root,
+            generate_sensitivity=False,
         )
         explore_metadata = json.loads(
             (tmp_path / "explorer_build" / "explore-metadata.json").read_text()
@@ -394,3 +403,64 @@ class TestCLI:
         )
         assert exit_code == 0
         assert (output_dir / "players.json").exists()
+
+
+class TestShowcaseWiring:
+    """Version 1.4.1: production regeneration of showcase.json (and, when
+    safely possible, showcase-sensitivity/<play_id>.json) as part of the
+    normal Explorer-artifact generation flow -- no real model retraining in
+    this file (that's covered end-to-end, with real reconciliation-gate
+    pass/fail cases, by tests/test_showcase_sensitivity.py).
+    """
+
+    def test_showcase_json_written_and_reconciles_with_metadata(self, tmp_path: Path) -> None:
+        outputs_root, artifacts_root = _write_full_snapshot(tmp_path)
+        output_dir = tmp_path / "explorer_build"
+        result = gpe.generate_production_explorer_artifacts(
+            snapshot_directory_name="2026-08-16",
+            output_dir=output_dir,
+            outputs_root=outputs_root,
+            artifacts_root=artifacts_root,
+            generate_sensitivity=False,
+        )
+        assert (output_dir / "showcase.json").exists()
+        showcase = json.loads((output_dir / "showcase.json").read_text())
+        explore_metadata = json.loads((output_dir / "explore-metadata.json").read_text())
+        favorable = [r for r in showcase if r["group"] == "favorable"]
+        unfavorable = [r for r in showcase if r["group"] == "unfavorable"]
+        assert len(favorable) == explore_metadata["showcase_favorable_count"]
+        assert len(unfavorable) == explore_metadata["showcase_unfavorable_count"]
+        assert result["showcase_favorable_count"] == explore_metadata["showcase_favorable_count"]
+        assert (
+            result["showcase_unfavorable_count"] == explore_metadata["showcase_unfavorable_count"]
+        )
+
+    def test_generate_sensitivity_false_skips_sensitivity_entirely(self, tmp_path: Path) -> None:
+        outputs_root, artifacts_root = _write_full_snapshot(tmp_path)
+        output_dir = tmp_path / "explorer_build"
+        result = gpe.generate_production_explorer_artifacts(
+            snapshot_directory_name="2026-08-16",
+            output_dir=output_dir,
+            outputs_root=outputs_root,
+            artifacts_root=artifacts_root,
+            generate_sensitivity=False,
+        )
+        assert result["showcase_interactive_play_ids"] == []
+        assert not (output_dir / "showcase-sensitivity").exists()
+
+    def test_missing_dev_data_path_is_a_soft_skip_not_a_crash(self, tmp_path: Path) -> None:
+        """generate_sensitivity=True (the default) but the frozen dev-data
+        file genuinely isn't present locally -- must not raise; showcase
+        ranking itself is entirely unaffected."""
+        outputs_root, artifacts_root = _write_full_snapshot(tmp_path)
+        output_dir = tmp_path / "explorer_build"
+        result = gpe.generate_production_explorer_artifacts(
+            snapshot_directory_name="2026-08-16",
+            output_dir=output_dir,
+            outputs_root=outputs_root,
+            artifacts_root=artifacts_root,
+            dev_data_path=tmp_path / "does_not_exist.parquet",
+        )
+        assert result["showcase_interactive_play_ids"] == []
+        assert (output_dir / "showcase.json").exists()
+        assert not (output_dir / "showcase-sensitivity").exists()

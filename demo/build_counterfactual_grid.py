@@ -181,7 +181,7 @@ class CounterfactualGridBuildError(RuntimeError):
     """
 
 
-def _bb_type_support_bounds(
+def bb_type_support_bounds(
     train_df: pd.DataFrame, bb_type: str, column: str
 ) -> tuple[float, float]:
     values = train_df.loc[train_df["bb_type"] == bb_type, column].dropna()
@@ -359,8 +359,8 @@ def _build_reference_play(
             f"gap={rv_gap!r})."
         )
 
-    ev_p1, ev_p99 = _bb_type_support_bounds(train_df, fixed_context["bb_type"], "launch_speed")
-    la_p1, la_p99 = _bb_type_support_bounds(train_df, fixed_context["bb_type"], "launch_angle")
+    ev_p1, ev_p99 = bb_type_support_bounds(train_df, fixed_context["bb_type"], "launch_speed")
+    la_p1, la_p99 = bb_type_support_bounds(train_df, fixed_context["bb_type"], "launch_angle")
     ev_values = build_axis_values(ev_p1, ev_p99, real_ev)
     la_values = build_axis_values(la_p1, la_p99, real_la)
 
@@ -409,7 +409,7 @@ def _build_reference_play(
     }
 
 
-def _model_configuration(trained: TrainedModel) -> dict[str, Any]:
+def model_configuration(trained: TrainedModel) -> dict[str, Any]:
     if trained.variant != VARIANT_UNWEIGHTED:
         raise CounterfactualGridBuildError(
             f"Refusing to build the counterfactual grid from a non-default model variant "
@@ -433,7 +433,7 @@ def _model_configuration(trained: TrainedModel) -> dict[str, Any]:
     }
 
 
-def _counterfactual_semantics(trained: TrainedModel) -> dict[str, Any]:
+def counterfactual_semantics(trained: TrainedModel) -> dict[str, Any]:
     """Adapted to the ACTUAL active feature set (`trained.numeric_features`
     + `trained.categorical_features`), not a hardcoded guess -- if a future
     code change alters which features `select_available_features` selects
@@ -508,8 +508,8 @@ def build_counterfactual_grid(
     )
     trained = train_model(train_df)
 
-    model_configuration = _model_configuration(trained)
-    semantics = _counterfactual_semantics(trained)
+    model_config = model_configuration(trained)
+    semantics = counterfactual_semantics(trained)
 
     reference_plays = {
         spec["example_id"]: _build_reference_play(
@@ -527,9 +527,9 @@ def build_counterfactual_grid(
         # -clock timestamp here would only ever be noise in that diff. See
         # tests/test_counterfactual_grid.py's byte-determinism test.
         "generator_script": "demo/build_counterfactual_grid.py",
-        "model_configuration": model_configuration,
+        "model_configuration": model_config,
         "counterfactual_semantics": semantics,
-        "generator_config_fingerprint": _config_fingerprint(model_configuration, semantics),
+        "generator_config_fingerprint": _config_fingerprint(model_config, semantics),
         "reference_plays": reference_plays,
     }
 

@@ -39,11 +39,15 @@ __all__ = [
     "ExploreMetadata",
     "PlayDetail",
     "PlayerCatalogEntry",
+    "SensitivityGrid",
+    "ShowcaseRow",
     "load_explore_catalog",
     "load_explore_metadata",
     "load_play_detail",
     "load_player_play_index",
     "load_players_catalog",
+    "load_showcase",
+    "load_showcase_sensitivity",
 ]
 
 _RECONCILIATION_TOLERANCE = 1e-6
@@ -63,9 +67,12 @@ _PROBABILITY_SUM_TOLERANCE = 1e-3
 #: `SUPPORTED_EXPLORER_ARTIFACT_VERSION` was bumped to "2.0" for Phase 4.2's
 #: sharded players.json + players/<id>.json replacement of the monolithic
 #: search-index.json -- an old "1.0" fixture is now correctly rejected as
-#: incompatible (it has no players.json to load).
+#: incompatible (it has no players.json to load). Bumped to "3.0" for
+#: Version 1.4.1's `showcase.json` addition -- a "2.0" artifact set (no
+#: showcase.json, no showcase_*_count metadata) is now correctly rejected
+#: as incompatible too.
 SUPPORTED_PLAY_LEDGER_VERSION = "2.0"
-SUPPORTED_EXPLORER_ARTIFACT_VERSION = "2.0"
+SUPPORTED_EXPLORER_ARTIFACT_VERSION = "3.0"
 
 _EXPLORE_METADATA_REQUIRED_KEYS: tuple[str, ...] = (
     "explorer_artifact_version",
@@ -75,7 +82,45 @@ _EXPLORE_METADATA_REQUIRED_KEYS: tuple[str, ...] = (
     "play_count",
     "player_count",
     "game_count",
+    "showcase_favorable_count",
+    "showcase_unfavorable_count",
+    "showcase_interactive_count",
     "source_play_ledger_sha256",
+)
+
+_SHOWCASE_ROW_REQUIRED_KEYS: tuple[str, ...] = (
+    "play_id",
+    "game_pk",
+    "game_date",
+    "batter_id",
+    "batter_name",
+    "outcome_class",
+    "launch_speed",
+    "launch_angle",
+    "expected_run_value",
+    "observed_run_value",
+    "contact_luck_runs",
+    "group",
+    "rank",
+    "interactive_available",
+)
+
+_SHOWCASE_GROUPS: tuple[str, ...] = ("favorable", "unfavorable")
+
+_SENSITIVITY_ARTIFACT_REQUIRED_KEYS: tuple[str, ...] = (
+    "play_id",
+    "model_configuration",
+    "counterfactual_semantics",
+    "fixed_context",
+    "original_exit_velocity_mph",
+    "original_launch_angle_deg",
+    "original_probabilities",
+    "original_expected_run_value",
+    "original_grid_index",
+    "exit_velocity_values",
+    "launch_angle_values",
+    "grid_shape",
+    "grid",
 )
 
 _PLAYERS_CATALOG_REQUIRED_KEYS: tuple[str, ...] = ("batter_id", "batter_name", "play_count")
@@ -120,6 +165,14 @@ _PLAY_DETAIL_REQUIRED_KEYS: tuple[str, ...] = (
 )
 
 _PROBABILITY_KEYS: tuple[str, ...] = ("p_out", "p_single", "p_double", "p_triple", "p_home_run")
+
+#: Mirrors `mlb_luck_score.config.CLASS_ORDER` exactly (duplicated, not
+#: imported -- this module must never import `mlb_luck_score`, see module
+#: docstring). Used only to key into `showcase-sensitivity/<play_id>.json`'s
+#: `original_probabilities`/per-cell `grid` arrays, which -- unlike
+#: `PlayDetail`'s `p_out`..`p_home_run` columns -- use the bare class label,
+#: matching `demo/build_counterfactual_grid.py`'s own artifact shape.
+_SENSITIVITY_CLASS_ORDER: tuple[str, ...] = ("out", "single", "double", "triple", "home_run")
 
 
 class ExploreContentError(Exception):
@@ -168,7 +221,49 @@ class ExploreMetadata:
     play_count: int
     player_count: int
     game_count: int
+    showcase_favorable_count: int
+    showcase_unfavorable_count: int
+    showcase_interactive_count: int
     source_play_ledger_sha256: str
+
+
+@dataclass(frozen=True)
+class ShowcaseRow:
+    play_id: str
+    game_pk: int
+    game_date: str
+    batter_id: int
+    batter_name: str | None
+    outcome_class: str
+    launch_speed: float | None
+    launch_angle: float | None
+    expected_run_value: float
+    observed_run_value: float
+    contact_luck_runs: float
+    group: str
+    rank: int
+    interactive_available: bool
+
+
+@dataclass(frozen=True)
+class SensitivityGrid:
+    """Loaded, validated `showcase-sensitivity/<play_id>.json` -- the
+    per-cell `grid`/axis arrays are exposed verbatim (the browser does the
+    direct lookup, this dataclass just proves the file is well-formed and
+    internally consistent before it ships -- see `load_showcase_sensitivity`).
+    """
+
+    play_id: str
+    fixed_context: dict[str, Any]
+    original_exit_velocity_mph: float
+    original_launch_angle_deg: float
+    original_probabilities: dict[str, float]
+    original_expected_run_value: float
+    original_grid_index: dict[str, int]
+    exit_velocity_values: list[float]
+    launch_angle_values: list[float]
+    grid_shape: dict[str, int]
+    grid: list[list[float]]
 
 
 @dataclass(frozen=True)
@@ -275,6 +370,9 @@ def load_explore_metadata(path: Path) -> ExploreMetadata:
         play_count=int(raw["play_count"]),
         player_count=int(raw["player_count"]),
         game_count=int(raw["game_count"]),
+        showcase_favorable_count=int(raw["showcase_favorable_count"]),
+        showcase_unfavorable_count=int(raw["showcase_unfavorable_count"]),
+        showcase_interactive_count=int(raw["showcase_interactive_count"]),
         source_play_ledger_sha256=raw["source_play_ledger_sha256"],
     )
 
@@ -417,6 +515,100 @@ def load_explore_catalog(
     )
 
 
+def _validate_showcase_row(raw: dict[str, Any], position: int, source: Path) -> ShowcaseRow:
+    missing = [k for k in _SHOWCASE_ROW_REQUIRED_KEYS if k not in raw]
+    if missing:
+        raise ExploreContentError(f"{source} row {position} missing key(s): {missing}")
+    if raw["group"] not in _SHOWCASE_GROUPS:
+        raise ExploreContentError(
+            f"{source} row {position}: group={raw['group']!r} is not one of {_SHOWCASE_GROUPS}"
+        )
+    observed = float(raw["observed_run_value"])
+    expected = float(raw["expected_run_value"])
+    contact_luck = float(raw["contact_luck_runs"])
+    gap = abs((observed - expected) - contact_luck)
+    if gap > _RECONCILIATION_TOLERANCE:
+        raise ExploreContentError(
+            f"{source} row {position} (play_id={raw.get('play_id')!r}): observed_run_value - "
+            f"expected_run_value does not reconcile with contact_luck_runs (gap={gap!r})"
+        )
+    return ShowcaseRow(
+        play_id=raw["play_id"],
+        game_pk=int(raw["game_pk"]),
+        game_date=raw["game_date"],
+        batter_id=int(raw["batter_id"]),
+        batter_name=raw.get("batter_name"),
+        outcome_class=raw["outcome_class"],
+        launch_speed=None if raw["launch_speed"] is None else float(raw["launch_speed"]),
+        launch_angle=None if raw["launch_angle"] is None else float(raw["launch_angle"]),
+        expected_run_value=expected,
+        observed_run_value=observed,
+        contact_luck_runs=contact_luck,
+        group=raw["group"],
+        rank=int(raw["rank"]),
+        interactive_available=bool(raw["interactive_available"]),
+    )
+
+
+def load_showcase(path: Path, metadata: ExploreMetadata) -> list[ShowcaseRow]:
+    """Load and validate the committed `showcase.json` (Version 1.4.1
+    Showcase Plays): the `SHOWCASE_TOP_N` biggest favorable and biggest
+    unfavorable `contact_luck_runs` breaks, no qualification filter, no
+    one-play-per-player cap -- see `demo/build_play_explorer_fixture.
+    build_showcase_rows`'s docstring for the exact selection/ordering rule
+    this validates against.
+
+    Raises:
+        ExploreContentError: if the file is missing/malformed, a row is
+            missing a required key or fails its own reconciliation check,
+            `group` is not `"favorable"`/`"unfavorable"`, `rank` within
+            either group is not the contiguous sequence `1..N` in ascending
+            `rank` order, `play_id` is duplicated within the showcase, or
+            either group's row count disagrees with `metadata`'s own
+            `showcase_favorable_count`/`showcase_unfavorable_count`.
+    """
+    if not path.exists():
+        raise ExploreContentError(
+            f"Showcase Plays artifact not found at {path}. It is committed browser-artifact "
+            "data produced by `demo/build_play_explorer_fixture.py` -- it is never regenerated "
+            "by the dashboard build."
+        )
+    raw_rows = _load_json(path)
+    if not isinstance(raw_rows, list):
+        raise ExploreContentError(
+            f"{path} must contain a JSON array of row objects, got {type(raw_rows)}"
+        )
+
+    rows = [_validate_showcase_row(r, i, path) for i, r in enumerate(raw_rows)]
+
+    play_ids = [r.play_id for r in rows]
+    if len(set(play_ids)) != len(play_ids):
+        counts = Counter(play_ids)
+        dupes = sorted(pid for pid, n in counts.items() if n > 1)
+        raise ExploreContentError(f"duplicate play_id(s) in {path}: {dupes}")
+
+    expected_counts = {
+        "favorable": metadata.showcase_favorable_count,
+        "unfavorable": metadata.showcase_unfavorable_count,
+    }
+    for group in _SHOWCASE_GROUPS:
+        group_rows = sorted((r for r in rows if r.group == group), key=lambda r: r.rank)
+        if len(group_rows) != expected_counts[group]:
+            raise ExploreContentError(
+                f"{path}: group={group!r} has {len(group_rows)} row(s), but "
+                f"explore-metadata.json declares {expected_counts[group]}"
+            )
+        actual_ranks = [r.rank for r in group_rows]
+        expected_ranks = list(range(1, len(group_rows) + 1))
+        if actual_ranks != expected_ranks:
+            raise ExploreContentError(
+                f"{path}: group={group!r} ranks are {actual_ranks}, expected a contiguous "
+                f"{expected_ranks}"
+            )
+
+    return rows
+
+
 def _build_play_detail(raw: dict[str, Any]) -> PlayDetail:
     missing = [k for k in _PLAY_DETAIL_REQUIRED_KEYS if k not in raw]
     if missing:
@@ -493,3 +685,86 @@ def load_play_detail(games_dir: Path, game_pk: int, play_id: str) -> PlayDetail:
         if raw.get("play_id") == play_id:
             return _build_play_detail(raw)
     raise ExploreContentError(f"play_id {play_id!r} not found in {path}")
+
+
+def load_showcase_sensitivity(path: Path) -> SensitivityGrid:
+    """Load and structurally validate one `showcase-sensitivity/
+    <play_id>.json` "What if?" grid (Version 1.4.1) -- produced by `demo/
+    build_showcase_sensitivity.py`, which owns the SCIENTIFIC reconciliation
+    gate (this dashboard module never imports it or re-runs it -- see
+    module docstring's read-only boundary). What this function DOES check,
+    as a build-time self-consistency guard: the file has every required
+    key, `grid`'s length matches `grid_shape.n_ev * grid_shape.n_la`, both
+    axis arrays are non-empty, `original_grid_index` is within bounds, AND
+    -- exactly mirroring `demo/build_counterfactual_grid.py`'s own
+    "one full-precision cell per reference play" invariant -- a direct
+    lookup into `grid` at `original_grid_index` reproduces
+    `original_probabilities` exactly. A corrupted or hand-edited artifact
+    that fails any of these is rejected here, before it ever ships.
+
+    Raises:
+        ExploreContentError: if the file is missing/malformed, missing a
+            required key, has an inconsistent grid shape, or its own
+            reference-coordinate cell does not exactly match
+            `original_probabilities`.
+    """
+    if not path.exists():
+        raise ExploreContentError(f"showcase sensitivity artifact not found: {path}")
+    raw = _load_json(path)
+    if not isinstance(raw, dict):
+        raise ExploreContentError(f"{path} must contain a JSON object, got {type(raw)}")
+
+    missing = [k for k in _SENSITIVITY_ARTIFACT_REQUIRED_KEYS if k not in raw]
+    if missing:
+        raise ExploreContentError(f"{path} missing key(s): {missing}")
+
+    ev_values = raw["exit_velocity_values"]
+    la_values = raw["launch_angle_values"]
+    grid = raw["grid"]
+    grid_shape = raw["grid_shape"]
+    if not ev_values or not la_values:
+        raise ExploreContentError(f"{path}: exit_velocity_values/launch_angle_values must be non-empty")
+    if grid_shape["n_ev"] != len(ev_values) or grid_shape["n_la"] != len(la_values):
+        raise ExploreContentError(
+            f"{path}: grid_shape {grid_shape!r} does not match axis array lengths "
+            f"(n_ev={len(ev_values)}, n_la={len(la_values)})"
+        )
+    if len(grid) != len(ev_values) * len(la_values):
+        raise ExploreContentError(
+            f"{path}: grid has {len(grid)} row(s), expected "
+            f"{len(ev_values)} * {len(la_values)} = {len(ev_values) * len(la_values)}"
+        )
+
+    original_grid_index = raw["original_grid_index"]
+    ev_index = int(original_grid_index["ev_index"])
+    la_index = int(original_grid_index["la_index"])
+    if not (0 <= ev_index < len(ev_values)) or not (0 <= la_index < len(la_values)):
+        raise ExploreContentError(
+            f"{path}: original_grid_index {original_grid_index!r} is out of bounds for a "
+            f"{len(ev_values)}x{len(la_values)} grid"
+        )
+
+    row_index = ev_index * len(la_values) + la_index
+    cell = grid[row_index]
+    original_probabilities = raw["original_probabilities"]
+    for i, cls in enumerate(_SENSITIVITY_CLASS_ORDER):
+        gap = abs(float(cell[i]) - float(original_probabilities[cls]))
+        if gap > _RECONCILIATION_TOLERANCE:
+            raise ExploreContentError(
+                f"{path}: direct grid lookup at original_grid_index does not reproduce "
+                f"original_probabilities[{cls!r}] exactly (gap={gap!r})"
+            )
+
+    return SensitivityGrid(
+        play_id=raw["play_id"],
+        fixed_context=raw["fixed_context"],
+        original_exit_velocity_mph=float(raw["original_exit_velocity_mph"]),
+        original_launch_angle_deg=float(raw["original_launch_angle_deg"]),
+        original_probabilities={k: float(v) for k, v in original_probabilities.items()},
+        original_expected_run_value=float(raw["original_expected_run_value"]),
+        original_grid_index=original_grid_index,
+        exit_velocity_values=ev_values,
+        launch_angle_values=la_values,
+        grid_shape=grid_shape,
+        grid=grid,
+    )

@@ -41,16 +41,25 @@ def _seed_snapshot(tmp_path: Path) -> tuple[Path, Path]:
 
 class TestResolveExplorePaths:
     def test_none_in_none_out(self) -> None:
-        assert dashboard_build._resolve_explore_paths(None) == (None, None, None, None)
+        assert dashboard_build._resolve_explore_paths(None) == (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
-    def test_directory_resolves_to_four_expected_paths(self, tmp_path: Path) -> None:
-        players_path, players_dir, games_dir, metadata_path = (
+    def test_directory_resolves_to_six_expected_paths(self, tmp_path: Path) -> None:
+        players_path, players_dir, games_dir, metadata_path, showcase_path, sensitivity_dir = (
             dashboard_build._resolve_explore_paths(tmp_path)
         )
         assert players_path == tmp_path / "players.json"
         assert players_dir == tmp_path / "players"
         assert games_dir == tmp_path / "games"
         assert metadata_path == tmp_path / "explore-metadata.json"
+        assert showcase_path == tmp_path / "showcase.json"
+        assert sensitivity_dir == tmp_path / "showcase-sensitivity"
 
 
 class TestCLIFailsClosedByDefault:

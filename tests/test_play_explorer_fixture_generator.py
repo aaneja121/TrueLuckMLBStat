@@ -155,11 +155,10 @@ def test_require_compatible_play_ledger_version_accepts_current():
     gen.require_compatible_play_ledger_version({"play_ledger_version": PLAY_LEDGER_VERSION})
 
 
-def test_explorer_artifact_version_is_2_0():
-    """Phase 4.2 bumped the STRUCTURE version -- monolithic search-index.json
-    replaced by players.json + players/<id>.json -- independent of
-    PLAY_LEDGER_VERSION."""
-    assert gen.EXPLORER_ARTIFACT_VERSION == "2.0"
+def test_explorer_artifact_version_is_3_0():
+    """Version 1.4.1 bumped the STRUCTURE version again -- showcase.json
+    added -- independent of PLAY_LEDGER_VERSION."""
+    assert gen.EXPLORER_ARTIFACT_VERSION == "3.0"
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +431,13 @@ def test_generate_explorer_artifacts_writes_no_monolithic_search_index(tmp_path:
         play_ledger_path=ledger_path, play_ledger_metadata_path=metadata_path, output_dir=out_dir
     )
     top_level = {p.name for p in out_dir.iterdir()}
-    assert top_level == {"players.json", "players", "games", "explore-metadata.json"}
+    assert top_level == {
+        "players.json",
+        "players",
+        "games",
+        "explore-metadata.json",
+        "showcase.json",
+    }
     assert "search-index.json" not in top_level
     assert (out_dir / "players").is_dir()
     assert (out_dir / "games").is_dir()
@@ -466,6 +471,9 @@ def test_build_explore_metadata_contains_required_keys_and_real_sha256(tmp_path:
         play_count=1,
         player_count=1,
         game_count=1,
+        showcase_favorable_count=1,
+        showcase_unfavorable_count=1,
+        showcase_interactive_count=0,
     )
     assert set(metadata.keys()) == {
         "explorer_artifact_version",
@@ -475,6 +483,9 @@ def test_build_explore_metadata_contains_required_keys_and_real_sha256(tmp_path:
         "play_count",
         "player_count",
         "game_count",
+        "showcase_favorable_count",
+        "showcase_unfavorable_count",
+        "showcase_interactive_count",
         "source_play_ledger_sha256",
     }
     assert metadata["explorer_artifact_version"] == gen.EXPLORER_ARTIFACT_VERSION
@@ -482,6 +493,9 @@ def test_build_explore_metadata_contains_required_keys_and_real_sha256(tmp_path:
     assert metadata["play_count"] == 1
     assert metadata["player_count"] == 1
     assert metadata["game_count"] == 1
+    assert metadata["showcase_favorable_count"] == 1
+    assert metadata["showcase_unfavorable_count"] == 1
+    assert metadata["showcase_interactive_count"] == 0
     assert metadata["source_play_ledger_sha256"] == gen.compute_file_sha256(ledger_path)
 
 
@@ -496,6 +510,9 @@ def test_build_explore_metadata_data_through_date_null_when_absent(tmp_path: Pat
         play_count=1,
         player_count=1,
         game_count=1,
+        showcase_favorable_count=1,
+        showcase_unfavorable_count=1,
+        showcase_interactive_count=0,
     )
     assert metadata["data_through_date"] is None
 

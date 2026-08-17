@@ -72,6 +72,154 @@
       .replace(/\s+/g, " ");
   }
 
+  // Version 1.4.1 Showcase Plays -- an editorial entry point, entirely
+  // independent of the player-search/browse section below (no shared
+  // state, no shared DOM beyond both living on /explore/). Fetches ONLY
+  // showcase.json (a small, fixed-size ~24-row file) once on page load;
+  // every value rendered is copied verbatim from that fetched row, never
+  // recomputed. A card's "View play" link uses the SAME `/plays/?id=`
+  // query-param route the player-browse table uses.
+  var SHOWCASE_URL = "showcase.json";
+
+  //: How many cards each group shows before the "Show all" reveal button
+  //: appears -- keeps the Showcase scannable/editorial rather than a
+  //: second large table dumped above the search bar (see Section 4 of the
+  //: v1.4.1 task: "show perhaps first 6 per group prominently").
+  var SHOWCASE_INITIAL_VISIBLE = 6;
+
+  function evLaLabel(launchSpeed, launchAngle) {
+    var ev =
+      launchSpeed === null || launchSpeed === undefined ? "—" : launchSpeed.toFixed(1) + " mph";
+    var la =
+      launchAngle === null || launchAngle === undefined
+        ? "—"
+        : Math.round(launchAngle) + "°";
+    return ev + " / " + la;
+  }
+
+  function buildShowcaseCard(row) {
+    var favorable = row.contact_luck_runs >= 0;
+    var card = document.createElement("div");
+    card.className =
+      "showcase-card " + (favorable ? "showcase-card-favorable" : "showcase-card-unfavorable");
+
+    var name = document.createElement("p");
+    name.className = "showcase-card-name";
+    name.textContent = row.batter_name || "Player " + row.batter_id;
+    card.appendChild(name);
+
+    var date = document.createElement("p");
+    date.className = "showcase-card-date";
+    date.textContent = formatDate(row.game_date);
+    card.appendChild(date);
+
+    var rowsEl = document.createElement("div");
+    rowsEl.className = "showcase-card-rows";
+
+    [
+      ["Recorded result", outcomeLabel(row.outcome_class)],
+      ["EV / LA", evLaLabel(row.launch_speed, row.launch_angle)],
+      ["Expected RV", formatSigned(row.expected_run_value)],
+      ["Final observed RV", formatSigned(row.observed_run_value)],
+    ].forEach(function (pair) {
+      var rowEl = document.createElement("div");
+      rowEl.className = "showcase-card-row";
+      var labelEl = document.createElement("span");
+      labelEl.className = "showcase-card-row-label";
+      labelEl.textContent = pair[0];
+      var valueEl = document.createElement("span");
+      valueEl.textContent = pair[1];
+      rowEl.appendChild(labelEl);
+      rowEl.appendChild(valueEl);
+      rowsEl.appendChild(rowEl);
+    });
+    card.appendChild(rowsEl);
+
+    var figure = document.createElement("p");
+    figure.className =
+      "demo-luck-figure showcase-card-figure " +
+      (favorable ? "interval-positive" : "interval-negative");
+    figure.textContent = formatSigned(row.contact_luck_runs) + " runs";
+    card.appendChild(figure);
+
+    var footer = document.createElement("div");
+    footer.className = "showcase-card-footer";
+    if (row.interactive_available) {
+      var badge = document.createElement("span");
+      badge.className = "showcase-card-whatif-badge";
+      badge.textContent = "What if? available";
+      footer.appendChild(badge);
+    }
+    var link = document.createElement("a");
+    link.className = "showcase-card-link";
+    link.href = "/plays/?id=" + encodeURIComponent(row.play_id);
+    link.textContent = "View play →";
+    footer.appendChild(link);
+    card.appendChild(footer);
+
+    return card;
+  }
+
+  function renderShowcaseGroup(section, groupKey, rows) {
+    var cardsEl = qs('[data-role="showcase-cards-' + groupKey + '"]', section);
+    var revealBtn = qs('[data-role="showcase-reveal-' + groupKey + '"]', section);
+    if (!cardsEl) return;
+
+    var sorted = rows.slice().sort(function (a, b) {
+      return a.rank - b.rank;
+    });
+    var initiallyVisible = sorted.slice(0, SHOWCASE_INITIAL_VISIBLE);
+    var rest = sorted.slice(SHOWCASE_INITIAL_VISIBLE);
+
+    initiallyVisible.forEach(function (row) {
+      cardsEl.appendChild(buildShowcaseCard(row));
+    });
+
+    if (rest.length && revealBtn) {
+      revealBtn.hidden = false;
+      revealBtn.textContent = "Show all " + sorted.length;
+      revealBtn.addEventListener("click", function () {
+        rest.forEach(function (row) {
+          cardsEl.appendChild(buildShowcaseCard(row));
+        });
+        revealBtn.hidden = true;
+      });
+    }
+  }
+
+  function initShowcaseSection() {
+    var section = qs('[data-role="showcase-section"]');
+    if (!section) return;
+
+    var loadingEl = qs('[data-role="showcase-loading"]', section);
+    var bodyEl = qs('[data-role="showcase-body"]', section);
+
+    fetch(SHOWCASE_URL)
+      .then(function (response) {
+        if (!response.ok) throw new Error("failed to load showcase: " + response.status);
+        return response.json();
+      })
+      .then(function (rows) {
+        var favorable = rows.filter(function (r) {
+          return r.group === "favorable";
+        });
+        var unfavorable = rows.filter(function (r) {
+          return r.group === "unfavorable";
+        });
+        renderShowcaseGroup(section, "favorable", favorable);
+        renderShowcaseGroup(section, "unfavorable", unfavorable);
+        if (loadingEl) loadingEl.hidden = true;
+        if (bodyEl) bodyEl.hidden = false;
+      })
+      .catch(function (err) {
+        if (loadingEl) {
+          loadingEl.textContent =
+            "Showcase Plays could not load right now. The rest of the page is unaffected.";
+        }
+        if (window.console && window.console.error) window.console.error(err);
+      });
+  }
+
   function initExplorePage() {
     var root = qs('[data-role="explore-selected"]');
     if (!root) return;
@@ -317,5 +465,6 @@
       });
   }
 
+  document.addEventListener("DOMContentLoaded", initShowcaseSection);
   document.addEventListener("DOMContentLoaded", initExplorePage);
 })();

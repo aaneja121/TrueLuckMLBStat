@@ -447,6 +447,108 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
   .homepage-proof-examples { grid-template-columns: 1fr; }
 }
 
+/* Version 1.4.1 Showcase Plays -- editorial cards above the generic player
+   search on /explore/. Deliberately close cousins of `.homepage-proof-*`
+   (same compact-card scorebook identity) rather than another large table --
+   see the task's "should feel editorial and scannable" requirement. */
+.showcase-section { margin: 4px 0 28px; }
+.showcase-heading { margin-bottom: 4px; }
+.showcase-group { margin: 18px 0; }
+.showcase-group-heading { font-size: 1.05rem; margin: 0 0 10px; }
+.showcase-group-heading-favorable { color: var(--diverging-positive); }
+.showcase-group-heading-unfavorable { color: var(--diverging-negative); }
+
+.showcase-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.showcase-card {
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.showcase-card-favorable { border-top-color: var(--diverging-positive); }
+.showcase-card-unfavorable { border-top-color: var(--diverging-negative); }
+.showcase-card-name { font-weight: 700; margin: 0 0 2px; }
+.showcase-card-date {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  margin: 0 0 10px;
+}
+.showcase-card-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.showcase-card-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.88rem;
+}
+.showcase-card-row-label { color: var(--text-secondary); }
+/* Compound selector so this reliably overrides `.demo-luck-figure`'s
+   larger base size regardless of stylesheet order -- a showcase card's
+   figure must read as clearly smaller than a full play page's own payoff
+   number, matching `.homepage-proof-figure`'s exact precedent. */
+.demo-luck-figure.showcase-card-figure {
+  font-size: 1.05rem;
+  margin: 6px 0;
+}
+.showcase-card-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.showcase-card-whatif-badge {
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.showcase-card-link { font-weight: 600; white-space: nowrap; }
+
+.showcase-reveal-button {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.showcase-reveal-button:hover { border-color: var(--accent-amber); }
+
+.explore-browse-heading { margin-top: 28px; }
+
+@media (max-width: 900px) {
+  .showcase-cards { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .showcase-cards { grid-template-columns: 1fr; }
+}
+
+/* Version 1.4.1 "What if?" sensitivity module on the play page -- reuses
+   the "Try It Yourself" simulator's control/slider/prob-bar/rv-compare
+   classes verbatim (see dashboard/static/demo_simulator.js), only this
+   section-level wrapper and the badge above are new. */
+.showcase-whatif-section { margin-top: 28px; }
+
 .terminology-tabs {
   display: flex;
   gap: 8px;

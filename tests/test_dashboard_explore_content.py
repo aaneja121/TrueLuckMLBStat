@@ -49,6 +49,9 @@ def _explore_metadata(**overrides: Any) -> dict[str, Any]:
         "play_count": 1,
         "player_count": 1,
         "game_count": 1,
+        "showcase_favorable_count": 0,
+        "showcase_unfavorable_count": 0,
+        "showcase_interactive_count": 0,
         "source_play_ledger_sha256": "a" * 64,
     }
     row.update(overrides)
@@ -453,3 +456,239 @@ def test_explore_metadata_phase_4_1_v1_0_artifact_rejected(tmp_path: Path):
     path = _write_explore_metadata(tmp_path, explorer_artifact_version="1.0")
     with pytest.raises(ec.ExploreContentError, match="explorer_artifact_version"):
         ec.load_explore_metadata(path)
+
+
+# ---------------------------------------------------------------------------
+# Version 1.4.1: load_showcase
+# ---------------------------------------------------------------------------
+
+
+def _showcase_row(**overrides: Any) -> dict[str, Any]:
+    row = {
+        "play_id": "700001-10-3",
+        "game_pk": 700001,
+        "game_date": "2024-06-01",
+        "batter_id": 12345,
+        "batter_name": "Test Player",
+        "outcome_class": "home_run",
+        "launch_speed": 107.6,
+        "launch_angle": 33.0,
+        "expected_run_value": 0.17,
+        "observed_run_value": 1.4,
+        "contact_luck_runs": 1.23,
+        "group": "favorable",
+        "rank": 1,
+        "interactive_available": False,
+    }
+    row.update(overrides)
+    return row
+
+
+def _write_showcase(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
+    path = tmp_path / "showcase.json"
+    path.write_text(json.dumps(rows))
+    return path
+
+
+def _metadata_for_showcase(
+    favorable: int, unfavorable: int, interactive: int = 0
+) -> ec.ExploreMetadata:
+    raw = _explore_metadata(
+        showcase_favorable_count=favorable,
+        showcase_unfavorable_count=unfavorable,
+        showcase_interactive_count=interactive,
+    )
+    return ec.ExploreMetadata(
+        explorer_artifact_version=raw["explorer_artifact_version"],
+        play_ledger_version=raw["play_ledger_version"],
+        season=raw["season"],
+        data_through_date=raw["data_through_date"],
+        play_count=raw["play_count"],
+        player_count=raw["player_count"],
+        game_count=raw["game_count"],
+        showcase_favorable_count=favorable,
+        showcase_unfavorable_count=unfavorable,
+        showcase_interactive_count=interactive,
+        source_play_ledger_sha256=raw["source_play_ledger_sha256"],
+    )
+
+
+def test_load_showcase_valid_rows(tmp_path: Path) -> None:
+    rows = [_showcase_row(play_id="700001-1-1", rank=1)]
+    path = _write_showcase(tmp_path, rows)
+    metadata = _metadata_for_showcase(favorable=1, unfavorable=0)
+    loaded = ec.load_showcase(path, metadata)
+    assert len(loaded) == 1
+    assert loaded[0].play_id == "700001-1-1"
+    assert loaded[0].group == "favorable"
+
+
+def test_load_showcase_missing_file_raises(tmp_path: Path) -> None:
+    metadata = _metadata_for_showcase(favorable=0, unfavorable=0)
+    with pytest.raises(ec.ExploreContentError, match="not found"):
+        ec.load_showcase(tmp_path / "does_not_exist.json", metadata)
+
+
+def test_load_showcase_missing_key_raises(tmp_path: Path) -> None:
+    row = _showcase_row()
+    del row["contact_luck_runs"]
+    path = _write_showcase(tmp_path, [row])
+    metadata = _metadata_for_showcase(favorable=1, unfavorable=0)
+    with pytest.raises(ec.ExploreContentError, match="missing key"):
+        ec.load_showcase(path, metadata)
+
+
+def test_load_showcase_invalid_group_raises(tmp_path: Path) -> None:
+    path = _write_showcase(tmp_path, [_showcase_row(group="sideways")])
+    metadata = _metadata_for_showcase(favorable=1, unfavorable=0)
+    with pytest.raises(ec.ExploreContentError, match="group"):
+        ec.load_showcase(path, metadata)
+
+
+def test_load_showcase_reconciliation_failure_raises(tmp_path: Path) -> None:
+    path = _write_showcase(
+        tmp_path,
+        [_showcase_row(observed_run_value=1.4, expected_run_value=0.17, contact_luck_runs=99.0)],
+    )
+    metadata = _metadata_for_showcase(favorable=1, unfavorable=0)
+    with pytest.raises(ec.ExploreContentError, match="reconcile"):
+        ec.load_showcase(path, metadata)
+
+
+def test_load_showcase_duplicate_play_id_raises(tmp_path: Path) -> None:
+    rows = [
+        _showcase_row(play_id="700001-1-1", rank=1),
+        _showcase_row(play_id="700001-1-1", rank=2, group="unfavorable"),
+    ]
+    path = _write_showcase(tmp_path, rows)
+    metadata = _metadata_for_showcase(favorable=1, unfavorable=1)
+    with pytest.raises(ec.ExploreContentError, match="duplicate play_id"):
+        ec.load_showcase(path, metadata)
+
+
+def test_load_showcase_favorable_count_mismatch_raises(tmp_path: Path) -> None:
+    path = _write_showcase(tmp_path, [_showcase_row(play_id="700001-1-1", rank=1)])
+    metadata = _metadata_for_showcase(favorable=2, unfavorable=0)
+    with pytest.raises(ec.ExploreContentError, match="favorable"):
+        ec.load_showcase(path, metadata)
+
+
+def test_load_showcase_non_contiguous_ranks_raise(tmp_path: Path) -> None:
+    rows = [
+        _showcase_row(play_id="700001-1-1", rank=1),
+        _showcase_row(play_id="700001-2-1", rank=3),
+    ]
+    path = _write_showcase(tmp_path, rows)
+    metadata = _metadata_for_showcase(favorable=2, unfavorable=0)
+    with pytest.raises(ec.ExploreContentError, match="ranks"):
+        ec.load_showcase(path, metadata)
+
+
+def test_load_showcase_batter_name_none_when_unresolved(tmp_path: Path) -> None:
+    path = _write_showcase(tmp_path, [_showcase_row(batter_name=None)])
+    metadata = _metadata_for_showcase(favorable=1, unfavorable=0)
+    loaded = ec.load_showcase(path, metadata)
+    assert loaded[0].batter_name is None
+
+
+# ---------------------------------------------------------------------------
+# Version 1.4.1: load_showcase_sensitivity
+# ---------------------------------------------------------------------------
+
+
+def _sensitivity_artifact(**overrides: Any) -> dict[str, Any]:
+    # A tiny 2x2 grid: real coordinate at (ev_index=0, la_index=0).
+    grid = [
+        [1.0, 0.0, 0.0, 0.0, 0.0],
+        [0.5, 0.5, 0.0, 0.0, 0.0],
+        [0.25, 0.25, 0.25, 0.25, 0.0],
+        [0.2, 0.2, 0.2, 0.2, 0.2],
+    ]
+    payload = {
+        "play_id": "700001-10-3",
+        "model_configuration": {"run_value_table": {}},
+        "counterfactual_semantics": {"type": "ceteris_paribus_model_sensitivity"},
+        "fixed_context": {
+            "hit_distance_sc": 413.0,
+            "spray_angle_approx": -5.9,
+            "bb_type": "fly_ball",
+            "stand": "L",
+        },
+        "original_exit_velocity_mph": 107.6,
+        "original_launch_angle_deg": 33.0,
+        "original_probabilities": {
+            "out": 1.0,
+            "single": 0.0,
+            "double": 0.0,
+            "triple": 0.0,
+            "home_run": 0.0,
+        },
+        "original_expected_run_value": -0.25,
+        "original_grid_index": {"ev_index": 0, "la_index": 0},
+        "exit_velocity_values": [107.6, 110],
+        "launch_angle_values": [33.0, 40],
+        "grid_shape": {"n_ev": 2, "n_la": 2},
+        "grid": grid,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _write_sensitivity(tmp_path: Path, payload: dict[str, Any]) -> Path:
+    path = tmp_path / f"{payload['play_id']}.json"
+    path.write_text(json.dumps(payload))
+    return path
+
+
+def test_load_showcase_sensitivity_valid(tmp_path: Path) -> None:
+    path = _write_sensitivity(tmp_path, _sensitivity_artifact())
+    grid = ec.load_showcase_sensitivity(path)
+    assert grid.play_id == "700001-10-3"
+    assert grid.grid_shape == {"n_ev": 2, "n_la": 2}
+    assert grid.original_probabilities["out"] == 1.0
+
+
+def test_load_showcase_sensitivity_missing_file_raises(tmp_path: Path) -> None:
+    with pytest.raises(ec.ExploreContentError, match="not found"):
+        ec.load_showcase_sensitivity(tmp_path / "does_not_exist.json")
+
+
+def test_load_showcase_sensitivity_missing_key_raises(tmp_path: Path) -> None:
+    payload = _sensitivity_artifact()
+    del payload["grid_shape"]
+    path = _write_sensitivity(tmp_path, payload)
+    with pytest.raises(ec.ExploreContentError, match="missing key"):
+        ec.load_showcase_sensitivity(path)
+
+
+def test_load_showcase_sensitivity_grid_shape_mismatch_raises(tmp_path: Path) -> None:
+    payload = _sensitivity_artifact(grid_shape={"n_ev": 3, "n_la": 2})
+    path = _write_sensitivity(tmp_path, payload)
+    with pytest.raises(ec.ExploreContentError, match="grid_shape"):
+        ec.load_showcase_sensitivity(path)
+
+
+def test_load_showcase_sensitivity_wrong_grid_length_raises(tmp_path: Path) -> None:
+    payload = _sensitivity_artifact()
+    payload["grid"] = payload["grid"][:3]  # drop one row
+    path = _write_sensitivity(tmp_path, payload)
+    with pytest.raises(ec.ExploreContentError, match="grid has"):
+        ec.load_showcase_sensitivity(path)
+
+
+def test_load_showcase_sensitivity_out_of_bounds_index_raises(tmp_path: Path) -> None:
+    payload = _sensitivity_artifact(original_grid_index={"ev_index": 9, "la_index": 0})
+    path = _write_sensitivity(tmp_path, payload)
+    with pytest.raises(ec.ExploreContentError, match="out of bounds"):
+        ec.load_showcase_sensitivity(path)
+
+
+def test_load_showcase_sensitivity_reference_cell_mismatch_raises(tmp_path: Path) -> None:
+    """The direct grid lookup at original_grid_index must reproduce
+    original_probabilities exactly -- a corrupted/hand-edited grid cell at
+    that position is rejected."""
+    payload = _sensitivity_artifact()
+    payload["grid"][0] = [0.9, 0.1, 0.0, 0.0, 0.0]  # no longer matches original_probabilities
+    path = _write_sensitivity(tmp_path, payload)
+    with pytest.raises(ec.ExploreContentError, match="does not reproduce"):
+        ec.load_showcase_sensitivity(path)

@@ -18,6 +18,38 @@
 </div>
 
 {#
+  Version 1.4.1 Showcase Plays: an editorial entry point ABOVE the generic
+  player search -- the biggest favorable/unfavorable Contact Luck breaks of
+  the season, real plays a new visitor can open immediately without first
+  knowing which hitter to search for. Loads showcase.json alongside
+  players.json on page load (dashboard/static/explore.js); every value
+  shown is copied verbatim from the same canonical scoring record as the
+  rest of this page -- nothing here is recomputed in the browser.
+#}
+<section class="showcase-section" data-role="showcase-section" aria-label="Showcase Plays">
+  <h2 class="showcase-heading">Showcase Plays</h2>
+  <p class="page-subtitle">
+    The biggest favorable and unfavorable Contact Luck breaks of the season — real plays, no
+    qualification filter, no search required.
+  </p>
+  <p class="explore-loading" data-role="showcase-loading">Loading showcase&hellip;</p>
+  <div data-role="showcase-body" hidden>
+    <div class="showcase-group">
+      <h3 class="showcase-group-heading showcase-group-heading-favorable">Biggest favorable breaks</h3>
+      <div class="showcase-cards" data-role="showcase-cards-favorable"></div>
+      <button type="button" class="showcase-reveal-button" data-role="showcase-reveal-favorable" hidden></button>
+    </div>
+    <div class="showcase-group">
+      <h3 class="showcase-group-heading showcase-group-heading-unfavorable">Biggest unfavorable breaks</h3>
+      <div class="showcase-cards" data-role="showcase-cards-unfavorable"></div>
+      <button type="button" class="showcase-reveal-button" data-role="showcase-reveal-unfavorable" hidden></button>
+    </div>
+  </div>
+</section>
+
+<h2 class="explore-browse-heading">Browse by player</h2>
+
+{#
   Phase 4.2: player-first flow. The page loads ONLY the small players.json
   catalog up front (see dashboard/static/explore.js's module docstring) --
   no play data of any kind is fetched until a hitter is selected below.
