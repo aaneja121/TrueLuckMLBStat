@@ -152,14 +152,20 @@ from mlb_luck_score.scoring.play_ledger_schema import (
 
 __all__ = [
     "EXPLORER_ARTIFACT_VERSION",
+    "SHOWCASE_CANONICAL_FIELDS",
+    "SHOWCASE_INTERACTIVE_ELIGIBILITY_FIELDS",
+    "SHOWCASE_TOP_N",
     "IncompatiblePlayLedgerVersionError",
     "build_explore_metadata",
     "build_per_game_detail_rows",
     "build_player_play_index_rows",
     "build_players_catalog_rows",
+    "build_showcase_rows",
     "compute_file_sha256",
     "generate_explorer_artifacts",
+    "is_showcase_interactive_eligible",
     "load_batter_names",
+    "patch_showcase_interactive_flags",
     "require_compatible_play_ledger_version",
 ]
 
@@ -171,8 +177,52 @@ __all__ = [
 #: `SUPPORTED_EXPLORER_ARTIFACT_VERSION` and checks it independently at
 #: build time -- see that module's docstring. Bumped to "2.0" for Phase
 #: 4.2's sharded players.json + players/<id>.json replacement of the
-#: monolithic search-index.json.
-EXPLORER_ARTIFACT_VERSION = "2.0"
+#: monolithic search-index.json. Bumped to "3.0" for Version 1.4.1's
+#: `showcase.json` addition (see `build_showcase_rows` below) -- a new
+#: required file, so a pre-Showcase ("2.0") artifact set is correctly
+#: rejected as incompatible rather than silently rendering an Explorer with
+#: no Showcase section.
+EXPLORER_ARTIFACT_VERSION = "3.0"
+
+#: Version 1.4.1: how many of the TRUE season extremes (by `contact_luck_
+#: runs`, scored rows only, no qualification filter, no per-player cap) go
+#: into each Showcase group. Deliberately small and editorial -- this is a
+#: curated entry point into the Explorer, not another large table (see
+#: module docstring "Showcase Plays" section below).
+SHOWCASE_TOP_N = 12
+
+#: The presentation fields copied verbatim into each showcase row (real
+#: `play_ledger.parquet` columns only, same overlay convention as
+#: `PLAYER_INDEX_CANONICAL_FIELDS` -- `batter_name` is attached separately).
+SHOWCASE_CANONICAL_FIELDS: tuple[str, ...] = (
+    "play_id",
+    "game_pk",
+    "game_date",
+    "batter_id",
+    "outcome_class",
+    "launch_speed",
+    "launch_angle",
+    "expected_run_value",
+    "observed_run_value",
+    "contact_luck_runs",
+)
+
+#: The frozen `baseline_v02` contact model's own required inputs -- a
+#: showcase play only qualifies for a `showcase-sensitivity/<play_id>.json`
+#: "What if?" grid (see `demo/build_showcase_sensitivity.py`) if EVERY one
+#: of these is non-null for that play. A true season extreme with missing
+#: raw Statcast measurements (real gap in the ledger -- see the showcase
+#: report for real 2026 examples) still appears on the showcase with
+#: `interactive_available=False`; it is NEVER dropped from the ranking for
+#: this reason (see module docstring "Interactive eligibility").
+SHOWCASE_INTERACTIVE_ELIGIBILITY_FIELDS: tuple[str, ...] = (
+    "launch_speed",
+    "launch_angle",
+    "spray_angle_approx",
+    "hit_distance_sc",
+    "bb_type",
+    "stand",
+)
 
 #: The players catalog field set -- enough for hitter search/selection
 #: without loading any batter's play data.
@@ -390,6 +440,66 @@ def build_per_game_detail_rows(
     return partitions
 
 
+def is_showcase_interactive_eligible(row: pd.Series) -> bool:
+    """True only if every `SHOWCASE_INTERACTIVE_ELIGIBILITY_FIELDS` value is
+    non-null for `row` -- the frozen `baseline_v02` contact model's own
+    required inputs (see `demo/build_showcase_sensitivity.py`, which
+    additionally requires the model's OWN-COORDINATE score to reconcile
+    with this row's canonical `p_out`..`p_home_run`/`expected_run_value`
+    before a play actually gets a sensitivity grid; this function only
+    checks the input side).
+    """
+    return all(pd.notna(row[field]) for field in SHOWCASE_INTERACTIVE_ELIGIBILITY_FIELDS)
+
+
+def build_showcase_rows(
+    play_ledger: pd.DataFrame, batter_names: dict[int, str]
+) -> list[dict[str, Any]]:
+    """Project `play_ledger` into the Showcase Plays list: the `SHOWCASE_
+    TOP_N` biggest favorable and `SHOWCASE_TOP_N` biggest unfavorable
+    `contact_luck_runs` breaks among SCORED rows -- the TRUE season
+    extremes. No qualification filter, no one-play-per-player cap: if one
+    batter genuinely owns multiple season extremes, every one of their
+    rows appears (see module docstring "Showcase selection").
+
+    Deterministic ordering: `contact_luck_runs` (descending for favorable,
+    ascending for unfavorable) is the primary key; ties break on
+    `game_date`, then `game_pk`, then `play_id`, all ascending -- a total
+    order over the scored population, so re-running this generator against
+    an unchanged ledger always reproduces the identical 24 rows in the
+    identical order. `kind="mergesort"` (stable) so pandas' own sort is
+    deterministic across runs, not just the key tuple.
+
+    Each row carries `group` (`"favorable"`/`"unfavorable"`), `rank`
+    (1-`SHOWCASE_TOP_N` within its group), the `SHOWCASE_CANONICAL_FIELDS`
+    copied verbatim from the ledger, the same `batter_name` presentation
+    overlay every other artifact in this module applies, and
+    `interactive_available` (see `is_showcase_interactive_eligible`).
+    """
+    scored = resolved_rows(play_ledger)
+    sort_keys = ["contact_luck_runs", "game_date", "game_pk", "play_id"]
+
+    favorable = scored.sort_values(
+        sort_keys, ascending=[False, True, True, True], kind="mergesort"
+    ).head(SHOWCASE_TOP_N)
+    unfavorable = scored.sort_values(
+        sort_keys, ascending=[True, True, True, True], kind="mergesort"
+    ).head(SHOWCASE_TOP_N)
+
+    rows: list[dict[str, Any]] = []
+    for group, ordered in (("favorable", favorable), ("unfavorable", unfavorable)):
+        for rank, (_, row) in enumerate(ordered.iterrows(), start=1):
+            batter_id = int(row["batter_id"])
+            record = {field: _clean_scalar(row[field]) for field in SHOWCASE_CANONICAL_FIELDS}
+            record["batter_id"] = batter_id
+            record["batter_name"] = batter_names.get(batter_id)
+            record["group"] = group
+            record["rank"] = rank
+            record["interactive_available"] = bool(is_showcase_interactive_eligible(row))
+            rows.append(record)
+    return rows
+
+
 def load_batter_names(path: Path | None) -> dict[int, str]:
     """Load a `{batter_id: name}` presentation-overlay mapping from a JSON
     file (`{"12345": "Some Player", ...}`). Returns `{}` if `path` is
@@ -423,6 +533,9 @@ def build_explore_metadata(
     play_count: int,
     player_count: int,
     game_count: int,
+    showcase_favorable_count: int,
+    showcase_unfavorable_count: int,
+    showcase_interactive_count: int,
 ) -> dict[str, Any]:
     """Build the file-level Explorer browser-artifact provenance dict --
     NEVER repeated per row or per shard (see module docstring).
@@ -431,6 +544,15 @@ def build_explore_metadata(
     rather than being invented. `source_play_ledger_sha256` is the ACTUAL
     hash of the input Parquet file this run read, computed here, not copied
     from anywhere. Deterministic: no generation timestamp.
+
+    Version 1.4.1: `showcase_favorable_count`/`showcase_unfavorable_count`
+    let `dashboard/build.py` reconcile `showcase.json`'s actual row counts
+    against this provenance the same way it already does for `play_count`/
+    `player_count`/`game_count` -- a mismatch is a hard build failure, never
+    silently skipped. `showcase_interactive_count` is the number of those
+    rows with a `showcase-sensitivity/<play_id>.json` grid actually written
+    (0 if none, e.g. slider generation was skipped or deferred -- see
+    `demo/build_showcase_sensitivity.py`).
     """
     return {
         "explorer_artifact_version": EXPLORER_ARTIFACT_VERSION,
@@ -440,6 +562,9 @@ def build_explore_metadata(
         "play_count": play_count,
         "player_count": player_count,
         "game_count": game_count,
+        "showcase_favorable_count": showcase_favorable_count,
+        "showcase_unfavorable_count": showcase_unfavorable_count,
+        "showcase_interactive_count": showcase_interactive_count,
         "source_play_ledger_sha256": compute_file_sha256(play_ledger_path),
     }
 
@@ -474,13 +599,32 @@ def generate_explorer_artifacts(
     players_catalog = build_players_catalog_rows(play_ledger, batter_names)
     player_play_indexes = build_player_play_index_rows(play_ledger, batter_names)
     per_game = build_per_game_detail_rows(play_ledger, batter_names)
+    showcase_rows = build_showcase_rows(play_ledger, batter_names)
     total_play_count = sum(row["play_count"] for row in players_catalog)
+
+    showcase_favorable = [r for r in showcase_rows if r["group"] == "favorable"]
+    showcase_unfavorable = [r for r in showcase_rows if r["group"] == "unfavorable"]
+    # `interactive_available` here reflects raw MODEL-INPUT eligibility only
+    # (is_showcase_interactive_eligible) -- the actual count of plays that
+    # get a real showcase-sensitivity/<play_id>.json grid is a strict
+    # subset of this (capped at 6 per group, and only ever written after
+    # passing the mandatory reconciliation gate -- see `demo/
+    # build_showcase_sensitivity.py`). `patch_showcase_interactive_flags`
+    # below is the SECOND, later pass that downgrades this field to ground
+    # truth once that generation has actually run (or left unpatched, i.e.
+    # input-eligible-only, for a caller that never attempts sensitivity
+    # generation at all -- see that function's own docstring).
+    showcase_interactive_count = sum(1 for r in showcase_rows if r["interactive_available"])
+
     explore_metadata = build_explore_metadata(
         play_ledger_path=play_ledger_path,
         play_ledger_metadata=metadata,
         play_count=total_play_count,
         player_count=len(players_catalog),
         game_count=len(per_game),
+        showcase_favorable_count=len(showcase_favorable),
+        showcase_unfavorable_count=len(showcase_unfavorable),
+        showcase_interactive_count=showcase_interactive_count,
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -500,6 +644,9 @@ def generate_explorer_artifacts(
         (games_dir / f"{game_pk}.json").write_text(
             json.dumps(records, sort_keys=True, separators=(",", ":"))
         )
+    (output_dir / "showcase.json").write_text(
+        json.dumps(showcase_rows, sort_keys=True, separators=(",", ":"))
+    )
     (output_dir / "explore-metadata.json").write_text(
         json.dumps(explore_metadata, sort_keys=True, separators=(",", ":"))
     )
@@ -509,9 +656,45 @@ def generate_explorer_artifacts(
         "row_count": total_play_count,
         "player_count": len(players_catalog),
         "game_count": len(per_game),
+        "showcase_favorable_count": len(showcase_favorable),
+        "showcase_unfavorable_count": len(showcase_unfavorable),
+        "showcase_interactive_count": showcase_interactive_count,
         "output_dir": str(output_dir),
         "explore_metadata": explore_metadata,
     }
+
+
+def patch_showcase_interactive_flags(output_dir: Path, interactive_play_ids: set[str]) -> None:
+    """SECOND pass, run AFTER `generate_explorer_artifacts` and AFTER
+    sensitivity-grid generation has actually completed (see `demo/
+    build_showcase_sensitivity.py`): rewrites `showcase.json`'s
+    `interactive_available` field to ground truth -- `True` only for a
+    `play_id` in `interactive_play_ids` (i.e. a real `showcase-sensitivity/
+    <play_id>.json` grid was actually written and passed the mandatory
+    reconciliation gate), `False` for every other row, INCLUDING a row that
+    was input-eligible but excluded only by the per-group interactive cap.
+    Also updates `explore-metadata.json`'s `showcase_interactive_count` to
+    `len(interactive_play_ids)` so the two files never disagree.
+
+    Never called at all if a caller does not attempt sensitivity
+    generation -- `showcase.json` then keeps `generate_explorer_artifacts`'s
+    original, input-eligibility-only flag, which is still an honest (if
+    more optimistic) statement: "this play's raw model inputs are present,"
+    not "a grid exists for it." `dashboard/explore_content.py`'s own
+    validation only ever trusts `interactive_available` to gate whether a
+    `showcase-sensitivity/<play_id>.json` is EXPECTED to exist for a row
+    marked `True` -- see that module's docstring.
+    """
+    showcase_path = output_dir / "showcase.json"
+    metadata_path = output_dir / "explore-metadata.json"
+    rows = json.loads(showcase_path.read_text())
+    for row in rows:
+        row["interactive_available"] = row["play_id"] in interactive_play_ids
+    showcase_path.write_text(json.dumps(rows, sort_keys=True, separators=(",", ":")))
+
+    metadata = json.loads(metadata_path.read_text())
+    metadata["showcase_interactive_count"] = len(interactive_play_ids)
+    metadata_path.write_text(json.dumps(metadata, sort_keys=True, separators=(",", ":")))
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -550,6 +733,11 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"[build_play_explorer_fixture] rows={result['row_count']} "
         f"players={result['player_count']} games={result['game_count']}"
+    )
+    print(
+        f"[build_play_explorer_fixture] showcase favorable={result['showcase_favorable_count']} "
+        f"unfavorable={result['showcase_unfavorable_count']} "
+        f"interactive_eligible={result['showcase_interactive_count']}"
     )
     print(
         "[build_play_explorer_fixture] source_play_ledger_sha256="

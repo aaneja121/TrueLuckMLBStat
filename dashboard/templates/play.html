@@ -94,9 +94,72 @@
       scoring record. See the <a href="{{ root_prefix }}methodology/">methodology page</a> for
       the full accounting.
     </p>
+
+    {#
+      Version 1.4.1 "What if?" sensitivity module -- ALWAYS below the real
+      play's own factual accounting above, never above it. Hidden by
+      default; shown only if dashboard/static/showcase_whatif.js
+      successfully fetches this play's showcase-sensitivity/<play_id>.json
+      (interactive_available=true showcase plays only -- see
+      demo/build_showcase_sensitivity.py's mandatory reconciliation gate).
+      A non-interactive play simply never reveals this section -- never a
+      disabled/broken simulator.
+    #}
+    <section class="simulator-section showcase-whatif-section" data-role="play-whatif-section" hidden>
+      <h2>What if the contact were different?</h2>
+      <p class="simulator-caveat">
+        Change exit velocity and launch angle to see how the frozen model's expectation changes.
+        All other model inputs are held fixed to this real play. This is a model sensitivity
+        analysis, not a reconstruction of physical ball flight.
+      </p>
+
+      <div class="simulator-controls">
+        <div class="simulator-control">
+          <label for="whatif-ev-slider">Exit velocity</label>
+          <input type="range" class="simulator-slider" id="whatif-ev-slider"
+                 data-role="whatif-ev-slider" min="0" max="1" value="0" step="1">
+          <span class="simulator-control-value" data-role="whatif-ev-value">&mdash;</span>
+        </div>
+        <div class="simulator-control">
+          <label for="whatif-la-slider">Launch angle</label>
+          <input type="range" class="simulator-slider" id="whatif-la-slider"
+                 data-role="whatif-la-slider" min="0" max="1" value="0" step="1">
+          <span class="simulator-control-value" data-role="whatif-la-value">&mdash;</span>
+        </div>
+      </div>
+      <div class="simulator-control-footer">
+        <p class="simulator-fixed-context" data-role="whatif-fixed-context"></p>
+        <button type="button" class="simulator-reset-button" data-role="whatif-reset">Reset to real play</button>
+      </div>
+
+      <div class="demo-prob-bars" data-role="whatif-prob-bars"></div>
+
+      <div class="simulator-rv-compare">
+        <div class="simulator-rv-compare-row">
+          <span class="simulator-rv-compare-label">Actual Expected RV</span>
+          <span data-role="whatif-actual-expected-rv">&mdash;</span>
+        </div>
+        <div class="simulator-rv-compare-row">
+          <span class="simulator-rv-compare-label">Modified Expected RV</span>
+          <span data-role="whatif-modified-expected-rv">&mdash;</span>
+        </div>
+        <div class="simulator-rv-compare-row">
+          <span class="simulator-rv-compare-label">Change in Expected RV</span>
+          <span data-role="whatif-change-expected-rv">&mdash;</span>
+        </div>
+      </div>
+
+      <p class="callout">
+        This is a model sensitivity analysis, not a reconstruction of physical ball flight. The
+        real play's recorded result, Final observed RV, and Contact Luck above never change as
+        you move these sliders — only the frozen model's expectation for a hypothetical exit
+        velocity/launch angle does.
+      </p>
+    </section>
   </div>
 </div>
 {% endblock %}
 {% block extra_scripts %}
 <script src="{{ asset_prefix }}static/play.js"></script>
+<script src="{{ asset_prefix }}static/showcase_whatif.js"></script>
 {% endblock %}

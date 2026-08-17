@@ -280,6 +280,8 @@ def build_dashboard(
     explore_players_dir: Path | None = None,
     explore_games_dir: Path | None = None,
     explore_metadata_path: Path | None = None,
+    explore_showcase_path: Path | None = None,
+    explore_showcase_sensitivity_dir: Path | None = None,
     repo_root: Path = PROJECT_ROOT,
     build_timestamp: str | None = None,
 ) -> BuildResult:
@@ -380,19 +382,28 @@ def build_dashboard(
     # cross-validates every shard (see that function's docstring for why
     # this offline build-time validation is unrelated to what the browser
     # itself fetches at runtime).
+    # Version 1.4.1: `showcase.json` (Showcase Plays) is now a REQUIRED
+    # part of the artifact set -- `explore_showcase_path` joins the other
+    # four in the `explore_available` check below, and `ec.
+    # SUPPORTED_EXPLORER_ARTIFACT_VERSION`/`ec.load_explore_metadata`
+    # already reject an older "2.0" artifact set (no showcase.json) as
+    # incompatible before this function ever gets here.
     explore_available = (
         explore_players_path is not None
         and explore_players_dir is not None
         and explore_games_dir is not None
         and explore_metadata_path is not None
+        and explore_showcase_path is not None
         and explore_players_path.exists()
     )
     explore_data: ec.ExploreLoadedData | None = None
+    showcase_rows: list[ec.ShowcaseRow] | None = None
     if explore_available:
         assert explore_players_path is not None
         assert explore_players_dir is not None
         assert explore_games_dir is not None
         assert explore_metadata_path is not None
+        assert explore_showcase_path is not None
         explore_metadata = ec.load_explore_metadata(explore_metadata_path)
         explore_data = ec.load_explore_catalog(
             explore_players_path, explore_players_dir, explore_games_dir
@@ -415,6 +426,35 @@ def build_dashboard(
                 f"the actual distinct game_pk count referenced by players/*.json "
                 f"({len(explore_data.game_pks)}) -- refusing to build a Play Explorer whose own "
                 "provenance disagrees with its data."
+            )
+        # `ec.load_showcase` itself reconciles favorable/unfavorable row
+        # counts and rank contiguity against explore_metadata -- see that
+        # function's docstring; no duplicate check needed here.
+        showcase_rows = ec.load_showcase(explore_showcase_path, explore_metadata)
+        # `showcase-sensitivity/<play_id>.json` files are OPTIONAL (a
+        # showcase can have zero interactive plays, e.g. every true extreme
+        # is missing a required raw measurement -- see `demo/
+        # build_play_explorer_fixture.py`'s "Interactive eligibility"). Only
+        # the rows this build ITSELF claims are interactive are validated;
+        # an extra, unreferenced file in the sensitivity directory is not
+        # this build's concern.
+        if explore_showcase_sensitivity_dir is not None:
+            for row in showcase_rows:
+                if not row.interactive_available:
+                    continue
+                sensitivity_path = explore_showcase_sensitivity_dir / f"{row.play_id}.json"
+                grid = ec.load_showcase_sensitivity(sensitivity_path)
+                if grid.play_id != row.play_id:
+                    raise DashboardBuildError(
+                        f"showcase-sensitivity/{row.play_id}.json declares play_id="
+                        f"{grid.play_id!r}, expected {row.play_id!r}"
+                    )
+        elif explore_metadata.showcase_interactive_count:
+            raise DashboardBuildError(
+                f"explore-metadata.json showcase_interactive_count="
+                f"{explore_metadata.showcase_interactive_count} but no "
+                "explore_showcase_sensitivity_dir was provided -- refusing to build a Play "
+                "Explorer whose own provenance disagrees with its data."
             )
 
     env = _make_jinja_env()
@@ -537,12 +577,20 @@ def build_dashboard(
         assert explore_players_dir is not None
         assert explore_games_dir is not None
         assert explore_metadata_path is not None
+        assert explore_showcase_path is not None
         explore_dir = out_dir / "explore"
         explore_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy(explore_players_path, explore_dir / "players.json")
         shutil.copy(explore_metadata_path, explore_dir / "explore-metadata.json")
+        shutil.copy(explore_showcase_path, explore_dir / "showcase.json")
         shutil.copytree(explore_players_dir, explore_dir / "players", dirs_exist_ok=True)
         shutil.copytree(explore_games_dir, explore_dir / "games", dirs_exist_ok=True)
+        if explore_showcase_sensitivity_dir is not None and explore_showcase_sensitivity_dir.is_dir():
+            shutil.copytree(
+                explore_showcase_sensitivity_dir,
+                explore_dir / "showcase-sensitivity",
+                dirs_exist_ok=True,
+            )
 
         (explore_dir / "index.html").write_text(
             env.get_template("explore.html").render(**base_context, active_page="explore")
@@ -574,26 +622,33 @@ def build_dashboard(
 
 def _resolve_explore_paths(
     explore_artifacts_dir: Path | None,
-) -> tuple[Path | None, Path | None, Path | None, Path | None]:
-    """`--explore-artifacts-dir DIR` -> the four Explorer artifact paths
+) -> tuple[Path | None, Path | None, Path | None, Path | None, Path | None, Path | None]:
+    """`--explore-artifacts-dir DIR` -> the six Explorer artifact paths
     `build_dashboard()` expects, all `None` if no directory was given.
 
     Deliberately generic over WHICH directory is passed -- the committed,
     bounded `dashboard/explore_fixture/` (local/dev/tests, opted into
     explicitly) and a real production snapshot's generated artifact
     directory (`scripts/generate_production_explorer_artifacts.py`) are
-    both just directories with this same four-file shape to this function.
-    There is no implicit fallback to the fixture: `None` in, `(None, None,
-    None, None)` out -- see `build_dashboard()`'s "Phase 5 fail-closed
-    rule" docstring above.
+    both just directories with this same shape to this function. There is
+    no implicit fallback to the fixture: `None` in, all-`None` out -- see
+    `build_dashboard()`'s "Phase 5 fail-closed rule" docstring above.
+
+    `showcase_sensitivity_dir` is returned even when that subdirectory
+    doesn't exist on disk -- `build_dashboard()` itself treats a missing
+    directory as "no interactive showcase plays," never an error (see its
+    own docstring), so resolving the path unconditionally here keeps this
+    function a pure, side-effect-free string-joining helper.
     """
     if explore_artifacts_dir is None:
-        return None, None, None, None
+        return None, None, None, None, None, None
     return (
         explore_artifacts_dir / "players.json",
         explore_artifacts_dir / "players",
         explore_artifacts_dir / "games",
         explore_artifacts_dir / "explore-metadata.json",
+        explore_artifacts_dir / "showcase.json",
+        explore_artifacts_dir / "showcase-sensitivity",
     )
 
 
@@ -606,8 +661,9 @@ def _build_cli_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Directory containing the Play Explorer browser artifacts "
             "(players.json, players/<batter_id>.json, games/<game_pk>.json, "
-            "explore-metadata.json). NOT defaulted -- omitting this flag builds the "
-            "site with the Play Explorer disabled, it never falls back to the "
+            "explore-metadata.json, showcase.json, and optionally "
+            "showcase-sensitivity/<play_id>.json). NOT defaulted -- omitting this flag "
+            "builds the site with the Play Explorer disabled, it never falls back to the "
             "committed, bounded dashboard/explore_fixture/ development fixture. "
             "scripts/publish_snapshot.sh always passes this explicitly, pointing at "
             "that run's own generated production artifacts (see "
@@ -633,8 +689,8 @@ def main(
     never pass them and get `build_dashboard()`'s own real-path defaults.
     """
     args = _build_cli_arg_parser().parse_args(argv)
-    players_path, players_dir, games_dir, metadata_path = _resolve_explore_paths(
-        args.explore_artifacts_dir
+    players_path, players_dir, games_dir, metadata_path, showcase_path, showcase_sensitivity_dir = (
+        _resolve_explore_paths(args.explore_artifacts_dir)
     )
 
     kwargs: dict[str, Any] = {
@@ -642,6 +698,8 @@ def main(
         "explore_players_dir": players_dir,
         "explore_games_dir": games_dir,
         "explore_metadata_path": metadata_path,
+        "explore_showcase_path": showcase_path,
+        "explore_showcase_sensitivity_dir": showcase_sensitivity_dir,
     }
     if outputs_root is not None:
         kwargs["outputs_root"] = outputs_root
