@@ -66,6 +66,29 @@
     });
   }
 
+  // Search matching only -- NEVER used for display (render() below always
+  // renders the original, accented p.batter_name verbatim). Identical
+  // semantics to dashboard/static/explore.js's normalizeSearchText (kept as
+  // a duplicated pure function rather than a shared import -- app.js and
+  // explore.js are independent, unbundled <script> tags, matching this
+  // repo's existing convention of duplicating small pure functions across
+  // read-only-boundary modules, e.g. dashboard/snapshot_data.py's
+  // parse_snapshot_directory_name): Unicode NFD-decomposes an accented
+  // character into a base letter plus a combining mark (e.g. U+00E9
+  // "e-acute" -> "e" + U+0301); \u0300-\u036f is the Unicode "Combining
+  // Diacritical Marks" block, stripped here so only the base letter remains, then
+  // lowercased and whitespace-normalized (trimmed, internal runs collapsed
+  // to one space) -- so "jose ramirez", "JOSE RAMIREZ", "Jose   Ramirez",
+  // and the real "José Ramírez" all normalize to the same search key.
+  function normalizeSearchText(text) {
+    return (text || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
   function initGlobalPlayerSearch() {
     var input = document.querySelector("[data-role='global-player-search']");
     var resultsBox = document.querySelector("[data-role='global-player-search-results']");
@@ -96,13 +119,13 @@
     }
 
     input.addEventListener("input", function () {
-      var q = input.value.trim().toLowerCase();
+      var q = normalizeSearchText(input.value);
       if (!q) {
         render([]);
         return;
       }
       var matches = players.filter(function (p) {
-        return (p.batter_name || "").toLowerCase().indexOf(q) !== -1 || String(p.batter_id) === q;
+        return normalizeSearchText(p.batter_name).indexOf(q) !== -1 || String(p.batter_id) === q;
       });
       render(matches);
     });
