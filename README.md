@@ -13,7 +13,7 @@ defense, and batter-runner advancement, with component-specific validation/statu
 Contact Luck is retrospective and is not intended as a stable measure of batting talent or
 a predictive statistic.
 
-**Live dashboard:** https://contact-luck.pages.dev
+**Live dashboard:** https://contactluck.com
 
 The production system includes immutable prospective snapshots, frozen-input
 verification, durable Cloudflare R2 archival, automated GitHub Actions scoring, and

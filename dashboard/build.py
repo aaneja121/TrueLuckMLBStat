@@ -63,7 +63,9 @@ from dashboard_config import (
     DASHBOARD_VERSION,
     DEMO_COUNTERFACTUAL_GRID_PATH,
     DEMO_FIXTURE_PATH,
+    OG_IMAGE_PATH,
     PROJECT_ROOT,
+    SITE_URL,
 )
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -461,6 +463,7 @@ def build_dashboard(
     base_context = {
         "root_prefix": root_prefix,
         "asset_prefix": asset_prefix,
+        "site_url": SITE_URL,
         "data_through_date": latest.data_through_date,
         "data_through_date_display": date.fromisoformat(latest.data_through_date).strftime(
             "%b. %-d, %Y"
@@ -603,6 +606,10 @@ def build_dashboard(
         )
 
     shutil.copytree(DASHBOARD_STATIC_DIR, out_dir / "static", dirs_exist_ok=True)
+    # Copied to the dist ROOT (not under static/) so it serves at
+    # `{SITE_URL}/og-image.png`, matching the `og:image`/`twitter:image` URLs
+    # in `base.html` -- see `OG_IMAGE_PATH`'s docstring.
+    shutil.copy(OG_IMAGE_PATH, out_dir / "og-image.png")
 
     manifest = c.build_dashboard_manifest(
         repository_commit=_get_repository_commit(repo_root),

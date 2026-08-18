@@ -29,6 +29,19 @@ DASHBOARD_DIST_DIR = DASHBOARD_SOURCE_ROOT / "dist"
 
 DASHBOARD_VERSION = "1.4.1"
 
+# Production canonical domain, used for absolute URLs in Open Graph/Twitter
+# card metadata (`<meta property="og:url">`, `<meta property="og:image">`,
+# etc.) -- those tags must be absolute, not relative, per the OG spec. Never
+# the old `contact-luck.pages.dev` Cloudflare Pages preview domain.
+SITE_URL = "https://contactluck.com"
+
+# A committed, hand-reviewed real screenshot of the production homepage
+# (cropped/resized only -- no AI-generated or reconstructed artwork), used
+# as the Open Graph/Twitter-card social preview image. Copied verbatim to
+# `dist/og-image.png` (see `build.py`) so it serves at `{SITE_URL}/og-image.png`,
+# matching the `og:image`/`twitter:image` URLs above.
+OG_IMAGE_PATH = DASHBOARD_SOURCE_ROOT / "og-image.png"
+
 # Committed, hand-reviewed reference data (like `mlb_luck_score.data.
 # game_metadata_overrides`) produced ONCE, offline, by `demo/
 # build_demo_fixture.py` -- see that module's docstring. Dashboard code only
