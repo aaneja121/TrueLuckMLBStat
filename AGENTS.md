@@ -17,7 +17,7 @@ keep the two in sync when routing changes.)
 | Product intent, page purpose, user framing, user-facing copy | `PRODUCT.md` |
 | Metric and baseball terminology | `CONTEXT.md` |
 | Repo structure, data flow, build/run/test commands | `ARCHITECTURE.md` |
-| Frontend / visual design | `DESIGN.md` (once it exists), then `ARCHITECTURE.md`'s `dashboard/` section |
+| Frontend / visual design | `DESIGN.md` — a router itself; it points into `docs/design/*.md`. Load `docs/design/guardrails.md` for any dashboard change. Then `ARCHITECTURE.md`'s `dashboard/` section |
 | Version history and validation results | `README.md` — large; read sections, never the whole file |
 
 Repository documentation is the authoritative source of durable project context. If you

@@ -13,7 +13,7 @@ This file is a router. It stays short on purpose — load only what your task ne
 | Product intent, page purpose, user framing, copy | `PRODUCT.md` |
 | Domain/metric terminology | `CONTEXT.md` |
 | Where code lives, data flow, build/test commands | `ARCHITECTURE.md` |
-| Frontend/design work | `DESIGN.md` (once it exists), then `ARCHITECTURE.md`'s `dashboard/` section |
+| Frontend/design work | `DESIGN.md` — a router itself; it points into `docs/design/*.md`. Load `docs/design/guardrails.md` for any dashboard change. Then `ARCHITECTURE.md`'s `dashboard/` section |
 | Full version history and validation results | `README.md` (large — read sections, never the whole file) |
 
 `AGENTS.md` is the same router for Codex and other cross-agent tooling — keep the two in

@@ -27,7 +27,8 @@ Redesign the dashboard's visual and product design. Phases 1 (baseline capture) 
 
 ## FILES CREATED/CHANGED
 
-- `DESIGN.md` (repo root) — **625 lines / ~36 KB. Too large; see EXACT NEXT ACTION.**
+- `DESIGN.md` (repo root) — now a **~140-line router**; the detail lives in `docs/design/`
+  (10 focused files). Was 625 lines before the progressive-disclosure refactor.
 - `outputs/figures/ui_baseline_2026-08-26/` — 26 PNGs + `README.md` (gitignored).
 - `docs/handoffs/ui-redesign-2026-08-26.md` — this file.
 
@@ -104,11 +105,13 @@ Do not re-derive these. Evidence and measurements are in the baseline `README.md
 
 ## UNRESOLVED DECISIONS
 
-1. **Player imagery / team context.** Team, position and headshots are absent from the data
-   model. Adding MLB's headshot CDN would be the site's first external request. **Resolve
-   as permitted-but-optional** — see EXACT NEXT ACTION.
-2. **Web-font budget.** Two self-hosted families, ~60–80 KB. The grotesk/serif split works
-   with system faces if declined. Owner has not ruled.
+1. **Web-font budget.** Two self-hosted families, ~60–80 KB. The grotesk/serif split works
+   with system faces if declined. Owner has not ruled. Blocks nothing —
+   `docs/design/typography.md` § Font budget.
+
+*(Player imagery / team context was resolved on 2026-08-26 as permitted-but-optional:
+identity is name-first, no layout may depend on imagery. See
+`docs/design/information-architecture.md` § Player identity.)*
 
 ## DO NOT REPEAT
 
@@ -121,27 +124,27 @@ Do not re-derive these. Evidence and measurements are in the baseline `README.md
   while `evaluate` still works). Recover by cycling `Browser.setWindowBounds`
   minimized → normal, or by closing and reopening the page.
 
+## DONE 2026-08-26 — design-system refactor (was the previous EXACT NEXT ACTION)
+
+Completed; do not repeat.
+
+1. `DESIGN.md` refactored to a progressive-disclosure router (~140 lines): thesis, the eight
+   principles, reference world, standing decisions, and a "load this for your task" table.
+2. Detail moved verbatim into `docs/design/`: `guardrails.md` (anti-patterns + preserved
+   invariants), `information-architecture.md`, `typography.md`, `color.md`, `layout.md`,
+   `tables.md`, `dataviz.md`, `interaction.md`, `responsive.md`, `accessibility.md`.
+   Reorganisation only — every measured value, hex, contrast ratio, anti-pattern and
+   invariant survived.
+3. Player imagery resolved as permitted-but-optional (name-first rule).
+4. Stale pointers fixed in `CLAUDE.md`, `AGENTS.md`, `ARCHITECTURE.md`.
+5. Markdown-only diff; no application code touched.
+
 ## EXACT NEXT ACTION
 
-The next session must, in order:
+**Phase 3 — propose the redesign directions.** Not started. Nothing else in this handoff
+is outstanding.
 
-1. **Refactor the oversized `DESIGN.md` using progressive disclosure.** 625 lines is too
-   large to load for routine frontend work. Reduce the root file to a short, high-signal
-   entry point — thesis, principles, and a table of pointers — and move the detailed
-   sections into focused companion files (e.g. `docs/design/typography.md`,
-   `docs/design/color.md`, `docs/design/tables.md`, `docs/design/responsive.md`,
-   `docs/design/accessibility.md`). Layer it so a reader loads only what the task needs.
-2. **Preserve the useful content.** This is a reorganisation, not a rewrite. Every measured
-   value, computed hex, contrast ratio, anti-pattern and invariant must survive with its
-   evidence intact. Do not re-litigate decisions or drop rationale.
-3. **Resolve player imagery as permitted-but-optional.** Change it from a blocking open
-   question into a stated design rule: identity is name-first and no layout may depend on
-   imagery; headshots and team context are permitted if and when the data model supports
-   them, and must degrade cleanly to name-only. Remove it from unresolved decisions.
-4. **Update stale pointers.** `CLAUDE.md` says "`DESIGN.md` (once it exists)";
-   `ARCHITECTURE.md` says "A `DESIGN.md` will be added by the redesign phase." Both are now
-   false. Keep `AGENTS.md` in sync with `CLAUDE.md`, per `CLAUDE.md`'s routing rule.
-5. **Verify no application code changed.** Run `git status` and confirm the diff touches
-   only Markdown — no CSS, HTML/templates, JS, or visual assets.
-6. **Then stop.** Do not propose the three redesign directions, do not fix any defect, and
-   do not modify the interface.
+Before starting, read `DESIGN.md` plus `docs/design/guardrails.md`; pull the other
+`docs/design/` files only as a direction actually touches them. Do not re-run the browser
+reconnaissance or re-derive the defect list (see DO NOT REPEAT above), and do not modify
+the interface while directions are still being proposed.

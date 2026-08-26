@@ -76,7 +76,8 @@ site** — that is the intended and correct starting point. The dark "broadcast/
 redesign on `backup-pre-skill-redesign` was **deliberately archived** before this process
 began: do not restore or inherit it wholesale. A specific idea from it may be inspected
 selectively later, but the new design must be derived from this baseline, `PRODUCT.md`,
-`CONTEXT.md`, the rendered product, and the upcoming design audit.
+`CONTEXT.md`, the rendered product, and the design audit — which is complete, and whose
+conclusions are now `DESIGN.md` + `docs/design/`.
 
 ## Rebuilding `dashboard/dist/`
 
@@ -129,4 +130,13 @@ Local snapshots are present through **2026-08-14**.
 
 `README.md` (full research history) · `PRODUCT.md` · `CONTEXT.md` · `RESEARCH_RULES.md` ·
 `CLAUDE.md` (router for Claude) · `AGENTS.md` (equivalent router for Codex and other
-cross-agent tooling). A `DESIGN.md` will be added by the redesign phase.
+cross-agent tooling).
+
+`DESIGN.md` (repo root) is the canonical design system and is itself a router: it holds the
+visual thesis, the eight design principles, the reference world, and the standing
+decisions, then points into `docs/design/` — `guardrails.md` (anti-patterns + preserved
+invariants; load for any dashboard change), `information-architecture.md`, `typography.md`,
+`color.md`, `layout.md`, `tables.md`, `dataviz.md`, `interaction.md`, `responsive.md`,
+`accessibility.md`. Load only the files a task needs.
+
+`docs/handoffs/` holds dated session handoffs for multi-session work.
