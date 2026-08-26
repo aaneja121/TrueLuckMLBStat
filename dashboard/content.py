@@ -22,12 +22,16 @@ __all__ = [
     "ComponentBreakdown",
     "DashboardBuildManifest",
     "LeaderboardRow",
+    "MoverRow",
+    "MoversByDirection",
     "PlayerDetail",
     "PlayerIndexEntry",
     "SnapshotPayloadError",
     "SnapshotPayloads",
     "StatusPageData",
     "TrendPoint",
+    "build_biggest_movers",
+    "build_biggest_movers_by_direction",
     "build_dashboard_manifest",
     "build_favorable_leaderboard",
     "build_player_detail",
@@ -35,6 +39,7 @@ __all__ = [
     "build_player_trend",
     "build_status_page_data",
     "build_unfavorable_leaderboard",
+    "compute_percentile",
     "find_player_record",
     "load_snapshot_payloads",
     "summarize_component_status",
@@ -136,6 +141,136 @@ def build_unfavorable_leaderboard(payloads: SnapshotPayloads) -> list[Leaderboar
         for r in payloads.unfavorable_leaderboard
     ]
     return sorted(rows, key=lambda r: r.official_rank)
+
+
+@dataclass(frozen=True)
+class MoverRow:
+    batter_id: int
+    batter_name: str | None
+    current_score: float
+    previous_score: float
+    delta: float
+
+
+def _qualified_delta_rows(
+    current: SnapshotPayloads, previous: SnapshotPayloads | None
+) -> list[MoverRow]:
+    """Every player qualified in BOTH the current and the immediately
+    preceding stored snapshot, with their raw `delta = current - previous`
+    already-stored `contact_luck_runs_per_100` -- plain arithmetic on two
+    numbers this module already trusts (the same trust level as the
+    component-bar decomposition elsewhere in this module), never a
+    recomputation of either score. Unsorted and unlimited: shared by
+    `build_biggest_movers` (top N by combined |delta|) and
+    `build_biggest_movers_by_direction` (top N risers and top N fallers
+    separately) so both read from the identical underlying rows. Returns an
+    empty list when there is no previous snapshot to compare against.
+    """
+    if previous is None:
+        return []
+    previous_by_id = {
+        r["batter_id"]: r
+        for r in previous.public_score
+        if r.get("qualification_status") == "qualified"
+    }
+    rows: list[MoverRow] = []
+    for record in current.public_score:
+        if record.get("qualification_status") != "qualified":
+            continue
+        prior = previous_by_id.get(record["batter_id"])
+        if prior is None:
+            continue
+        current_score = record["contact_luck_runs_per_100"]
+        previous_score = prior["contact_luck_runs_per_100"]
+        rows.append(
+            MoverRow(
+                batter_id=record["batter_id"],
+                batter_name=record.get("batter_name"),
+                current_score=current_score,
+                previous_score=previous_score,
+                delta=current_score - previous_score,
+            )
+        )
+    return rows
+
+
+def build_biggest_movers(
+    current: SnapshotPayloads,
+    previous: SnapshotPayloads | None,
+    *,
+    limit: int = 6,
+) -> list[MoverRow]:
+    """Players qualified in BOTH the current and the immediately preceding
+    stored snapshot, ranked by the magnitude of the change in their own
+    already-stored `contact_luck_runs_per_100` between those two snapshots
+    (see `_qualified_delta_rows`). Returns an empty list when there is no
+    previous snapshot to compare against -- callers must treat that the
+    same way `build_player_trend`'s own "need at least two points" case is
+    already treated: as "not enough history yet," never an error.
+
+    Kept for any caller that wants a single combined top-N list; the
+    homepage itself uses `build_biggest_movers_by_direction` instead (see
+    that function's docstring for why a combined top-N doesn't suit a
+    two-column risers/fallers presentation).
+    """
+    rows = _qualified_delta_rows(current, previous)
+    rows.sort(key=lambda r: abs(r.delta), reverse=True)
+    return rows[:limit]
+
+
+@dataclass(frozen=True)
+class MoversByDirection:
+    risers: list[MoverRow]
+    fallers: list[MoverRow]
+
+
+def build_biggest_movers_by_direction(
+    current: SnapshotPayloads,
+    previous: SnapshotPayloads | None,
+    *,
+    limit_per_side: int = 5,
+) -> MoversByDirection:
+    """Version 1.4.2 homepage "Biggest movers" module: the top
+    `limit_per_side` RISERS (`delta > 0`) and top `limit_per_side` FALLERS
+    (`delta < 0`) since the previous stored snapshot, each ranked by their
+    own magnitude and returned as two separate lists -- shown as two
+    columns (see index.html) rather than `build_biggest_movers`'s single
+    list ranked by combined `|delta|`, so a visitor sees a genuine top-N on
+    EACH side instead of whichever side happens to dominate a combined
+    top-N (e.g. a snapshot where the largest swings by magnitude are all
+    risers would otherwise leave "Fallers" empty even though real fallers
+    exist further down the list).
+
+    Reads the exact same underlying qualified-in-both-snapshots delta rows
+    as `build_biggest_movers` (`_qualified_delta_rows`) -- this is a
+    different GROUPING/LIMIT of real, already-computed deltas, never a new
+    computation and never a fabricated value. A player with `delta == 0.0`
+    exactly is excluded from both lists (neither a riser nor a faller).
+    Either list can be shorter than `limit_per_side`, including empty, if
+    fewer than that many qualified players moved in that direction --
+    callers (the homepage template) must not assume a fixed count and must
+    hide a direction's column entirely when its list is empty rather than
+    rendering an empty group.
+    """
+    rows = _qualified_delta_rows(current, previous)
+    risers = sorted((r for r in rows if r.delta > 0), key=lambda r: r.delta, reverse=True)
+    fallers = sorted((r for r in rows if r.delta < 0), key=lambda r: r.delta)
+    return MoversByDirection(risers=risers[:limit_per_side], fallers=fallers[:limit_per_side])
+
+
+def compute_percentile(rank: int, qualified_count: int) -> int | None:
+    """A player's percentile standing among the qualified population for a
+    given ranking direction (favorable or unfavorable), derived purely from
+    the already-stored official rank and the qualified-population size --
+    e.g. rank 4 of 200 qualified hitters is `round((1 - (4-1)/200) * 100) ==
+    99`. Returns `None` when the population is too small for "percentile" to
+    be a meaningful concept (`qualified_count <= 1`) -- callers must omit
+    the percentile line entirely in that case, never show a degenerate
+    100th/0th percentile.
+    """
+    if qualified_count <= 1:
+        return None
+    return round((1 - (rank - 1) / qualified_count) * 100)
 
 
 @dataclass(frozen=True)

@@ -723,7 +723,9 @@ def load_showcase_sensitivity(path: Path) -> SensitivityGrid:
     grid = raw["grid"]
     grid_shape = raw["grid_shape"]
     if not ev_values or not la_values:
-        raise ExploreContentError(f"{path}: exit_velocity_values/launch_angle_values must be non-empty")
+        raise ExploreContentError(
+            f"{path}: exit_velocity_values/launch_angle_values must be non-empty"
+        )
     if grid_shape["n_ev"] != len(ev_values) or grid_shape["n_la"] != len(la_values):
         raise ExploreContentError(
             f"{path}: grid_shape {grid_shape!r} does not match axis array lengths "

@@ -2,20 +2,20 @@
 {% block title %}Explore Plays — Contact Luck{% endblock %}
 {% block meta_description %}Search a hitter and browse their individual scored batted balls from the Contact Luck play ledger.{% endblock %}
 {% block content %}
-<div class="page-hero">
-  <div class="page-hero-top">
-    <h1>Explore Plays</h1>
-  </div>
-  <div class="callout explainer-callout">
-    <p>
-      Search for a hitter, then browse, filter, and sort their scored batted balls — open an
-      individual play to see the frozen model's outcome probabilities alongside what actually
-      happened. Every number here is copied directly from the same canonical scoring record that
-      produces this site's published Contact Luck totals — nothing on this page is recomputed in
-      the browser.
-    </p>
-  </div>
-</div>
+{#
+  Deliberately plain -- no bordered/surfaced card wrapping the page intro.
+  Heading + lede prose sit directly on the page background; containers are
+  reserved below for places they actually establish grouping (showcase
+  cards, the results table), not applied uniformly to every section.
+#}
+<h1>Explore Plays</h1>
+<p class="page-lede">
+  Search for a hitter, then browse, filter, and sort their scored batted balls — open an
+  individual play to see the frozen model's outcome probabilities alongside what actually
+  happened. Every number here is copied directly from the same canonical scoring record that
+  produces this site's published Contact Luck totals — nothing on this page is recomputed in
+  the browser.
+</p>
 
 {#
   Version 1.4.1 Showcase Plays: an editorial entry point ABOVE the generic
@@ -34,6 +34,17 @@
   </p>
   <p class="explore-loading" data-role="showcase-loading">Loading showcase&hellip;</p>
   <div data-role="showcase-body" hidden>
+    {#
+      Client-rendered Luck Spectrum (static/explore.js's buildLuckSpectrum,
+      which reimplements visuals.spectrum_position_pct's identical
+      placement formula) plotting the biggest showcase plays -- populated
+      only once showcase.json has loaded; hidden entirely if there's
+      nothing to plot.
+    #}
+    <div data-role="showcase-spectrum-wrap" hidden>
+      <h3 class="showcase-group-heading">Biggest breaks, at a glance</h3>
+      <div data-role="showcase-spectrum"></div>
+    </div>
     <div class="showcase-group">
       <h3 class="showcase-group-heading showcase-group-heading-favorable">Biggest favorable breaks</h3>
       <div class="showcase-cards" data-role="showcase-cards-favorable"></div>
@@ -67,9 +78,12 @@
 
 <div data-role="explore-selected" hidden>
   <div class="player-header">
-    <div>
-      <h2 data-role="explore-selected-name"></h2>
-      <p class="player-meta" data-role="explore-selected-meta"></p>
+    <div class="player-header-identity">
+      <span data-role="explore-selected-avatar"></span>
+      <div>
+        <h2 data-role="explore-selected-name"></h2>
+        <p class="player-meta" data-role="explore-selected-meta"></p>
+      </div>
     </div>
     <div>
       <button type="button" class="explore-change-player" data-role="explore-change-player">Change hitter</button>

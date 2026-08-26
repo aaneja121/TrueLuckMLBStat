@@ -1,3 +1,94 @@
+{#
+  Real MLB headshot avatar, keyed by batter_id (MLBAM ID) via the public MLB
+  Advanced Media photo CDN -- the documented `img.mlbstatic.com` pattern used
+  by open-source baseball tooling (e.g. the mlbplotR R package). A same-sized
+  abstract fallback (a plain head-and-shoulders line mark, echoing the site's
+  existing seam-mark motif) sits in the DOM BEFORE the <img>, so if the photo
+  404s the inline `onerror` only needs to hide the <img> -- the fallback is
+  already there underneath, no JS required and no layout shift either way.
+  `size_class` is one of "" (44px, default), "player-avatar-sm" (30px), or
+  "player-avatar-lg" (96px) -- see the `.player-avatar*` rules in style.css.
+#}
+{% macro player_avatar(batter_id, size_class="") %}
+<span class="player-avatar {{ size_class }}">
+  <span class="player-avatar-fallback" aria-hidden="true">
+    <svg viewBox="0 0 24 24" focusable="false">
+      <circle cx="12" cy="8.5" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+      <path d="M4 20c1.4-4.2 4.4-6.2 8-6.2s6.6 2 8 6.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+    </svg>
+  </span>
+  <img src="https://img.mlbstatic.com/mlb-photos/image/upload/w_180,q_auto:best/v1/people/{{ batter_id }}/headshot/67/current"
+       alt="" loading="lazy" decoding="async" onerror="this.style.display='none'">
+</span>
+{% endmacro %}
+
+{% macro rank_badge(rank) %}
+{% if rank <= 3 %}<span class="rank-badge rank-badge-medal rank-badge-{{ rank }}">{{ rank }}</span
+>{% else %}<span class="rank-badge">{{ rank }}</span>{% endif %}
+{% endmacro %}
+
+{#
+  The "Luck Spectrum" -- Contact Luck's one signature, reusable visual
+  (homepage hero, player-page hero, compact leaderboard-row variant).
+  `spectrum` is a plain dict built once in build.py/dashboard/content.py
+  (never computed here): {"zero_pct": float, "markers": [{"position_pct",
+  "value_display", "label", "sublabel", "favorable", "tier", "url"}]}.
+  `tier` is one of "primary" (most prominent, always-visible label),
+  "secondary" (a labeled but less prominent marker), or "unlabeled" (a small
+  dot whose label only appears on hover/focus -- see style.css's `.luck-
+  spectrum-marker-tier-unlabeled` and `spectrum_labels.py`'s docstring for
+  why not every plotted point gets a permanent label). Position math
+  (`visuals.spectrum_position_pct`) lives in Python so the server-rendered
+  spectrum here and the client-rendered one on /explore/ (see
+  static/explore.js's buildLuckSpectrum, which reimplements the exact same
+  formula AND the same `spectrum_labels.select_spectrum_labels` tier logic)
+  always place a given value, and label it, identically. Every marker prints
+  its own signed value as text -- the favorable/unfavorable color is a
+  reinforcement, never the only signal (screen readers/no-color users get
+  the same information via visible text + `title`, and an unlabeled dot's
+  text stays in the accessible tree even while visually hidden, so it's
+  never color-only either).
+#}
+{% macro luck_spectrum(spectrum, size="lg") %}
+<div class="luck-spectrum luck-spectrum-{{ size }}" role="img"
+     aria-label="Luck Spectrum: unfavorable to favorable Contact Luck, with a marker at zero and one marker per plotted player">
+  <div class="luck-spectrum-track">
+    <span class="luck-spectrum-zero" style="left: {{ '%.2f'|format(spectrum.zero_pct) }}%;" aria-hidden="true"></span>
+    {% for m in spectrum.markers %}
+    {% set tag = "a" if m.url else "div" %}
+    <{{ tag }} class="luck-spectrum-marker luck-spectrum-marker-edge-{{ m.edge }} luck-spectrum-marker-tier-{{ m.tier }} {{ 'interval-positive' if m.favorable else 'interval-negative' }}"
+         style="left: {{ '%.2f'|format(m.position_pct) }}%;"
+         {% if m.url %}href="{{ m.url }}"{% else %}tabindex="0"{% endif %}
+         title="{{ m.label }}: {{ m.value_display }}{% if m.sublabel %} ({{ m.sublabel }}){% endif %}">
+      <span class="luck-spectrum-marker-dot" aria-hidden="true"></span>
+      {#
+        The sublabel (e.g. "#1 favorable") is intentionally NOT rendered as
+        a third always-visible text line here -- with several markers
+        plotted close together, a 3-line block needs enough vertical row
+        spacing to avoid overlapping its neighbors that the spectrum grows
+        uncomfortably tall. It stays fully available via this element's own
+        `title` tooltip above (and, for sighted non-hover users, the value +
+        name pair already carries the essential information -- full rank
+        context for every player remains one click away on the leaderboard).
+        For an "unlabeled" tier marker, this text block stays in the DOM
+        (never omitted) but is visually hidden by default and only revealed
+        on hover/focus -- see style.css.
+      #}
+      <span class="luck-spectrum-marker-text">
+        <span class="luck-spectrum-marker-value">{{ m.value_display }}</span>
+        <span class="luck-spectrum-marker-label">{{ m.label }}</span>
+      </span>
+    </{{ tag }}>
+    {% endfor %}
+  </div>
+  <div class="luck-spectrum-scale" aria-hidden="true">
+    <span class="luck-spectrum-scale-label luck-spectrum-scale-unfavorable">Unfavorable</span>
+    <span class="luck-spectrum-scale-zero-label" style="left: {{ '%.2f'|format(spectrum.zero_pct) }}%;">0</span>
+    <span class="luck-spectrum-scale-label luck-spectrum-scale-favorable">Favorable</span>
+  </div>
+</div>
+{% endmacro %}
+
 {% macro render_leaderboard_table(rows, table_id) %}
 <div class="leaderboard-controls">
   <input type="text" class="leaderboard-search" placeholder="Filter this table by name…"
@@ -24,9 +115,14 @@
     <tr data-official-rank="{{ row.official_rank }}" data-player-name="{{ row.batter_name }}"
         data-score="{{ row.score }}" data-total-runs="{{ row.total_runs }}"
         data-bbe="{{ row.bbe }}" data-games="{{ row.games }}" data-interval-width="{{ row.interval_width }}">
-      <td class="rank-cell numeric">{{ row.official_rank }}</td>
-      <td><a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a></td>
-      <td class="numeric">{{ "%.2f"|format(row.score) }}</td>
+      <td class="rank-cell numeric">{{ rank_badge(row.official_rank) }}</td>
+      <td>
+        <div class="leaderboard-name-cell">
+          {{ player_avatar(row.batter_id, "player-avatar-sm") }}
+          <a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a>
+        </div>
+      </td>
+      <td class="numeric leaderboard-score-cell {{ 'interval-positive' if row.score >= 0 else 'interval-negative' }}">{{ "%+.2f"|format(row.score) }}</td>
       <td class="interval-col">{{ row.interval_svg | safe }}</td>
       <td class="numeric hide-mobile">{{ "%.1f"|format(row.total_runs) }}</td>
       <td class="numeric hide-mobile">{{ row.bbe }}</td>

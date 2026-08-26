@@ -1,67 +1,106 @@
-/* Contact Luck v1.2 -- dashboard stylesheet.
-   Palette: dataviz skill reference palette (references/palette.md),
-   diverging blue/red pair + chart chrome/ink. Direction (blue/red) encodes
-   the SIGN of the point estimate only -- it is applied identically whether
-   or not the 95% interval crosses zero. See visuals.py's module docstring. */
+/* Contact Luck v3.0 -- "Ballpark Scoreboard" visual identity.
+   Replaces the earlier neon-glow "Broadcast" palette (near-black-navy
+   background, saturated glowing blue/red numbers, Oswald everywhere,
+   circular avatars, pill badges) -- that combination is one of the
+   recognizable AI-default looks regardless of subject. This pass is
+   grounded in the material world of the actual subject instead: a
+   ballpark scoreboard/box score at night. Warm ink + turf-tinted charcoal
+   surfaces, ONE decorative accent (an infield-dirt/mustard gold, chosen to
+   sit far from both the favorable/unfavorable sign hues below so it never
+   reads as a third, ambiguous status color), no glow/text-shadow anywhere,
+   and a three-role type system (a stadium-signage display face, a
+   box-score-agate body serif, and tabular monospace for every stat
+   number). Diverging teal/brick still encodes the SIGN of Contact Luck's
+   point estimate only (favorable/unfavorable) -- unchanged semantics,
+   deliberately desaturated so it never reads as a generic "blue good / red
+   bad" SaaS pairing. Both
+   `prefers-color-scheme` variants stay supported (OS-preference
+   accessibility is never removed); dark is the flagship look this pass is
+   built around, light is a tuned, neutral-paper sibling using the same
+   accent family (kept deliberately cooler/less cream than dark's ink, so
+   it never collides with the cream-background+serif-display+terracotta-
+   accent look that is itself a recognizable AI-default). See visuals.py's
+   module docstring -- SVG chart chrome still reads its color from these
+   same CSS classes/vars, nothing hardcoded there. */
 
 :root {
   color-scheme: light;
-  --page: #f8f6f0;
-  --surface: #fefdfa;
-  --surface-recessed: #f1ede1;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #898781;
-  --gridline: #e3dfd3;
-  --baseline: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.12);
-  --diverging-positive: #2a78d6;
-  --diverging-negative: #e34948;
-  --diverging-mid: #f0efec;
+  --page: #f0efe6;
+  --surface: #ffffff;
+  --surface-recessed: #e7e5d8;
+  --text-primary: #17170f;
+  --text-secondary: #4a4a3c;
+  --text-muted: #7c7a6a;
+  --gridline: #dfddd0;
+  --baseline: #c7c4b1;
+  --border: rgba(23, 23, 15, 0.14);
+  --diverging-positive: #2e7a70;
+  --diverging-negative: #a8402c;
+  --diverging-mid: #ece9dc;
   --band-opacity: 0.10;
-  /* Version 1.3.2 visual identity pass ("modern baseball scorebook at
-     night") -- ONE warm, non-semantic accent (scoreboard amber / stadium
-     light) plus an optional muted, atmospheric field-green, both scoped to
-     decorative/wayfinding use only: tiny ornaments, focus rings, active
-     nav states, the simulator's illustrative field. Never used for
-     Contact Luck's sign -- that stays exclusively on
-     `--diverging-positive` (favorable/blue) and `--diverging-negative`
-     (unfavorable/red) above, unchanged by this pass, so a color on this
-     page never becomes ambiguous between "decorative" and "the luck
-     signal." See CLAUDE.md's semantic-color precedent for park geometry/
-     weather -- same discipline applies here: one accent, used sparingly.
-
-     `--surface-recessed` (added in the Version 1.3.2 visual-PRESENCE pass)
-     is a fourth tonal step for CONTROL surfaces (inputs, slider/prob-bar
-     tracks) -- distinct from `--surface` (card/panel level) so the tonal
-     hierarchy reads as page < recessed control < card at a glance, not
-     one flat plane with borders drawn on top. */
-  --accent-amber: #b06f16;
-  --accent-amber-soft: rgba(176, 111, 22, 0.16);
-  --accent-field: #4e6f51;
-  --accent-field-soft: rgba(78, 111, 81, 0.12);
+  /* ONE decorative/wayfinding accent (ornaments, focus rings, nav, ticker
+     chrome) -- never Contact Luck's sign. `--accent-field` is NOT a second
+     decorative accent; it is reserved for literally depicting turf/grass in
+     the field-diagram illustrations (a representational color, like using
+     brown for dirt), and is never used for card chrome, badges, or focus
+     states -- see the audit note in CLAUDE.md-adjacent redesign notes: pick
+     one brand accent, keep every other color either neutral or genuinely
+     representational. `--surface-recessed` is the control-surface tonal
+     step (inputs, slider tracks) between `--page` and `--surface`. */
+  --accent-amber: #8f640f;
+  --accent-amber-soft: rgba(143, 100, 15, 0.14);
+  --accent-field: #4c7a4c;
+  --accent-field-soft: rgba(76, 122, 76, 0.14);
+  --glow-amber: none;
+  --glow-positive: none;
+  --glow-negative: none;
+  --font-display: "Big Shoulders Display", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Source Serif 4", Georgia, serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --ease-broadcast: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Application shell -- the ONE shared width constraint for the header,
+     every page's `main`, and the footer. Replaces an earlier flat 1140px
+     value used identically on all three. At a 1536px viewport this yields
+     a 1320px-wide shell (108px margin each side) with ~1256px of usable
+     content inside the padding -- verified with `getBoundingClientRect()`
+     in a real Chromium run (`main`/`.site-header-inner` both measured at
+     1320px wide, left/right edges at 108px/1428px), not just read off the
+     stylesheet. `--shell-pad` is overridden to a smaller value at the
+     existing mobile breakpoint below. */
+  --shell-max: 1320px;
+  --shell-pad: 32px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page: #0d0c0a;
-    --surface: #211e19;
-    --surface-recessed: #17140f;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --gridline: #322f29;
-    --baseline: #3a3834;
-    --border: rgba(255, 255, 255, 0.12);
-    --diverging-positive: #3987e5;
-    --diverging-negative: #e66767;
-    --diverging-mid: #383835;
-    --band-opacity: 0.16;
-    --accent-amber: #e0aa57;
-    --accent-amber-soft: rgba(224, 170, 87, 0.2);
-    --accent-field: #8dac8f;
-    --accent-field-soft: rgba(141, 172, 143, 0.16);
+    /* Warm charcoal ink with a barely-perceptible turf-green cast, not a
+       cool navy-black -- a night game under lights, not a SaaS dashboard.
+       `--surface` reads as a "lit" panel against the darker `--page`
+       without introducing a second hue family. */
+    --page: #131310;
+    --surface: #1b1d16;
+    --surface-recessed: #0d0f0a;
+    --text-primary: #f1ede2;
+    --text-secondary: #b9b6a8;
+    --text-muted: #82806f;
+    --gridline: #2b2c22;
+    --baseline: #3c3d30;
+    --border: rgba(241, 237, 226, 0.12);
+    /* Desaturated sign pair -- harbor teal / brick red, not neon blue/red.
+       Still unambiguous at a glance, never glowing or saturated enough to
+       read as a "broadcast bulb" or generic SaaS status color. */
+    --diverging-positive: #59ab9f;
+    --diverging-negative: #d6785f;
+    --diverging-mid: #232419;
+    --band-opacity: 0.2;
+    --accent-amber: #d9a544;
+    --accent-amber-soft: rgba(217, 165, 68, 0.16);
+    --accent-field: #4f6f4f;
+    --accent-field-soft: rgba(79, 111, 79, 0.16);
+    --glow-amber: none;
+    --glow-positive: none;
+    --glow-negative: none;
   }
 }
 
@@ -73,6 +112,17 @@ body {
   background: var(--page);
   color: var(--text-primary);
   line-height: 1.5;
+  /* Broadcast-graphics backdrop: an extremely faint radial "stadium light"
+     wash, fixed to the viewport so it never scrolls with content -- reads
+     as atmosphere, never competes with foreground text/data. Transparent
+     in light mode by construction (the two colors it blends are already
+     the page/surface tones). */
+  background-image: radial-gradient(
+    ellipse 1200px 640px at 50% -120px,
+    var(--accent-amber-soft),
+    transparent 60%
+  );
+  background-repeat: no-repeat;
   /* Root-cause fix for site-wide mobile horizontal overflow: several
      tables (`.component-table`'s reason-codes column, `.status-table`'s
      snapshot-type column) and inline `<code>` reason codes (methodology
@@ -109,39 +159,63 @@ input:focus-visible,
 }
 
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   border-bottom: 2px solid var(--accent-amber-soft);
   background: var(--surface);
+  /* Faint downward fade so content passing underneath a sticky header
+     never looks like it's clipping through a hard edge. */
+  box-shadow: 0 8px 24px -18px rgba(0, 0, 0, 0.6);
 }
 
+/* Target ~60-68px rendered header height at desktop (see `.global-search-
+   wrap input`'s own height, the tallest inline child, plus this padding --
+   this is an application header, not a miniature toolbar). */
 .site-header-inner {
-  max-width: 1140px;
+  max-width: var(--shell-max);
   margin: 0 auto;
-  padding: 14px 20px;
+  padding: 13px var(--shell-pad);
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 14px;
+}
+
+/* Desktop: an invisible wrapper -- `display: contents` removes it from the
+   box tree entirely, so its children (nav/search/data-through badge) still
+   behave as plain flex items of `.site-header-inner`, exactly as if this
+   div didn't exist. Its ONLY job is to give the mobile nav-toggle button
+   (below) something to collapse -- see that rule's own comment and
+   static/app.js's initNavToggle(). */
+.site-header-collapsible {
+  display: contents;
 }
 
 .site-title {
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1.55rem;
+  letter-spacing: 0.015em;
+  text-transform: uppercase;
   color: var(--text-primary);
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 12px;
 }
 
-/* Tiny abstract baseball-seam mark -- the site's one small recurring
-   ornament (see `.seam-divider` below for its other use, on /demo/).
-   Deliberately not an emoji or a literal baseball icon: a plain ring plus
-   two short "stitch" ticks, in the amber accent, `aria-hidden` since it
-   carries no information. At 14px this reads as a mark, not a picture. */
+/* Abstract baseball-seam mark -- the site's one small recurring ornament
+   (see `.seam-divider` below for its other use, on /demo/). Deliberately
+   not an emoji or a literal baseball icon: a plain ring plus two short
+   "stitch" ticks, in the amber accent, `aria-hidden` since it carries no
+   information. Scaled up alongside `.site-title` in this pass (was 13px)
+   so it still reads as proportionate to the now-larger wordmark rather
+   than shrinking in relative terms. */
 .seam-mark {
   display: inline-block;
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   border: 1.5px solid var(--accent-amber);
   position: relative;
@@ -153,7 +227,7 @@ input:focus-visible,
   content: "";
   position: absolute;
   top: 50%;
-  width: 6px;
+  width: 7px;
   height: 1.5px;
   background: var(--accent-amber);
   border-radius: 1px;
@@ -188,7 +262,7 @@ input:focus-visible,
   color: var(--text-secondary);
   font-size: 0.92rem;
   position: relative;
-  padding-bottom: 3px;
+  padding-bottom: 4px;
   transition: color 0.15s ease;
 }
 
@@ -219,13 +293,21 @@ input:focus-visible,
 }
 
 .global-search-wrap input {
-  padding: 6px 10px;
+  padding: 9px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--surface-recessed);
   color: var(--text-primary);
-  font-size: 0.86rem;
-  width: 200px;
+  font-size: 0.92rem;
+  width: 240px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.global-search-wrap input:hover {
+  border-color: var(--text-muted);
+}
+.global-search-wrap input:focus-visible {
+  border-color: var(--accent-amber);
+  background: var(--surface);
 }
 
 .search-results-dropdown {
@@ -246,8 +328,8 @@ input:focus-visible,
 .search-results-dropdown[hidden] { display: none; }
 
 .search-result-item {
-  padding: 7px 12px;
-  font-size: 0.86rem;
+  padding: 9px 14px;
+  font-size: 0.9rem;
   color: var(--text-primary);
 }
 
@@ -257,62 +339,170 @@ input:focus-visible,
 }
 
 .data-through-badge {
+  font-family: var(--font-mono);
   font-size: 0.82rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px 10px;
+  border-radius: 2px;
+  padding: 6px 12px 6px 10px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* "On-air" live indicator -- a small pulsing dot, the one place on the
+   page that reads as "this is a live broadcast graphic, not a static
+   report." Purely decorative; never implies the snapshot itself updates
+   in real time (the data-through date next to it is the source of truth).
+   `aria-hidden` since it carries no information beyond that text. */
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-field);
+  box-shadow: 0 0 0 rgba(51, 227, 154, 0.6);
+  animation: live-dot-pulse 2.4s ease-in-out infinite;
+  flex: none;
+}
+
+@keyframes live-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-field-soft); }
+  50% { box-shadow: 0 0 0 5px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}
+
+/* Header disclosure control (base.html) -- ships `hidden` in the HTML and
+   is only revealed by static/app.js's initNavToggle() once JS has actually
+   wired up its click handler (see that function's own comment on why: a
+   visible-but-inert button would be worse than no button). A plain 3-bar
+   mark built from CSS, matching `.seam-mark`'s existing no-icon-font/no-SVG
+   convention. Invisible by default (`display: none`); the `@media
+   (max-width: 1279px)` block below is what actually shows it -- see that
+   block's own comment for why the threshold is wider than the site's usual
+   640px mobile cutoff. */
+.nav-toggle {
+  display: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-recessed);
+  cursor: pointer;
+}
+.nav-toggle-bars,
+.nav-toggle-bars::before,
+.nav-toggle-bars::after {
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text-primary);
+}
+.nav-toggle-bars { position: relative; }
+.nav-toggle-bars::before,
+.nav-toggle-bars::after {
+  content: "";
+  position: absolute;
+  left: 0;
+}
+.nav-toggle-bars::before { top: -6px; }
+.nav-toggle-bars::after { top: 6px; }
+/* Reflects open/closed state via the accent color (already the site's one
+   shared focus/active-state color) rather than a morphing icon animation. */
+.nav-toggle[aria-expanded="true"] {
+  border-color: var(--accent-amber);
+  background: var(--surface);
+}
+.nav-toggle[aria-expanded="true"] .nav-toggle-bars,
+.nav-toggle[aria-expanded="true"] .nav-toggle-bars::before,
+.nav-toggle[aria-expanded="true"] .nav-toggle-bars::after {
+  background: var(--accent-amber);
+}
+
+/* This is a WIDER breakpoint than the site's usual 640px mobile cutoff
+   (used unchanged elsewhere in this file for the leaderboard/spectrum/etc.)
+   -- deliberately its own, header-specific one. Branding + 5 nav links +
+   a real search box + the data-through badge, all readable at a real
+   product's scale rather than squeezed, measurably don't fit on one row
+   below ~1250px (verified in a real Chromium run, not estimated) no matter
+   how tightly the spacing is tuned -- so tablet AND small-laptop widths
+   get the same intentional collapsed header as phones, rather than either
+   overflowing or silently shrinking nav back down to miniature to force a
+   fit. 1280px (a QA checkpoint width for this pass) is confirmed to still
+   render the full single-row desktop nav with margin to spare. */
+@media (max-width: 1279px) {
+  .nav-toggle:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    flex: none;
+  }
+  /* Fully visible/stacked by default -- see base.html's comment: this is
+     the no-JS/JS-not-yet-run baseline, identical in spirit to the header's
+     pre-refresh mobile behavior. `initNavToggle()` adds `.nav-collapsed`
+     once it actually owns the toggle button, and removes it again on open
+     -- so this class alone (never the mere presence/absence of JS marked
+     any other way) is what controls visibility here. `flex: 1 1 100%`
+     forces it onto its own row below the brand+toggle row, since
+     `.site-header-inner` already has `flex-wrap: wrap`. */
+  .site-header-collapsible {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    flex: 1 1 100%;
+    margin-top: 4px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .site-header-collapsible.nav-collapsed {
+    display: none;
+  }
+  .site-nav {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .site-nav a {
+    padding: 8px 0;
+  }
+  .global-search-wrap input {
+    width: 100%;
+  }
 }
 
 main {
-  max-width: 1140px;
+  max-width: var(--shell-max);
   margin: 0 auto;
-  padding: 24px 20px 64px;
+  padding: 24px var(--shell-pad) 64px;
 }
 
-/* Homepage hero band (currently used solely by index.html) -- the site's
-   "major section/background region" tier: a differentiated `--surface`
-   band (distinct from the plain `--page` background the leaderboard table
-   sits on below it) so the header region reads as intentional rather than
-   the h1 floating in the same flat plane as everything else. Full-bleed
-   within `main`'s own padding via matching negative margin/padding (see
-   `main`'s `padding: 24px 20px 64px` above) -- a standard banded-header
-   technique, not a giant marketing hero: the leaderboard table itself is
-   untouched and stays sober immediately below it. */
-.page-hero {
-  margin: -4px -20px 26px;
-  padding: 26px 20px 22px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  border-top: 3px solid var(--accent-amber);
+/* Plain page lede -- a page's opening explanatory paragraph, sitting
+   directly on the page background with no card/border chrome (see
+   explore.html: heading + lede prose, not a bordered intro panel). Reused
+   anywhere a page wants a slightly larger, secondary-toned opening
+   paragraph without reaching for `.callout`'s bordered treatment (which
+   stays reserved for genuine asides/warnings). */
+.page-lede {
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  max-width: 46em;
+  margin: 0 0 24px;
 }
 
-.page-hero-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
+h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2rem, 1.3rem + 2vw, 2.75rem);
+  letter-spacing: 0.01em;
+  margin: 0 0 10px;
 }
-.page-hero-top h1 { margin: 0; }
-
-/* A foul-lines-and-arc line drawing echoing the same trajectory language
-   as the field diagrams on /demo/, in the muted field-green accent, with
-   one small amber dot marking the arc's apex -- the trajectory motif and
-   the brand accent appearing together, the way they do in the simulator's
-   own field. Purely decorative (`aria-hidden`), never implies an actual
-   batted-ball path or any data. */
-.page-hero-mark {
-  width: 190px;
-  height: 48px;
-  color: var(--accent-field);
-  opacity: 0.7;
-  flex: none;
-}
-.page-hero-mark svg { width: 100%; height: 100%; display: block; }
-
-h1 { font-size: 1.6rem; margin: 0 0 6px; }
 
 /* Small amber tick before every major section heading, site-wide --
    deliberately the ONE recurring brand mark that reaches sober pages
@@ -320,22 +510,32 @@ h1 { font-size: 1.6rem; margin: 0 0 6px; }
    identity there comes through headings/nav/focus/surfaces, never through
    baseball motifs on every row or card. */
 h2 {
-  font-size: 1.2rem;
-  margin: 32px 0 10px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-size: 1.75rem;
+  margin: 40px 0 16px;
   position: relative;
-  padding-left: 14px;
+  padding-left: 16px;
 }
 h2::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 0.24em;
+  top: 0.2em;
   width: 4px;
-  height: 0.82em;
+  height: 0.9em;
   background: var(--accent-amber);
   border-radius: 2px;
+  box-shadow: var(--glow-amber);
 }
-h3 { font-size: 1rem; margin: 20px 0 8px; }
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-size: 1.2rem;
+  margin: 22px 0 10px;
+}
 
 .page-subtitle {
   color: var(--text-secondary);
@@ -387,14 +587,19 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
 }
 .homepage-proof-card {
   border: 1px solid var(--border);
-  border-top: 3px solid var(--accent-field);
-  border-radius: 10px;
+  border-radius: 3px;
   padding: 14px 16px;
   background: var(--surface);
 }
+.homepage-proof-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 2px;
+}
 .homepage-proof-name {
   font-weight: 700;
-  margin: 0 0 2px;
+  margin: 0;
 }
 .homepage-proof-contact {
   color: var(--text-secondary);
@@ -458,50 +663,100 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
 .showcase-group-heading-favorable { color: var(--diverging-positive); }
 .showcase-group-heading-unfavorable { color: var(--diverging-negative); }
 
+/* Desktop default: a 3-column grid with `grid-auto-flow: dense` so the
+   featured (#1) card can span 2x2 (see `.showcase-card-featured` below)
+   while the remaining cards pack into the gap beside/under it instead of
+   leaving a hole -- a standard "featured item + supporting grid" CSS Grid
+   pattern. 3 columns is deliberate, not arbitrary: with
+   `SHOWCASE_INITIAL_VISIBLE = 6` (explore.js) and a 2x2 featured span, a
+   3-column grid tiles EXACTLY (featured 2x2 + 2 supporting alongside it +
+   3 more supporting filling one full row beneath, 5 supporting total,
+   zero empty cells) -- a 4-column grid was tried first and left a
+   half-empty trailing row (5 supporting cards don't divide evenly across
+   the 4 remaining cells in the top two rows). Narrower breakpoints below
+   reset both the column count AND the featured card's span, so
+   tablet/mobile get a plain uniform grid. */
 .showcase-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  grid-auto-flow: dense;
+  gap: 16px;
 }
 .showcase-card {
   border: 1px solid var(--border);
   border-top: 3px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: 3px;
+  padding: 16px 18px;
   background: var(--surface);
   display: flex;
   flex-direction: column;
 }
 .showcase-card-favorable { border-top-color: var(--diverging-positive); }
 .showcase-card-unfavorable { border-top-color: var(--diverging-negative); }
-.showcase-card-name { font-weight: 700; margin: 0 0 2px; }
+.showcase-card-header { display: flex; align-items: center; gap: 10px; margin: 0 0 2px; }
+.showcase-card-name { font-weight: 700; margin: 0; font-size: 1rem; }
 .showcase-card-date {
   color: var(--text-secondary);
-  font-size: 0.86rem;
-  margin: 0 0 10px;
+  font-size: 0.88rem;
+  margin: 0 0 12px;
 }
 .showcase-card-rows {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin: 0 0 8px;
+  gap: 5px;
+  margin: 0 0 10px;
 }
 .showcase-card-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
 }
 .showcase-card-row-label { color: var(--text-secondary); }
 /* Compound selector so this reliably overrides `.demo-luck-figure`'s
    larger base size regardless of stylesheet order -- a showcase card's
    figure must read as clearly smaller than a full play page's own payoff
-   number, matching `.homepage-proof-figure`'s exact precedent. */
+   number, matching `.homepage-proof-figure`'s exact precedent. The
+   Contact Luck figure is still the single largest/boldest element in an
+   ordinary (non-featured) card -- everything else in `.showcase-card-row`
+   stays a secondary supporting-metric size below it. */
 .demo-luck-figure.showcase-card-figure {
-  font-size: 1.05rem;
-  margin: 6px 0;
+  font-size: 1.5rem;
+  margin: 8px 0;
 }
+
+/* ---- Featured item (#1 favorable / #1 unfavorable): the most extreme
+   play in each group, given real visual weight instead of sitting
+   identically-sized next to five others -- see the task's "avoid an
+   undifferentiated grid of identical small cards" requirement. Desktop
+   only (≥901px); resets to an ordinary card at every narrower
+   breakpoint, see the two media queries below. */
+.showcase-card-featured {
+  grid-column: span 2;
+  grid-row: span 2;
+  padding: 26px 28px;
+  gap: 4px;
+  border-top-width: 4px;
+}
+.showcase-card-featured .showcase-card-header { gap: 16px; margin-bottom: 4px; }
+.showcase-card-featured .showcase-card-name { font-size: 1.5rem; }
+.showcase-card-featured .showcase-card-date { font-size: 0.95rem; }
+.showcase-card-featured .showcase-card-rows { gap: 8px; margin: 4px 0 14px; }
+.showcase-card-featured .showcase-card-row { font-size: 1.02rem; }
+.showcase-card-featured .demo-luck-figure.showcase-card-figure {
+  font-size: clamp(2.8rem, 2vw + 2rem, 3.6rem);
+  margin: 4px 0 12px;
+}
+.showcase-card-featured .showcase-card-link { font-size: 1rem; }
+/* `.showcase-card-footer`'s `margin-top: auto` (below) deliberately pins
+   the footer to the bottom of an ORDINARY showcase card so "View play"
+   aligns across a row of same-height cards -- correct there, but on the
+   much-taller featured card it absorbs the card's entire leftover height
+   as one large gap between the figure and the link. Fixed spacing here
+   instead, so the link sits right under the figure like everything else
+   in this card. */
+.showcase-card-featured .showcase-card-footer { margin-top: 4px; }
 .showcase-card-footer {
   margin-top: auto;
   display: flex;
@@ -511,13 +766,14 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
   flex-wrap: wrap;
 }
 .showcase-card-whatif-badge {
-  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--accent-amber);
   border: 1px solid var(--accent-amber);
-  border-radius: 999px;
+  border-radius: 2px;
   padding: 2px 8px;
 }
 .showcase-card-link { font-weight: 600; white-space: nowrap; }
@@ -538,9 +794,20 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
 
 @media (max-width: 900px) {
   .showcase-cards { grid-template-columns: repeat(2, 1fr); }
+  /* Tablet: the featured card gets one full-width row of its own (still
+     visually distinct via its larger padding/type) rather than a 2x2 span,
+     which would consume the entire 2-column grid width anyway. */
+  .showcase-card-featured { grid-column: 1 / -1; grid-row: auto; }
 }
 @media (max-width: 640px) {
   .showcase-cards { grid-template-columns: 1fr; }
+  .showcase-card-featured {
+    padding: 20px 18px;
+  }
+  .showcase-card-featured .showcase-card-name { font-size: 1.2rem; }
+  .showcase-card-featured .demo-luck-figure.showcase-card-figure {
+    font-size: 2.2rem;
+  }
 }
 
 /* Version 1.4.1 "What if?" sensitivity module on the play page -- reuses
@@ -717,11 +984,10 @@ table.leaderboard td.rank-cell {
   flex-wrap: wrap;
   gap: 24px;
   align-items: flex-start;
-  margin: -4px -20px 22px;
-  padding: 24px 20px 20px;
+  margin: -4px calc(-1 * var(--shell-pad)) 22px;
+  padding: 24px var(--shell-pad) 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  border-top: 3px solid var(--accent-amber);
 }
 
 .player-name-row {
@@ -732,17 +998,28 @@ table.leaderboard td.rank-cell {
 }
 .player-name-row h1 { margin: 0; }
 
-/* Small trajectory ornament next to the player name -- same motif as the
-   homepage hero and the field diagrams, not a literal "player card"
-   graphic. */
-.player-header-mark {
-  width: 100px;
-  height: 32px;
-  color: var(--accent-field);
-  opacity: 0.7;
-  flex: none;
+/* Player hero identity block -- real headshot avatar + name/meta/badges,
+   replacing the earlier abstract trajectory ornament (the avatar now does
+   that "this page belongs to a real player" job more directly). */
+.player-header-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  flex: 1 1 320px;
 }
-.player-header-mark svg { width: 100%; height: 100%; display: block; }
+
+/* explore.js/play.js fill these placeholder <span>s with a `.player-avatar`
+   built at runtime (the avatar can't be server-rendered on these two pages
+   -- see each script's own comment). `display: contents` makes the
+   placeholder itself disappear from the box tree so its injected child
+   becomes a genuine flex item of `.player-header-identity` (and gets
+   blockified, letting its `width`/`height` apply) exactly as if the markup
+   had been written inline -- without this, the child stays a plain inline
+   span nested one level too deep and silently ignores its own size. */
+[data-role="explore-selected-avatar"],
+[data-role="play-batter-avatar"] {
+  display: contents;
+}
 
 /* Compact uppercase metadata treatment -- MLBAM ID / data-through date /
    the 95% interval line -- distinct from `.page-subtitle`'s plain prose
@@ -771,13 +1048,15 @@ table.leaderboard td.rank-cell {
 .player-orientation a { white-space: nowrap; }
 
 .player-hero-figure {
-  font-size: 2.4rem;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 3rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 
-.player-hero-figure.interval-positive { color: var(--diverging-positive); }
-.player-hero-figure.interval-negative { color: var(--diverging-negative); }
+.player-hero-figure.interval-positive { color: var(--diverging-positive); text-shadow: var(--glow-positive); }
+.player-hero-figure.interval-negative { color: var(--diverging-negative); text-shadow: var(--glow-negative); }
 
 .stat-grid {
   display: grid;
@@ -788,13 +1067,20 @@ table.leaderboard td.rank-cell {
 
 .stat-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-top: 2px solid var(--border);
+  border-radius: 3px;
   padding: 12px 14px;
   background: var(--surface);
+  transition: border-top-color 0.2s var(--ease-broadcast), transform 0.2s var(--ease-broadcast);
+}
+
+.stat-card:hover {
+  border-top-color: var(--accent-amber);
+  transform: translateY(-1px);
 }
 
 .stat-card .stat-label {
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -802,21 +1088,79 @@ table.leaderboard td.rank-cell {
 }
 
 .stat-card .stat-value {
-  font-size: 1.15rem;
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .stat-card { transition: none; }
+}
+
 .badge {
   display: inline-block;
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
   padding: 2px 9px;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
 .badge-qualified { border-color: var(--accent-amber); color: var(--accent-amber); }
+
+/* Component decomposition bars (player.html) -- a purely visual read of the
+   same component_value_rows the table below renders verbatim. Each track
+   grows from a shared center zero line (`.component-bar-zero`) so a
+   negative component reads as a leftward bar and a positive one rightward,
+   the same left/right-of-zero language the interval bars already use. */
+.component-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 4px;
+}
+.component-bar-row {
+  display: grid;
+  grid-template-columns: 11em 1fr 4.5em;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+}
+.component-bar-label { color: var(--text-secondary); }
+.component-bar-track {
+  position: relative;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--surface-recessed);
+  overflow: hidden;
+}
+.component-bar-zero {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--baseline);
+}
+.component-bar-fill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  border-radius: 3px;
+  opacity: 0.85;
+}
+/* `.interval-positive`/`.interval-negative` (defined earlier) only set SVG
+   stroke/fill, not a CSS `background` -- these two rules give this HTML
+   (non-SVG) bar the same sign coloring explicitly. */
+.component-bar-fill.interval-positive { background: var(--diverging-positive); box-shadow: var(--glow-positive); }
+.component-bar-fill.interval-negative { background: var(--diverging-negative); box-shadow: var(--glow-negative); }
+.component-bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+
+@media (max-width: 640px) {
+  .component-bar-row { grid-template-columns: 8em 1fr 4em; font-size: 0.8rem; }
+}
 
 .component-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 8px; }
 .component-table td, .component-table th {
@@ -853,11 +1197,12 @@ table.leaderboard td.rank-cell {
 .technical-disclosure table.component-table { margin-top: 0; }
 
 .callout {
+  font-family: var(--font-body);
   border-left: 3px solid var(--accent-amber);
   padding: 10px 16px;
   background: var(--surface);
   color: var(--text-secondary);
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   margin: 16px 0;
 }
 
@@ -869,18 +1214,52 @@ table.leaderboard td.rank-cell {
 }
 .status-table th { color: var(--text-secondary); width: 40%; }
 
+/* Pre-existing layout bug found during this pass (not introduced by it --
+   reproduces identically against the pre-revamp stylesheet too): the
+   "Snapshot history" table (status.html, the ONLY `.status-table` wrapped
+   in `.overflow-x` -- the two-column key/value tables above it aren't and
+   must keep relying on `overflow-wrap: anywhere` on body, see that rule's
+   own comment) has 5 columns competing for width under `table-layout:
+   auto`. Two columns (Snapshot directory name, an ISO timestamp) contain
+   very long tokens; auto layout's shrink-to-fit algorithm starves the
+   OTHER columns for space to compensate, squeezing "Displayed?" (whose
+   content -- "Yes"/"No (superseded)" -- is short but DOES contain a
+   normal word-break opportunity) down to just a few pixels wide, at which
+   point `overflow-wrap: anywhere` breaks even that short text one
+   character per line, producing a wildly tall row. Fixed the same way
+   `table.leaderboard` already solves this exact class of problem:
+   `white-space: nowrap` + horizontal scroll via the `.overflow-x` ancestor
+   that already wraps this table -- scoped to ONLY the wrapped instance via
+   this descendant selector, so the unwrapped key/value tables above keep
+   their existing overflow-wrap-based mobile protection untouched. */
+.overflow-x table.status-table th,
+.overflow-x table.status-table td {
+  white-space: nowrap;
+}
+
 .snapshot-type-genuine_prospective_snapshot { color: var(--text-secondary); }
 .snapshot-type-corrected_prospective_snapshot { color: var(--diverging-positive); }
 .snapshot-type-retrospective_backfill { color: var(--text-muted); font-style: italic; }
 .snapshot-type-invalid_incomplete_snapshot { color: var(--diverging-negative); }
 
 footer.site-footer {
-  max-width: 1140px;
+  max-width: var(--shell-max);
   margin: 40px auto 0;
-  padding: 16px 20px;
+  padding: 16px var(--shell-pad);
   color: var(--text-muted);
   font-size: 0.82rem;
   border-top: 1px solid var(--border);
+}
+
+/* Shell gutter shrinks (never disappears) at narrow viewports -- redefining
+   the custom property here means every consumer above (header/main/footer,
+   plus every full-bleed hero band's `calc(-1 * var(--shell-pad))` margin)
+   picks up the smaller value automatically, with nothing to keep in sync
+   by hand. */
+@media (max-width: 640px) {
+  :root {
+    --shell-pad: 18px;
+  }
 }
 
 /* Desktop-only presentation polish (v1.2.1): the 1440px real-browser QA
@@ -949,13 +1328,15 @@ footer.site-footer {
 
 .demo-card {
   border: 1px solid var(--border);
-  border-top: 3px solid var(--accent-field);
-  border-radius: 10px;
+  border-radius: 3px;
   padding: 18px 20px 22px;
   background: var(--surface);
 }
 
 .demo-card h2 { margin-top: 0; }
+.demo-card-header { display: flex; align-items: center; gap: 10px; }
+.demo-card-header h2 { margin: 0; padding-left: 0; }
+.demo-card-header h2::before { display: none; }
 
 .demo-card-subtitle {
   color: var(--text-secondary);
@@ -1039,7 +1420,7 @@ footer.site-footer {
 
 .demo-field-caption {
   text-align: center;
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   color: var(--text-muted);
   font-style: italic;
   margin: 6px 0 16px;
@@ -1141,19 +1522,28 @@ footer.site-footer {
 }
 .demo-luck-arrow { color: var(--text-muted); }
 
-.demo-luck-figure { font-size: 1.6rem; font-weight: 700; margin: 4px 0; }
+.demo-luck-figure {
+  font-family: var(--font-mono);
+  font-size: 1.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0;
+}
 /* `.interval-positive`/`.interval-negative` (defined above) only carry
    stroke/fill for SVG marks -- this pairs the same sign with TEXT color,
    the same pattern `.player-hero-figure.interval-positive/negative` already
    uses on the player detail page. */
-.demo-luck-figure.interval-positive { color: var(--diverging-positive); }
-.demo-luck-figure.interval-negative { color: var(--diverging-negative); }
+.demo-luck-figure.interval-positive { color: var(--diverging-positive); text-shadow: var(--glow-positive); }
+.demo-luck-figure.interval-negative { color: var(--diverging-negative); text-shadow: var(--glow-negative); }
 
 .demo-luck-badge {
   display: inline-block;
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   padding: 2px 9px;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   margin-bottom: 6px;
 }
@@ -1221,8 +1611,7 @@ footer.site-footer {
 
 .simulator-body {
   border: 1px solid var(--border);
-  border-top: 3px solid var(--accent-amber);
-  border-radius: 10px;
+  border-radius: 3px;
   padding: 18px 20px 22px;
   background: var(--surface);
   max-width: 560px;
@@ -1762,3 +2151,1067 @@ table.explore-results-table th {
    directly rather than gated behind `.demo-card.demo-reality-revealed`. */
 [data-role="play-field-wrap"] .demo-ball.demo-ball-favorable { fill: var(--diverging-positive); }
 [data-role="play-field-wrap"] .demo-ball.demo-ball-unfavorable { fill: var(--diverging-negative); }
+
+/* ==========================================================================
+   Contact Luck v2.0 "Broadcast" identity -- shared components
+   Real MLB headshots (player_avatar macro, _macros.html), rank badges,
+   the homepage stat ticker, and the count-up-animatable stat-readout
+   utility. Added as a new section rather than interleaved above so the
+   whole broadcast-identity component library stays easy to find in one
+   place; every rule below only ADDS new classes/markup hooks, it never
+   renames or removes an existing selector JS/tests depend on.
+   ========================================================================== */
+
+/* Headshot avatar (dashboard/templates/_macros.html::player_avatar).
+   `<img>` + a same-sized fallback glyph absolutely stacked underneath --
+   the fallback is always in the DOM (not injected on error) so there is
+   never a layout-shifting flash; the image simply covers it until/unless
+   `onerror` hides the image (see app.js's avatar helper). Photos are
+   third-party (img.mlbstatic.com) so a broken/missing photo is expected,
+   not exceptional -- the fallback must look intentional, not like an error. */
+/* Trading-card crop, not a circle -- baseball cards and box-score mugshots
+   are rectangular, and "avatar circles exclusively" is one of the more
+   recognizable generic-AI-UI defaults regardless of subject. `--avatar-
+   size` still controls both dimensions (unchanged sizing contract for
+   every call site); only the corner treatment changed. */
+.player-avatar {
+  position: relative;
+  flex: none;
+  width: var(--avatar-size, 44px);
+  height: var(--avatar-size, 44px);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface-recessed);
+  border: 1px solid var(--border);
+}
+.player-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  background: var(--surface-recessed);
+}
+.player-avatar-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-amber);
+  opacity: 0.85;
+}
+.player-avatar-fallback svg { width: 46%; height: 46%; }
+
+.player-avatar-lg { --avatar-size: 96px; border-width: 2px; box-shadow: var(--glow-amber); }
+.player-avatar-sm { --avatar-size: 30px; }
+
+/* Rank badge -- a jersey-number chip, not a shiny gradient medal. Ranks 1-3
+   get a flat gold/silver/bronze fill with a thin ink border; every other
+   rank stays a plain mono numeral so the top-3 treatment reads as a
+   genuine callout rather than decoration applied uniformly down the whole
+   table. Never changes the underlying rank number or its source (still the
+   frozen `official_rank`, unchanged). */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.8em;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.rank-badge-medal {
+  border-radius: 2px;
+  padding: 2px 7px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  color: #241a00;
+}
+.rank-badge-1 { background: #d9a012; }
+.rank-badge-2 { background: #b7c0d1; }
+.rank-badge-3 { background: #b9793f; }
+
+/* Homepage stat ticker -- a compact broadcast-style strip of headline
+   numbers (qualified hitter count, data-through date, etc.), all values
+   already available on the page (no new data plumbing). */
+.stat-ticker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+.stat-ticker-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 8px 16px;
+  background: var(--surface);
+}
+.stat-ticker-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.stat-ticker-value {
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* Generic "big glowing number" readout -- the count-up utility in app.js
+   (initCountUp) targets `[data-count-target]` elements, which normally also
+   carry this class; the glow itself still comes from the shared
+   `.interval-positive`/`.interval-negative` treatment those elements
+   already use elsewhere (`.player-hero-figure`, `.demo-luck-figure`), so
+   this class only sets the animatable numeric container up, no color. */
+.stat-readout { font-variant-numeric: tabular-nums; }
+
+/* Card hover glow -- applied to card-like containers site-wide
+   (`.demo-card`, `.showcase-card`, `.homepage-proof-card`, `.simulator-body`)
+   as a shared hover/focus micro-interaction: a slight lift plus the card's
+   own top-border accent brightening, never a color/content change. */
+.demo-card,
+.showcase-card,
+.homepage-proof-card {
+  transition: transform 0.2s var(--ease-broadcast), box-shadow 0.2s var(--ease-broadcast);
+}
+.demo-card:hover,
+.showcase-card:hover,
+.homepage-proof-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px -20px rgba(0, 0, 0, 0.65);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-card, .showcase-card, .homepage-proof-card { transition: none; }
+  .demo-card:hover, .showcase-card:hover, .homepage-proof-card:hover { transform: none; }
+}
+
+/* Leaderboard row hover + avatar/name cell layout (render_leaderboard_table
+   macro). Row highlight uses a very low-alpha amber wash, never a color
+   that could be mistaken for the favorable/unfavorable sign. */
+table.leaderboard tbody tr {
+  transition: background-color 0.15s ease;
+}
+table.leaderboard tbody tr:hover {
+  background: var(--accent-amber-soft);
+}
+.leaderboard-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Animated re-rank on sort (app.js FLIP transition) -- rows are given a
+   transform transition only while `.leaderboard-animating` is present on
+   the table (added just before reflow, removed after), so a sorted row's
+   move from its old position to its new one animates instead of jumping;
+   normal (non-sort-triggered) reflows are never affected. */
+table.leaderboard.leaderboard-animating tbody tr {
+  transition: transform 0.32s var(--ease-broadcast), background-color 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  table.leaderboard.leaderboard-animating tbody tr { transition: background-color 0.15s ease; }
+}
+
+/* ==========================================================================
+   Pass 2: editorial/broadcast COMPOSITION pass.
+   Everything below is additive -- no selector above is renamed, removed, or
+   restructured. This section turns the existing component library into a
+   product with real visual hierarchy: the Luck Spectrum (the site's one new
+   signature visual, used on the homepage hero, the player-page hero, and
+   Explore), an editorial homepage hero, a flagship player page, and
+   restrained leaderboard/play-page emphasis. Same accent family throughout
+   (amber wayfinding, blue/red sign, field-green atmosphere) -- no new color
+   family, no glassmorphism/blur, no gradient text.
+   ========================================================================== */
+
+/* ---- Luck Spectrum (dashboard/templates/_macros.html::luck_spectrum) ---- */
+.luck-spectrum { margin: 8px 0 4px; }
+
+/* Radar-gun tick scale, not a smooth pill gradient -- the repeating tick
+   overlay is a plain neutral gray at low alpha, so it registers as gauge
+   markings against either theme's diverging colors underneath rather than
+   needing a light/dark-specific value. */
+.luck-spectrum-track {
+  position: relative;
+  height: 10px;
+  margin: 20px 14px 62px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(127, 127, 127, 0.45) 0,
+      rgba(127, 127, 127, 0.45) 1px,
+      transparent 1px,
+      transparent 12.5%
+    ),
+    linear-gradient(
+      90deg,
+      var(--diverging-negative) 0%,
+      var(--diverging-mid) 50%,
+      var(--diverging-positive) 100%
+    );
+  opacity: 0.8;
+  overflow: visible;
+}
+
+/* Made deliberately unmistakable -- wider, higher-contrast, and taller
+   than the track itself -- since "where is zero" is the single fact every
+   other mark on this chart is read relative to. */
+.luck-spectrum-zero {
+  position: absolute;
+  top: -12px;
+  bottom: -12px;
+  width: 3px;
+  background: var(--text-primary);
+  opacity: 0.65;
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+
+/* Each marker is a zero-size positioning ANCHOR (not a sized flex box) at
+   its exact (left%, track-center) point -- the dot and the label text are
+   both absolutely positioned relative to it, independently. The text can
+   be shifted horizontally at the domain's edges (`-edge-start/end`, set in
+   build.py's `_spectrum`) without ever moving the dot itself off its true
+   track position. Labels that collide with a NEIGHBOR (common when two
+   plotted values are close together) get an additional per-label
+   `margin-left` nudge applied at runtime by `declutterLuckSpectrum`
+   (static/app.js and static/explore.js) once real rendered widths are
+   known -- see that function's own comment. */
+.luck-spectrum-marker {
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
+  text-decoration: none;
+  z-index: 1;
+  animation: luck-spectrum-marker-in 0.45s var(--ease-broadcast) both;
+}
+/* A restrained staggered entrance -- opacity/lift only, never a bounce or
+   repeat -- covers up to 4 markers per spectrum with a distinct delay
+   tier; any marker beyond that (rare -- current callers plot at most ~9)
+   just shares the last tier rather than growing the rule indefinitely.
+   `:nth-child` counts `.luck-spectrum-zero` as child 1, so markers start
+   at nth-child(2). */
+.luck-spectrum-marker:nth-child(3) { animation-delay: 0.05s; }
+.luck-spectrum-marker:nth-child(4) { animation-delay: 0.1s; }
+.luck-spectrum-marker:nth-child(n + 5) { animation-delay: 0.15s; }
+
+@keyframes luck-spectrum-marker-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luck-spectrum-marker { animation: none; }
+}
+.luck-spectrum-marker:hover,
+.luck-spectrum-marker:focus-visible { z-index: 2; }
+
+.luck-spectrum-marker.interval-positive { color: var(--diverging-positive); }
+.luck-spectrum-marker.interval-negative { color: var(--diverging-negative); }
+
+.luck-spectrum-marker:hover .luck-spectrum-marker-label,
+.luck-spectrum-marker:focus-visible .luck-spectrum-marker-label {
+  text-decoration: underline;
+}
+
+/* Base/"secondary" marker -- a small pennant/flag flying above the gauge
+   with its point touching the exact plotted value, not a glowing dot. A
+   labeled marker that isn't the single most extreme one on its side (see
+   `spectrum_labels.py`'s tier docstring). `filter: drop-shadow` (not
+   `box-shadow`, which ignores `clip-path`) gives it just enough lift to
+   read against the track without a colored glow ring. */
+.luck-spectrum-marker-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -100%);
+  width: 12px;
+  height: 15px;
+  background: currentColor;
+  clip-path: polygon(0% 0%, 100% 0%, 100% 60%, 50% 100%, 0% 60%);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+}
+
+/* "primary" tier -- the single most prominent, always-labeled marker on
+   its side (homepage/Explore's most extreme player or play; the player
+   page's own highlighted "this player" marker). */
+.luck-spectrum-marker-tier-primary .luck-spectrum-marker-dot {
+  width: 19px;
+  height: 24px;
+}
+
+/* "unlabeled" tier -- a plotted point too close to an already-labeled
+   neighbor to get its own persistent text (see spectrum_labels.py) --
+   small and restrained by design so it reads as "part of the distribution"
+   rather than competing with the labeled extremes. Its value/name text
+   stays in the DOM (see the macro) so it's always in the accessibility
+   tree, but is only ever visually shown on hover/focus, styled as a small
+   popover rather than the always-on label row a primary/secondary marker
+   uses -- see the hover/focus rules below. */
+.luck-spectrum-marker-tier-unlabeled .luck-spectrum-marker-dot {
+  width: 7px;
+  height: 9px;
+  opacity: 0.75;
+}
+.luck-spectrum-marker-tier-unlabeled::before { opacity: 0.2; }
+.luck-spectrum-marker-tier-unlabeled .luck-spectrum-marker-text {
+  opacity: 0;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 9px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  transition: opacity 0.15s ease;
+}
+.luck-spectrum-marker-tier-unlabeled:hover .luck-spectrum-marker-text,
+.luck-spectrum-marker-tier-unlabeled:focus-visible .luck-spectrum-marker-text {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .luck-spectrum-marker-tier-unlabeled .luck-spectrum-marker-text { transition: none; }
+}
+
+/* A short, always-present tick from the dot down to the label row, at the
+   marker's OWN true x position -- independent of the label, which may get
+   shifted sideways by `declutterLuckSpectrum` below. Even when a label has
+   been nudged away from directly-under-its-dot to avoid overlapping a
+   neighbor, this tick still marks precisely where that dot is, so the
+   pairing (which label goes with which dot) never has to be inferred from
+   proximity alone. */
+.luck-spectrum-marker::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 9px;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+/* Runtime-added by declutterLuckSpectrum (static/app.js, static/explore.js)
+   ONLY for a label that got pushed sideways to avoid overlapping a
+   neighbor -- a horizontal segment continuing the dot-anchor tick above
+   across to wherever the label ended up, so the pairing reads as one bent
+   line (down, then across) instead of needing to be inferred from
+   proximity. `width` is set inline per-marker to the exact shift amount;
+   absent (and thus zero-width/invisible) on every unshifted marker. */
+.luck-spectrum-marker-leader {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  height: 1.5px;
+  width: 0;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.luck-spectrum-marker-text {
+  position: absolute;
+  top: 13px;
+  left: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  line-height: 1.2;
+  white-space: nowrap;
+  /* Set (as an inline style, overriding this to a positive px value) by
+     declutterLuckSpectrum when this label's natural centered position
+     would overlap a neighboring label -- 0 by default/most of the time. */
+  margin-left: 0;
+}
+
+.luck-spectrum-marker-edge-start .luck-spectrum-marker-text { left: -3px; transform: translateX(0); align-items: flex-start; text-align: left; }
+.luck-spectrum-marker-edge-end .luck-spectrum-marker-text { left: 3px; transform: translateX(-100%); align-items: flex-end; text-align: right; }
+
+/* The numeric value is always the visually stronger of the two lines --
+   bigger, bolder, and colored, with the player/play name underneath it in
+   a smaller, muted weight -- never the other way around. */
+.luck-spectrum-marker-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  color: currentColor;
+}
+.luck-spectrum-marker-tier-primary .luck-spectrum-marker-value { font-size: 1.2rem; }
+
+.luck-spectrum-marker-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.luck-spectrum-marker-tier-primary .luck-spectrum-marker-label { max-width: 14em; font-size: 0.86rem; }
+
+.luck-spectrum-scale {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin: 0 10px;
+}
+.luck-spectrum-scale-favorable { color: var(--diverging-positive); }
+.luck-spectrum-scale-unfavorable { color: var(--diverging-negative); }
+/* Stronger than the Unfavorable/Favorable endpoint labels either side of
+   it -- "where is zero" is the one reference point every other mark on
+   this chart reads relative to, so it gets the highest-contrast text
+   treatment on the scale row, not the same muted tone as its neighbors. */
+.luck-spectrum-scale-zero-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.luck-spectrum-compact .luck-spectrum-track { margin: 14px 8px 52px; height: 4px; }
+.luck-spectrum-compact .luck-spectrum-marker-value { font-size: 0.76rem; }
+.luck-spectrum-compact .luck-spectrum-marker-label { font-size: 0.68rem; max-width: 6.5em; }
+
+/* ---- Mobile: a purpose-built compact spectrum, not a shrunk desktop one.
+   A horizontal position-on-a-track visualization with floating labels
+   fundamentally doesn't have room to work at ~360-400px -- cramming it in
+   just produces truncated names and near-collided labels. Below 640px the
+   track/zero-tick/scale-endpoint-label chrome is dropped entirely and
+   every marker instead becomes a small wrapping chip (dot + signed value +
+   name), using the exact same DOM/classes the desktop track uses -- no
+   separate template/JS path, just a full layout override. Favorable/
+   unfavorable is still never color-only: the value's own +/- sign is
+   always in the visible text. */
+@media (max-width: 640px) {
+  /* `.luck-spectrum-marker` elements are DOM children of `.luck-spectrum-
+     track` (see the macro), not of `.luck-spectrum` itself -- the track
+     is converted into the chip-wrap container here rather than hidden, or
+     every marker nested inside it would disappear too. Only the zero-tick
+     and the Unfavorable/0/Favorable endpoint labels (meaningless without
+     a positioned track) are actually removed. */
+  .luck-spectrum-zero,
+  .luck-spectrum-scale {
+    display: none;
+  }
+  .luck-spectrum-track {
+    position: static;
+    height: auto;
+    margin: 0;
+    background: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .luck-spectrum-marker {
+    position: static;
+    width: auto;
+    height: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: var(--surface-recessed);
+    border: 1px solid var(--border);
+    animation: none;
+  }
+  /* Reduce, don't shrink: an unlabeled dot has no persistent text to show
+     at chip scale in the first place -- rather than force it into a tiny
+     unreadable chip, it's dropped entirely at mobile widths, leaving just
+     the (already capped at 2 per side) primary/secondary labels. */
+  .luck-spectrum-marker-tier-unlabeled {
+    display: none;
+  }
+  .luck-spectrum-marker-tier-primary {
+    border-color: currentColor;
+    background: var(--surface);
+  }
+  /* Reset to a plain dot at chip scale -- the pin/flag shape only makes
+     sense as a pointer onto the gauge track, which no longer exists here. */
+  .luck-spectrum-marker-dot {
+    position: static;
+    transform: none;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    clip-path: none;
+    border-radius: 50%;
+    filter: none;
+  }
+  .luck-spectrum-marker-text {
+    position: static;
+    transform: none;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+  /* Desktop-only bug, surfaced by Explore's real data (a value near the
+     domain's edge gets `-edge-start`/`-edge-end`, e.g. Heliot Ramos at
+     +1.59): `.luck-spectrum-marker-edge-end .luck-spectrum-marker-text`
+     (2 classes) OUTRANKS the plain `.luck-spectrum-marker-text` reset
+     immediately above (1 class) by CSS specificity regardless of which
+     media query either rule was written in -- so its desktop-only
+     `transform: translateX(-100%)` (shifting text left by its own full
+     width, to keep a label from running off the DESKTOP track's edge)
+     was still winning at mobile chip-list widths too, pushing the chip's
+     text half off the left edge of the viewport. Mobile chips wrap
+     naturally and never need edge-avoidance in the first place, so this
+     simply neutralizes both edge variants at this breakpoint -- matching
+     specificity (2 classes), later in source order, so it wins the tie. */
+  .luck-spectrum-marker-edge-start .luck-spectrum-marker-text,
+  .luck-spectrum-marker-edge-end .luck-spectrum-marker-text {
+    left: auto;
+    transform: none;
+    align-items: baseline;
+    text-align: left;
+  }
+  .luck-spectrum-marker-label {
+    font-size: 0.78rem;
+    max-width: 7em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .luck-spectrum-marker-value { font-size: 0.82rem; }
+  .luck-spectrum-marker-tier-primary .luck-spectrum-marker-value { font-size: 0.92rem; }
+}
+
+/* ---- Homepage editorial hero ---- */
+.hero-editorial {
+  margin: -4px calc(-1 * var(--shell-pad)) 30px;
+  padding: 40px var(--shell-pad) 30px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ---- Reader Board: the page's signature element ----
+   A stadium outfield reader-board strip, not a generic "eyebrow" label --
+   states the day's single biggest move in the exact visual language of an
+   actual scoreboard readout (tabular monospace, a faint scanline texture)
+   BEFORE any headline copy runs -- the hero's opening thesis is a real
+   number, not marketing copy. Reuses the SAME `biggest_movers` data the
+   "Biggest movers" section further down the page already renders (see
+   index.html) -- never a second data source, and this is presentation
+   only: no motion, since a static readout is more true to a reader board
+   at rest than a gratuitous scrolling marquee would be. */
+.reader-board {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  column-gap: 28px;
+  align-items: baseline;
+  margin: 0 0 26px;
+  padding: 10px 16px;
+  background: var(--surface-recessed);
+  background-image: repeating-linear-gradient(
+    180deg,
+    rgba(127, 127, 127, 0.06) 0px,
+    rgba(127, 127, 127, 0.06) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+.reader-board-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.reader-board-label {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+}
+.reader-board-item-rising .reader-board-label,
+.reader-board-item-rising .reader-board-delta { color: var(--diverging-positive); }
+.reader-board-item-falling .reader-board-label,
+.reader-board-item-falling .reader-board-delta { color: var(--diverging-negative); }
+.reader-board-name { color: var(--text-primary); font-weight: 600; }
+.reader-board-delta { font-weight: 700; font-variant-numeric: tabular-nums; }
+.reader-board-sep { color: var(--text-muted); opacity: 0.5; }
+
+@media (max-width: 640px) {
+  .reader-board { font-size: 0.78rem; column-gap: 16px; padding: 8px 12px; }
+}
+
+.hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-amber);
+  margin: 0 0 12px;
+}
+
+.hero-headline {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.4rem, 1.6rem + 3vw, 3.75rem);
+  line-height: 1.05;
+  letter-spacing: 0.005em;
+  max-width: 17em;
+  margin: 0 0 16px;
+}
+
+.hero-dek {
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  max-width: 44em;
+  margin: 0 0 22px;
+}
+
+.hero-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 22px;
+  row-gap: 6px;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+.hero-meta-line strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* Version 1.4.2: the two extremes deliberately carry NO card chrome
+   (no background fill, no border, no border-radius, no box padding) --
+   they read as one composed editorial graphic flanking the Luck Spectrum
+   below them, not two profile cards sitting in a parent panel. The only
+   structure between them is a single hairline divider
+   (`.hero-extremes-divider`) and each side's own colored kicker accent.
+   Ordered unfavorable-then-favorable in the markup (see index.html) to
+   match the spectrum's own left=unfavorable/right=favorable convention
+   directly beneath -- the spectrum visually continues the same axis the
+   two players already establish. */
+.hero-extremes {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  column-gap: 36px;
+  margin: 40px 0 8px;
+  align-items: center;
+}
+
+.hero-extremes-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 6px 0;
+  background: var(--border);
+}
+
+.extreme-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.extreme-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0;
+}
+/* Reuses the same small colored-tick grammar `h2::before` already applies
+   site-wide, favorable/unfavorable-colored here instead of amber -- the
+   one remaining structural mark distinguishing the two sides now that
+   neither is boxed in its own card. */
+.extreme-kicker::before {
+  content: "";
+  width: 4px;
+  height: 0.9em;
+  border-radius: 2px;
+  background: currentColor;
+}
+.extreme-callout-favorable .extreme-kicker { color: var(--diverging-positive); }
+.extreme-callout-unfavorable .extreme-kicker { color: var(--diverging-negative); }
+
+.extreme-identity { display: flex; align-items: center; gap: 18px; }
+/* Real player-feature scale, not an avatar -- substantially larger than
+   the shared `.player-avatar-lg` default (96px), scoped to this context
+   only so the player-page/play-page hero avatars are untouched. */
+.extreme-identity .player-avatar-lg { --avatar-size: 148px; }
+.extreme-name {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+}
+.extreme-meta { color: var(--text-muted); font-size: 0.78rem; margin: 2px 0 0; }
+
+.extreme-figure {
+  font-family: var(--font-mono);
+  font-size: clamp(3.4rem, 1.6rem + 6vw, 5.6rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  /* This is a <p> -- without an explicit reset it inherits the UA
+     stylesheet's `1em 0` default paragraph margin, computed against ITS
+     OWN clamp()'d font-size, i.e. a large block of blank space above AND
+     below the figure. That was the actual cause of the "dead space" in
+     these cards -- not a layout/composition issue. */
+  margin: 6px 0 4px;
+}
+.extreme-figure.interval-positive { color: var(--diverging-positive); text-shadow: var(--glow-positive); }
+.extreme-figure.interval-negative { color: var(--diverging-negative); text-shadow: var(--glow-negative); }
+
+.extreme-context { color: var(--text-secondary); font-size: 0.86rem; margin: 0; max-width: 26em; }
+.extreme-link { font-weight: 600; font-size: 0.86rem; }
+
+@media (max-width: 760px) {
+  .hero-extremes { grid-template-columns: 1fr; row-gap: 28px; }
+  .hero-extremes-divider {
+    width: auto;
+    height: 1px;
+    margin: 0;
+  }
+  .extreme-identity .player-avatar-lg { --avatar-size: 116px; }
+}
+
+/* ---- Biggest movers ---- */
+/* ---- Biggest Movers (Version 1.4.2) -- an editorial two-column module,
+   deliberately NOT a table: no rank numbers, no grid lines, no bordered
+   card shells around individual players. Structure mirrors the hero's own
+   `.hero-extremes`/`.hero-extremes-divider` visual grammar (two groups
+   flanking a hairline divider, a small colored kicker tick) WITHOUT
+   sharing its classes -- this section has its own, so touching one can
+   never accidentally touch the other. */
+.movers-section { margin: 44px 0 6px; }
+
+.movers-columns {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  column-gap: 32px;
+  align-items: start;
+  margin-top: 18px;
+}
+.movers-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.movers-column-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0 0 4px;
+}
+.movers-column-heading::before {
+  content: "";
+  width: 4px;
+  height: 0.9em;
+  border-radius: 2px;
+  background: currentColor;
+}
+.movers-column-heading-favorable { color: var(--diverging-positive); }
+.movers-column-heading-unfavorable { color: var(--diverging-negative); }
+
+.movers-list { display: flex; flex-direction: column; }
+
+.mover-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--gridline);
+}
+.mover-item:hover .mover-name { text-decoration: underline; }
+
+/* The movement figure is the visual anchor of the whole module -- larger
+   and bolder than anything else in the row, with the arrow reinforcing
+   direction so it never depends on color alone. A fixed min-width keeps
+   every player's name/avatar starting at the same x position down the
+   column regardless of how wide an individual delta's digits are. */
+.mover-delta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.2em;
+  flex: none;
+}
+.mover-delta.interval-positive { color: var(--diverging-positive); }
+.mover-delta.interval-negative { color: var(--diverging-negative); }
+.mover-arrow { font-size: 0.72em; }
+
+.mover-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+.mover-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mover-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Previous -> current: real, useful context, but deliberately the
+   quietest text in the row -- muted color, smaller size, never competing
+   with `.mover-delta` or `.mover-name` for attention. */
+.mover-scores {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .movers-columns {
+    grid-template-columns: 1fr;
+    row-gap: 28px;
+  }
+  .movers-divider {
+    width: auto;
+    height: 1px;
+    margin: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .mover-delta { font-size: 1.3rem; min-width: 2.6em; }
+}
+
+/* ---- Leaderboard score-cell emphasis (same <table>, additive class) ---- */
+td.leaderboard-score-cell {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.08em;
+  font-variant-numeric: tabular-nums;
+}
+td.leaderboard-score-cell.interval-positive { color: var(--diverging-positive); }
+td.leaderboard-score-cell.interval-negative { color: var(--diverging-negative); }
+
+@media (min-width: 900px) {
+  td.leaderboard-score-cell { font-size: 1.25em; }
+}
+
+/* ---- Editorial section rhythm (homepage closing modules) ---- */
+.editorial-section { margin: 44px 0; }
+.editorial-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---- Player page: flagship hero ---- */
+.player-hero-editorial {
+  margin: -4px calc(-1 * var(--shell-pad)) 8px;
+  padding: 34px var(--shell-pad) 30px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.player-hero-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  align-items: center;
+}
+
+.player-hero-identity-block {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.player-hero-eyebrow {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 6px;
+}
+
+.player-hero-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2rem, 1.2rem + 2.5vw, 3rem);
+  line-height: 1.05;
+  margin: 0 0 6px;
+}
+
+.player-hero-score-block { flex: 1 1 260px; }
+
+.player-hero-score {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: clamp(3.2rem, 2.4rem + 4vw, 5rem);
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.player-hero-score.interval-positive { color: var(--diverging-positive); text-shadow: var(--glow-positive); }
+.player-hero-score.interval-negative { color: var(--diverging-negative); text-shadow: var(--glow-negative); }
+
+.player-hero-score-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 2px 0 10px;
+}
+
+.player-hero-standing {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+}
+.player-hero-standing strong { color: var(--text-primary); }
+
+/* ---- "Where the score came from" decomposition story ---- */
+.decomposition-story { margin: 36px 0; }
+.decomposition-summary-sentence {
+  font-family: var(--font-body);
+  font-size: 1.2rem;
+  font-style: italic;
+  font-weight: 500;
+  color: var(--text-primary);
+  max-width: 40em;
+  margin: 0 0 18px;
+}
+
+.component-bars-lg .component-bar-row {
+  grid-template-columns: 12em 1fr 5em;
+  font-size: 0.98rem;
+}
+.component-bars-lg .component-bar-track { height: 20px; border-radius: 3px; }
+.component-bars-lg .component-bar-value { font-weight: 700; font-family: var(--font-mono); }
+
+@media (max-width: 640px) {
+  .component-bars-lg .component-bar-row { grid-template-columns: 7.5em 1fr 4em; font-size: 0.84rem; }
+}
+
+/* ---- Progressive disclosure: component/model status is secondary ---- */
+.status-disclosure {
+  margin: 20px 0;
+  color: var(--text-secondary);
+}
+.status-disclosure h3 {
+  font-size: 0.86rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+.status-disclosure .component-table { font-size: 0.84rem; }
+
+/* ---- Season timeline (restyled trend section) ---- */
+.trend-section-editorial { margin: 40px 0; }
+.trend-cta {
+  margin-top: 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .player-hero-grid { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---- Play page: broadcast-style hero ---- */
+.play-hero-editorial {
+  margin: -4px calc(-1 * var(--shell-pad)) 26px;
+  padding: 30px var(--shell-pad) 26px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.play-hero-figure {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: clamp(2.6rem, 1.8rem + 3vw, 4.2rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  margin: 10px 0 6px;
+}
+.play-hero-figure.interval-positive { color: var(--diverging-positive); text-shadow: var(--glow-positive); }
+.play-hero-figure.interval-negative { color: var(--diverging-negative); text-shadow: var(--glow-negative); }
+.play-hero-narrative {
+  font-family: var(--font-body);
+  font-style: italic;
+  font-size: 1.25rem;
+  font-weight: 500;
+  max-width: 30em;
+  margin: 4px 0 0;
+}
+.play-hero-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  margin-top: 22px;
+}
+.play-hero-stat { display: flex; flex-direction: column; gap: 2px; }
+.play-hero-stat-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.play-hero-stat-value {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Methodology page: definitions list polish (typography only, no
+   structural/copy change -- see CLAUDE.md's "conservative scientific
+   language" rule, which is why this page stays plain prose/definitions
+   rather than becoming another card grid). Was previously unstyled
+   (bare browser default <dl> indentation); this just brings it in line
+   with the rest of the site's type rhythm. */
+dl { margin: 0 0 4px; }
+dl dt {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  margin: 18px 0 4px;
+}
+dl dt:first-child { margin-top: 0; }
+dl dd {
+  margin: 0 0 0 0;
+  padding-left: 14px;
+  border-left: 2px solid var(--gridline);
+  color: var(--text-secondary);
+}

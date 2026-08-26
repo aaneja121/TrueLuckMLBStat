@@ -61,6 +61,42 @@
     return OUTCOME_LABELS[cls] || cls;
   }
 
+  // Real MLB headshot avatar -- same public img.mlbstatic.com URL pattern
+  // and fallback-underneath-image DOM structure as dashboard/templates/
+  // _macros.html's `player_avatar` macro and static/explore.js's own
+  // buildAvatar, duplicated here rather than shared (independent,
+  // unbundled <script> tags -- see explore.js's own comment on this
+  // repo's existing convention for that).
+  function buildAvatar(batterId, sizeClass) {
+    var wrap = document.createElement("span");
+    wrap.className = "player-avatar" + (sizeClass ? " " + sizeClass : "");
+
+    var fallback = document.createElement("span");
+    fallback.className = "player-avatar-fallback";
+    fallback.setAttribute("aria-hidden", "true");
+    fallback.innerHTML =
+      '<svg viewBox="0 0 24 24" focusable="false">' +
+      '<circle cx="12" cy="8.5" r="4" fill="none" stroke="currentColor" stroke-width="1.6"></circle>' +
+      '<path d="M4 20c1.4-4.2 4.4-6.2 8-6.2s6.6 2 8 6.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>' +
+      "</svg>";
+    wrap.appendChild(fallback);
+
+    var img = document.createElement("img");
+    img.src =
+      "https://img.mlbstatic.com/mlb-photos/image/upload/w_180,q_auto:best/v1/people/" +
+      encodeURIComponent(String(batterId)) +
+      "/headshot/67/current";
+    img.alt = "";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.onerror = function () {
+      img.style.display = "none";
+    };
+    wrap.appendChild(img);
+
+    return wrap;
+  }
+
   function renderField(page, play) {
     var svg = qs('[data-role="play-field-svg"]', page);
     var ball = qs('[data-role="play-field-ball"]', page);
@@ -129,6 +165,12 @@
     var nameEl = qs('[data-role="play-batter-name"]', page);
     if (nameEl) nameEl.textContent = play.batter_name || "Player " + play.batter_id;
 
+    var avatarEl = qs('[data-role="play-batter-avatar"]', page);
+    if (avatarEl) {
+      avatarEl.innerHTML = "";
+      avatarEl.appendChild(buildAvatar(play.batter_id, "player-avatar-lg"));
+    }
+
     var metaEl = qs('[data-role="play-meta"]', page);
     if (metaEl) {
       metaEl.textContent =
@@ -178,7 +220,21 @@
     if (luckFigureEl) {
       luckFigureEl.textContent = formatSigned(play.contact_luck_runs) + " runs";
       luckFigureEl.className =
-        "demo-luck-figure " + (favorable ? "interval-positive" : "interval-negative");
+        "play-hero-figure " + (favorable ? "interval-positive" : "interval-negative");
+    }
+
+    // A plain, sign-only narrative sentence -- deliberately NOT a
+    // superlative claim like "one of X's most favorable plays" (this page
+    // has no ranking context for an arbitrary play; only Showcase Plays,
+    // built separately in explore_content.py, are actually verified
+    // extremes -- see that module's docstring).
+    var narrativeEl = qs('[data-role="play-narrative"]', page);
+    if (narrativeEl) {
+      narrativeEl.textContent =
+        (favorable ? "A favorable" : "An unfavorable") +
+        " contact outcome for " +
+        (play.batter_name || "Player " + play.batter_id) +
+        ".";
     }
 
     renderField(page, play);

@@ -40,6 +40,7 @@ def _example(
         "narrative_label": "Test example",
         "contact_description": "Test contact",
         "provenance": {
+            "batter_id": 123456,
             "batter_name": "Test Player",
             "batter_team": "AAA",
             "opponent_team": "BBB",

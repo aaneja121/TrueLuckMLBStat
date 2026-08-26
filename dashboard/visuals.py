@@ -33,6 +33,7 @@ __all__ = [
     "render_interval_bar_svg",
     "render_simulator_field_svg",
     "render_trend_chart_svg",
+    "spectrum_position_pct",
 ]
 
 
@@ -49,6 +50,27 @@ def compute_interval_domain(
     span = hi - lo or 1.0
     pad = span * pad_fraction
     return lo - pad, hi + pad
+
+
+def spectrum_position_pct(value: float, domain: tuple[float, float]) -> float:
+    """Where a single point value sits along a domain, as a percentage from
+    0 (domain min) to 100 (domain max), clamped to that range.
+
+    This is the ONE placement formula behind every "Luck Spectrum" marker on
+    the site (homepage, player page, Explore) -- server-rendered instances
+    call this directly; `static/explore.js`'s client-rendered spectrum
+    reimplements the identical formula (see that file's own comment) so
+    every instance places a given value at the same visual position. Pure
+    arithmetic, no color/sign decision -- callers still derive
+    favorable/unfavorable from the value's own sign via the existing
+    `interval-positive`/`interval-negative` classes.
+    """
+    domain_min, domain_max = domain
+    span = domain_max - domain_min
+    if span <= 0:
+        return 50.0
+    pct = (value - domain_min) / span * 100.0
+    return max(0.0, min(100.0, pct))
 
 
 def render_interval_bar_svg(

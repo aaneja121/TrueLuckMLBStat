@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as macros %}
 {% block title %}Why Contact Luck Exists — Contact Luck{% endblock %}
 {% block meta_description %}A 30-second interactive demo of what Contact Luck measures, using two real 2024 MLB batted balls.{% endblock %}
 {% block content %}
@@ -15,7 +16,10 @@
 <div class="demo-grid">
   {% for example in examples %}
   <section class="demo-card" data-example-id="{{ example.example_id }}">
-    <h2>{{ example.contact_description }}</h2>
+    <div class="demo-card-header">
+      {{ macros.player_avatar(example.batter_id, "player-avatar-sm") }}
+      <h2>{{ example.contact_description }}</h2>
+    </div>
     <p class="demo-card-subtitle">
       {{ example.batter_name }} ({{ example.batter_team }}) vs {{ example.opponent_team }} — {{ example.game_date }}
     </p>

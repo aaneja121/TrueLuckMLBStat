@@ -17,6 +17,9 @@
   <meta name="twitter:title" content="{% block twitter_title %}Contact Luck{% endblock %}">
   <meta name="twitter:description" content="{% block twitter_description %}Measuring how MLB batted-ball outcomes compare with what was expected.{% endblock %}">
   <meta name="twitter:image" content="{{ site_url }}/og-image.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700&family=Source+Serif+4:ital,wght@0,500;1,500;0,600&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="{{ asset_prefix }}static/style.css">
 </head>
 <body>
@@ -25,21 +28,38 @@
       <div>
         <a class="site-title" href="{{ root_prefix }}"><span class="seam-mark" aria-hidden="true"></span>Contact Luck</a>
       </div>
-      <nav class="site-nav">
-        <a href="{{ root_prefix }}"{% if active_page == 'leaderboard' %} class="active"{% endif %}>Leaderboard</a>
-        {% if explore_available %}
-        <a href="{{ root_prefix }}explore/"{% if active_page == 'explore' %} class="active"{% endif %}>Explore Plays</a>
-        {% endif %}
-        <a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="active"{% endif %}>How It Works</a>
-        <a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="active"{% endif %}>Methodology</a>
-        <a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="active"{% endif %}>Data &amp; status</a>
-      </nav>
-      <div class="global-search-wrap">
-        <input type="text" placeholder="Find a player…" autocomplete="off"
-               data-role="global-player-search" aria-label="Find a player by name">
-        <div class="search-results-dropdown" data-role="global-player-search-results" hidden></div>
+      {#
+        Mobile disclosure control (see .nav-toggle/style.css) -- progressive
+        enhancement, not a JS-required hard dependency: this <button> starts
+        `hidden`, and `.site-header-collapsible` below starts fully visible
+        (stacked) at mobile widths -- so with no JS at all, mobile nav still
+        works exactly like the pre-refresh header, just restyled. Only once
+        static/app.js's initNavToggle() actually runs does it (a) reveal
+        this button and (b) collapse the panel behind it -- see that
+        function's own comment. At desktop widths `.site-header-collapsible`
+        is `display: contents` regardless of JS (its children behave as
+        plain flex items of `.site-header-inner`, same as before this pass).
+      #}
+      <button type="button" class="nav-toggle" hidden aria-expanded="false" aria-controls="site-nav-panel" aria-label="Toggle navigation menu">
+        <span class="nav-toggle-bars" aria-hidden="true"></span>
+      </button>
+      <div class="site-header-collapsible" id="site-nav-panel">
+        <nav class="site-nav">
+          <a href="{{ root_prefix }}"{% if active_page == 'leaderboard' %} class="active"{% endif %}>Leaderboard</a>
+          {% if explore_available %}
+          <a href="{{ root_prefix }}explore/"{% if active_page == 'explore' %} class="active"{% endif %}>Explore Plays</a>
+          {% endif %}
+          <a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="active"{% endif %}>How It Works</a>
+          <a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="active"{% endif %}>Methodology</a>
+          <a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="active"{% endif %}>Data &amp; status</a>
+        </nav>
+        <div class="global-search-wrap">
+          <input type="text" placeholder="Find a player…" autocomplete="off"
+                 data-role="global-player-search" aria-label="Find a player by name">
+          <div class="search-results-dropdown" data-role="global-player-search-results" hidden></div>
+        </div>
+        <span class="data-through-badge"><span class="live-dot" aria-hidden="true"></span>Data through {{ data_through_date }}</span>
       </div>
-      <span class="data-through-badge">Data through {{ data_through_date }}</span>
     </div>
   </header>
 

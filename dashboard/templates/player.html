@@ -1,57 +1,119 @@
 {% extends "base.html" %}
+{% import "_macros.html" as macros %}
 {% block title %}{{ player.batter_name }} — Contact Luck{% endblock %}
 {% block content %}
 <p><a href="{{ root_prefix }}">&larr; Back to leaderboard</a></p>
 
-<div class="player-header">
-  <div>
-    <div class="player-name-row">
-      <h1>{{ player.batter_name }}</h1>
-      <div class="player-header-mark" aria-hidden="true">
-        <svg viewBox="0 0 160 50" preserveAspectRatio="xMidYMid meet" focusable="false">
-          <path d="M80,48 L14,14 M80,48 L146,14 M14,14 A66,66 0 0 1 146,14"
-                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></path>
-        </svg>
+<div class="player-hero-editorial">
+  <div class="player-hero-grid">
+    <div class="player-hero-identity-block">
+      {{ macros.player_avatar(player.batter_id, "player-avatar-lg") }}
+      <div>
+        <p class="player-hero-eyebrow">MLBAM ID {{ player.batter_id }} &middot; Data through {{ data_through_date }}</p>
+        <h1 class="player-hero-name">{{ player.batter_name }}</h1>
+        <span class="badge{% if player.qualification_status == 'qualified' %} badge-qualified{% endif %}">
+          {{ player.qualification_status | replace("_", " ") | capitalize }}
+        </span>
+        {% if player.official_rank_favorable %}
+          <span class="badge">Favorable rank #{{ player.official_rank_favorable }}</span>
+        {% endif %}
+        {% if player.official_rank_unfavorable %}
+          <span class="badge">Unfavorable rank #{{ player.official_rank_unfavorable }}</span>
+        {% endif %}
+        {% if player.qualification_status != "qualified" %}
+          <p class="page-subtitle" style="margin-top:8px; max-width:32em;">
+            No official rank: this player hasn't yet reached the minimum eligible-batted-ball
+            threshold for the official leaderboard (status:
+            {{ player.qualification_status | replace("_", " ") }}). The score and interval below
+            are still computed and shown — see the
+            <a href="{{ root_prefix }}methodology/#technical-details">methodology page</a>
+            for the qualification rule.
+          </p>
+        {% endif %}
       </div>
     </div>
-    <p class="player-meta">MLBAM ID {{ player.batter_id }} &middot; Data through {{ data_through_date }}</p>
-    <span class="badge{% if player.qualification_status == 'qualified' %} badge-qualified{% endif %}">
-      {{ player.qualification_status | replace("_", " ") | capitalize }}
-    </span>
-    {% if player.official_rank_favorable %}
-      <span class="badge">Favorable rank #{{ player.official_rank_favorable }}</span>
-    {% endif %}
-    {% if player.official_rank_unfavorable %}
-      <span class="badge">Unfavorable rank #{{ player.official_rank_unfavorable }}</span>
-    {% endif %}
-    {% if player.qualification_status != "qualified" %}
-      <p class="page-subtitle" style="margin-top:8px; max-width:32em;">
-        No official rank: this player hasn't yet reached the minimum eligible-batted-ball
-        threshold for the official leaderboard (status:
-        {{ player.qualification_status | replace("_", " ") }}). The score and interval below
-        are still computed and shown — see the
-        <a href="{{ root_prefix }}methodology/#technical-details">methodology page</a>
-        for the qualification rule.
+
+    <div class="player-hero-score-block">
+      <p class="player-hero-score-label">Contact Luck &middot; Runs / 100</p>
+      <div class="player-hero-score stat-readout {{ 'interval-positive' if player.score >= 0 else 'interval-negative' }}"
+           data-count-target data-count-to="{{ player.score }}" data-count-decimals="2" data-count-signed="true">
+        {{ "%+.2f"|format(player.score) }}
+      </div>
+      {% if player.percentile is not none %}
+      <p class="player-hero-standing">
+        <strong>{{ player.percentile }}{% if player.percentile == 1 %}st{% elif player.percentile == 2 %}nd{% elif player.percentile == 3 %}rd{% else %}th{% endif %} percentile</strong>
+        &middot; #{{ player.official_rank_favorable }} of {{ qualified_count }} qualified hitters
       </p>
-    {% endif %}
-  </div>
-  <div>
-    <div class="player-hero-figure {{ 'interval-positive' if player.score >= 0 else 'interval-negative' }}">
-      {{ "%+.2f"|format(player.score) }} runs / 100
+      {% endif %}
+      <p class="player-orientation">
+        Runs / 100 compares the run value of this player's realized eligible batted-ball outcomes
+        with what those batted balls were expected to produce, retrospectively — here,
+        {{ "more" if player.score >= 0 else "less" }} favorable than expected.
+        <a href="{{ root_prefix }}demo/">How Contact Luck works &rarr;</a>
+      </p>
     </div>
-    <p class="player-meta" style="margin-top:2px;">
-      95% interval: [{{ "%+.2f"|format(player.lower) }}, {{ "%+.2f"|format(player.upper) }}]
-    </p>
-    <p class="player-orientation">
-      Runs / 100 compares the run value of this player's realized eligible batted-ball outcomes
-      with what those batted balls were expected to produce, retrospectively — here,
-      {{ "more" if player.score >= 0 else "less" }} favorable than expected.
-      <a href="{{ root_prefix }}demo/">How Contact Luck works &rarr;</a>
-    </p>
   </div>
+
+  {% if spectrum.markers %}
+  {{ macros.luck_spectrum(spectrum, size="lg") }}
+  {% endif %}
 </div>
 
+<h2>How certain is this estimate?</h2>
+<p class="page-subtitle">
+  95% interval: [{{ "%+.2f"|format(player.lower) }}, {{ "%+.2f"|format(player.upper) }}] — sampling
+  uncertainty around the point estimate, from a game-clustered bootstrap. Overlapping zero does not
+  mean the observation is unreliable or should be discounted.
+</p>
 {{ player.interval_svg | safe }}
+<p class="callout">
+  Contact Luck is a retrospective description of realized outcomes, not a measure of stable
+  batting talent and not a projection of future performance.
+</p>
+
+<div class="decomposition-story">
+  <h2>Where the {{ "%+.2f"|format(player.score) }} came from</h2>
+  <p class="page-subtitle">Runs per 100 eligible batted balls attributed to each stage of the play.</p>
+  {% if summary_sentence %}
+  <p class="decomposition-summary-sentence">{{ summary_sentence }}</p>
+  {% endif %}
+
+  {#
+    Purely visual horizontal-bar rendering of the SAME component_value_rows
+    the table below already shows verbatim -- no new number, no recomputed
+    value. Each bar is normalized against component_max_abs (this player's
+    own largest-magnitude component only, computed once in build.py), and
+    grows from a center zero line so positive/negative components are
+    visually comparable the same way the interval bars already are.
+  #}
+  <div class="component-bars component-bars-lg">
+    {% for row in component_value_rows %}
+    <div class="component-bar-row">
+      <span class="component-bar-label">{{ row.label }}</span>
+      <div class="component-bar-track">
+        <span class="component-bar-zero" aria-hidden="true"></span>
+        {% if row.value is not none and component_max_abs > 0 %}
+        <span class="component-bar-fill {{ 'interval-positive' if row.value >= 0 else 'interval-negative' }}"
+              style="width: {{ '%.1f'|format(row.value|abs / component_max_abs * 50) }}%; {{ 'left' if row.value >= 0 else 'right' }}: 50%;"></span>
+        {% endif %}
+      </div>
+      <span class="component-bar-value numeric">{{ "%+.2f"|format(row.value) if row.value is not none else "—" }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <table class="component-table">
+    <thead><tr><th>Component</th><th class="numeric">Runs / 100</th></tr></thead>
+    <tbody>
+      {% for row in component_value_rows %}
+      <tr>
+        <td>{{ row.label }}</td>
+        <td class="numeric">{{ "%+.2f"|format(row.value) if row.value is not none else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 
 <div class="stat-grid">
   <div class="stat-card">
@@ -72,66 +134,49 @@
   </div>
 </div>
 
-<p class="callout">
-  Contact Luck is a retrospective description of realized outcomes, not a measure of stable
-  batting talent and not a projection of future performance. The 95% interval reflects
-  sampling uncertainty in the estimate itself — it does not indicate whether the underlying
-  effect is "real" or "significant," and overlapping zero does not mean the observation is
-  unreliable or should be discounted.
-</p>
-
-<h2>Component decomposition</h2>
-<p class="page-subtitle">Runs per 100 eligible batted balls attributed to each stage of the play.</p>
-<table class="component-table">
-  <thead><tr><th>Component</th><th class="numeric">Runs / 100</th></tr></thead>
-  <tbody>
-    {% for row in component_value_rows %}
-    <tr>
-      <td>{{ row.label }}</td>
-      <td class="numeric">{{ "%+.2f"|format(row.value) if row.value is not none else "—" }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<h3>Component status</h3>
-<table class="component-table">
-  <thead><tr><th>Component</th><th>Status</th></tr></thead>
-  <tbody>
-    {% for row in component_status_rows %}
-    <tr>
-      <td>{{ row.label }}</td>
-      <td>{{ row.status_summary }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<details class="technical-disclosure">
-  <summary>View technical reason codes</summary>
+<div class="status-disclosure">
+  <h3>Component status</h3>
   <table class="component-table">
-    <thead><tr><th>Component</th><th>Model status</th><th>Reason codes</th></tr></thead>
+    <thead><tr><th>Component</th><th>Status</th></tr></thead>
     <tbody>
       {% for row in component_status_rows %}
       <tr>
         <td>{{ row.label }}</td>
-        <td>{{ row.model_status_values | join(", ") }}</td>
-        <td>{{ row.reason_codes | join(", ") }}</td>
+        <td>{{ row.status_summary }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-</details>
 
-<h2>Season-to-date trend</h2>
-{% if trend_svg %}
-  <p class="page-subtitle">
-    Contact Luck Runs / 100 across every stored historical snapshot for this player. Points are
-    plotted at their true snapshot dates — a gap between points (such as a missing snapshot day)
-    is never filled in or estimated.
-  </p>
-  {{ trend_svg | safe }}
-{% else %}
-  <p class="page-subtitle">Only one snapshot is available for this player so far — a trend needs at least two.</p>
-{% endif %}
+  <details class="technical-disclosure">
+    <summary>View technical reason codes</summary>
+    <table class="component-table">
+      <thead><tr><th>Component</th><th>Model status</th><th>Reason codes</th></tr></thead>
+      <tbody>
+        {% for row in component_status_rows %}
+        <tr>
+          <td>{{ row.label }}</td>
+          <td>{{ row.model_status_values | join(", ") }}</td>
+          <td>{{ row.reason_codes | join(", ") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</div>
+
+<div class="trend-section-editorial">
+  <h2>Season-to-date trend</h2>
+  {% if trend_svg %}
+    <p class="page-subtitle">
+      Contact Luck Runs / 100 across every stored historical snapshot for this player. Points are
+      plotted at their true snapshot dates — a gap between points (such as a missing snapshot day)
+      is never filled in or estimated.
+    </p>
+    {{ trend_svg | safe }}
+  {% else %}
+    <p class="page-subtitle">Only one snapshot is available for this player so far — a trend needs at least two.</p>
+  {% endif %}
+  <p class="trend-cta"><a href="{{ root_prefix }}explore/?batter={{ player.batter_id }}">Explore {{ player.batter_name }}'s individual plays &rarr;</a></p>
+</div>
 {% endblock %}

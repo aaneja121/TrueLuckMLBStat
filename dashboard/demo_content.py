@@ -53,6 +53,7 @@ class DemoExample:
     example_id: str
     narrative_label: str
     contact_description: str
+    batter_id: int
     batter_name: str
     batter_team: str
     opponent_team: str
@@ -137,6 +138,7 @@ def _build_example(raw: dict[str, Any]) -> DemoExample:
         example_id=example_id,
         narrative_label=raw["narrative_label"],
         contact_description=raw["contact_description"],
+        batter_id=provenance["batter_id"],
         batter_name=provenance["batter_name"],
         batter_team=provenance["batter_team"],
         opponent_team=provenance["opponent_team"],

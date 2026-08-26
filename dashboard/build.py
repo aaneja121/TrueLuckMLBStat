@@ -55,6 +55,7 @@ import demo_content as dc
 import demo_counterfactual_content as dcc
 import explore_content as ec
 import snapshot_data as sd
+import spectrum_labels as sl
 import visuals as v
 from dashboard_config import (
     DASHBOARD_DIST_DIR,
@@ -136,10 +137,232 @@ _COMPONENT_LABELS = {
 }
 
 
+def _spectrum_marker(
+    *,
+    batter_id: int,
+    batter_name: str | None,
+    score: float,
+    url: str | None,
+    domain: tuple[float, float],
+    tier: str = "secondary",
+    sublabel: str | None = None,
+) -> dict[str, Any]:
+    """One Luck Spectrum marker -- see `_macros.html::luck_spectrum`'s own
+    docstring for the shape this feeds. `value_display` is always the
+    plain signed number (never color-only), matching every other signed
+    figure on this site (`formatSigned` in the JS, `"%+.2f"` in Jinja).
+
+    `tier` is one of `"primary"` (the most prominent label on its side --
+    always visible), `"secondary"` (a labeled but less prominent marker),
+    or `"unlabeled"` (plotted as a small dot; its label only appears on
+    hover/focus) -- see `spectrum_labels.select_spectrum_labels`/
+    `label_tier` for how callers with more than a couple of candidates per
+    side (`_homepage_spectrum`) decide which tier each marker gets.
+    """
+    return {
+        "position_pct": v.spectrum_position_pct(score, domain),
+        "value_display": f"{score:+.2f}",
+        "label": batter_name or f"Player {batter_id}",
+        "sublabel": sublabel,
+        "favorable": score >= 0,
+        "tier": tier,
+        "url": url,
+    }
+
+
+#: Position-percent thresholds (0-100) beyond which a marker's label would
+#: otherwise run past the track's own left/right edge and needs to grow
+#: inward instead of staying centered on the marker -- see `_spectrum`.
+_SPECTRUM_EDGE_MARGIN_PCT = 10.0
+
+
+def _spectrum(markers: list[dict[str, Any]], domain: tuple[float, float]) -> dict[str, Any]:
+    """Wraps a list of already-built markers with the shared zero position,
+    and assigns each marker a horizontal "edge" alignment so its label
+    doesn't run past the track's own left/right edge. Markers within
+    `_SPECTRUM_EDGE_MARGIN_PCT` of either end get "edge"="start"/"end" so
+    their label grows inward from the marker instead of staying centered
+    on it (which would otherwise push text off the visible page).
+
+    Two markers close in VALUE land close in PIXEL position too -- often
+    close enough that their labels would overlap even side by side. That
+    can't be resolved here at build time: it depends on each label's
+    actual rendered width (font metrics, player name length) and the
+    track's actual pixel width, neither of which exists yet in a static
+    HTML string. It's handled at runtime instead, in the browser, by
+    `declutterLuckSpectrum` (duplicated in `static/app.js` and
+    `static/explore.js` per this codebase's existing convention for
+    independent, unbundled <script> tags) -- it measures real
+    `getBoundingClientRect()` positions after render and nudges only the
+    labels that actually collide sideways, keeping every label on one row
+    rather than stacking close markers into separate vertical bands
+    (an earlier version did that; real user feedback was that it read as
+    "these two names are unrelated" rather than "these two are close in
+    value", the opposite of the intent).
+
+    Mutates and returns the same marker dicts passed in -- these are
+    freshly built by `_spectrum_marker` immediately before this call,
+    never shared/cached elsewhere, so mutating them in place is safe.
+    """
+    for m in markers:
+        if m["position_pct"] <= _SPECTRUM_EDGE_MARGIN_PCT:
+            m["edge"] = "start"
+        elif m["position_pct"] >= 100.0 - _SPECTRUM_EDGE_MARGIN_PCT:
+            m["edge"] = "end"
+        else:
+            m["edge"] = "mid"
+    return {"zero_pct": v.spectrum_position_pct(0.0, domain), "markers": markers}
+
+
+def _homepage_spectrum(
+    favorable_rows: list[c.LeaderboardRow],
+    unfavorable_rows: list[c.LeaderboardRow],
+    domain: tuple[float, float],
+    root_prefix: str,
+    *,
+    top_n: int = 3,
+    max_labels_per_side: int = 2,
+) -> dict[str, Any]:
+    """The homepage's Luck Spectrum: the top `top_n` most favorable plus the
+    top `top_n` most unfavorable qualified players are plotted, one each (a
+    player already shown on the favorable side is never duplicated on the
+    unfavorable side -- only relevant when the qualified population itself
+    is smaller than `2 * top_n`).
+
+    Not every plotted player gets a visible label, though -- at most
+    `max_labels_per_side` per side (see `spectrum_labels.
+    select_spectrum_labels`, called once per side on that side's real
+    values): the most extreme player is always labeled, a second only when
+    it's adequately separated from the first. This is what keeps a
+    tightly-clustered top-3 (e.g. three players within a few hundredths of
+    each other) from producing overlapping label text -- the rest still
+    plot as small unlabeled dots, so the spectrum still shows the shape of
+    the top of the population, just without forcing every value into text.
+    """
+    seen: set[int] = set()
+    markers: list[dict[str, Any]] = []
+    for rows, side in ((favorable_rows, "favorable"), (unfavorable_rows, "unfavorable")):
+        pool = [row for row in rows[:top_n] if row.batter_id not in seen]
+        seen.update(row.batter_id for row in pool)
+        if not pool:
+            continue
+        values = [row.contact_luck_runs_per_100 for row in pool]
+        ranks = sl.select_spectrum_labels(values, max_labels=max_labels_per_side)
+        for row, rank in zip(pool, ranks, strict=True):
+            markers.append(
+                _spectrum_marker(
+                    batter_id=row.batter_id,
+                    batter_name=row.batter_name,
+                    score=row.contact_luck_runs_per_100,
+                    url=f"{root_prefix}players/{row.batter_id}/",
+                    domain=domain,
+                    tier=sl.label_tier(rank),
+                    sublabel=f"#{row.official_rank} {side}",
+                )
+            )
+    return _spectrum(markers, domain)
+
+
+def _player_spectrum(
+    detail: c.PlayerDetail,
+    domain: tuple[float, float],
+    favorable_rows: list[c.LeaderboardRow],
+    unfavorable_rows: list[c.LeaderboardRow],
+    root_prefix: str,
+) -> dict[str, Any]:
+    """This player's own Luck Spectrum: their own marker (highlighted),
+    plus the #1 most-favorable and #1 most-unfavorable qualified player as
+    context anchors -- both real, already-loaded leaderboard rows, never
+    invented -- so a visitor can see where this player sits relative to the
+    extremes of the actual population, not just an isolated dot. Either or
+    both anchors are skipped when they'd duplicate the player's own marker.
+    """
+    markers: list[dict[str, Any]] = []
+    if favorable_rows and favorable_rows[0].batter_id != detail.batter_id:
+        top = favorable_rows[0]
+        markers.append(
+            _spectrum_marker(
+                batter_id=top.batter_id,
+                batter_name=top.batter_name,
+                score=top.contact_luck_runs_per_100,
+                url=f"{root_prefix}players/{top.batter_id}/",
+                domain=domain,
+                sublabel="Most favorable",
+            )
+        )
+    if unfavorable_rows and unfavorable_rows[0].batter_id != detail.batter_id:
+        bottom = unfavorable_rows[0]
+        markers.append(
+            _spectrum_marker(
+                batter_id=bottom.batter_id,
+                batter_name=bottom.batter_name,
+                score=bottom.contact_luck_runs_per_100,
+                url=f"{root_prefix}players/{bottom.batter_id}/",
+                domain=domain,
+                sublabel="Most unfavorable",
+            )
+        )
+    markers.append(
+        _spectrum_marker(
+            batter_id=detail.batter_id,
+            batter_name=detail.batter_name,
+            score=detail.contact_luck_runs_per_100,
+            url=None,
+            domain=domain,
+            tier="primary",
+            sublabel="This player",
+        )
+    )
+    return _spectrum(markers, domain)
+
+
+#: Minimum absolute per-100 score for the "Where the score came from"
+#: generated summary sentence to be shown at all -- below this the sentence
+#: would be dividing by a number close enough to zero that the resulting
+#: percentage is not a meaningful description of anything (see
+#: `_component_summary_sentence`'s own docstring).
+_SUMMARY_SENTENCE_MIN_ABS_SCORE = 0.01
+
+
+def _component_summary_sentence(
+    component_value_rows: list[dict[str, Any]],
+    total_score: float,
+    batter_name: str,
+) -> str | None:
+    """A single deterministic, arithmetic-only sentence naming the
+    largest-magnitude component and its share of the total score (e.g. "48%
+    of Aaron Judge's favorable Contact Luck comes from contact outcomes.") --
+    never a new number, only a percentage of two figures already shown
+    verbatim in the component table below it. Returns `None` (template
+    omits the sentence) whenever that percentage would not honestly
+    describe the total: the total itself is too close to zero to normalize
+    against, or the dominant component's sign disagrees with the total's
+    own sign (which would produce a share outside a sane 0-100% range) --
+    this can genuinely happen when components partly offset each other, and
+    silently showing a nonsense percentage would be worse than omitting the
+    sentence.
+    """
+    scored = [r for r in component_value_rows if r["value"] is not None]
+    if not scored or abs(total_score) < _SUMMARY_SENTENCE_MIN_ABS_SCORE:
+        return None
+    dominant = max(scored, key=lambda r: abs(r["value"]))
+    share = dominant["value"] / total_score
+    if share <= 0 or share > 1.0001:
+        return None
+    direction = "favorable" if total_score >= 0 else "unfavorable"
+    pct = round(min(share, 1.0) * 100)
+    return f"{pct}% of {batter_name}'s {direction} Contact Luck comes from {dominant['label'].lower()}."
+
+
 def _player_view(
     detail: c.PlayerDetail,
     trend_points: list[c.TrendPoint],
     qualified_intervals: Sequence[tuple[float, float]],
+    *,
+    qualified_count: int,
+    favorable_rows: list[c.LeaderboardRow],
+    unfavorable_rows: list[c.LeaderboardRow],
+    root_prefix: str,
 ) -> dict[str, Any]:
     # Single-pass padding over the SAME raw interval set the leaderboard
     # domain is built from, plus this player's own raw (unpadded) interval --
@@ -153,7 +376,7 @@ def _player_view(
     player_domain = v.compute_interval_domain(
         [*qualified_intervals, (detail.lower_95_interval, detail.upper_95_interval)]
     )
-    component_value_rows = [
+    component_value_rows: list[dict[str, Any]] = [
         {"label": "Contact", "value": detail.components.contact_per_100},
         {"label": "Defensive execution", "value": detail.components.defensive_execution_per_100},
         {"label": "Advancement", "value": detail.components.advancement_per_100},
@@ -168,10 +391,17 @@ def _player_view(
         }
         for key, value in detail.components.component_status_reason_codes.items()
     ]
+    batter_display_name = detail.batter_name or f"Player {detail.batter_id}"
+    percentile = (
+        c.compute_percentile(detail.official_rank_favorable, qualified_count)
+        if detail.official_rank_favorable is not None
+        else None
+    )
     return {
+        "qualified_count": qualified_count,
         "player": {
             "batter_id": detail.batter_id,
-            "batter_name": detail.batter_name or f"Player {detail.batter_id}",
+            "batter_name": batter_display_name,
             "score": detail.contact_luck_runs_per_100,
             "lower": detail.lower_95_interval,
             "upper": detail.upper_95_interval,
@@ -182,6 +412,7 @@ def _player_view(
             "qualification_status": detail.qualification_status,
             "official_rank_favorable": detail.official_rank_favorable,
             "official_rank_unfavorable": detail.official_rank_unfavorable,
+            "percentile": percentile,
             "provisional_share": detail.components.share_of_value_from_provisional_components,
             "interval_svg": v.render_interval_bar_svg(
                 point=detail.contact_luck_runs_per_100,
@@ -191,8 +422,24 @@ def _player_view(
                 compact=False,
             ),
         },
+        "spectrum": _player_spectrum(
+            detail, player_domain, favorable_rows, unfavorable_rows, root_prefix
+        ),
         "component_value_rows": component_value_rows,
+        # The shared scale every component bar in the (new, purely visual)
+        # horizontal-bar breakdown is normalized against -- the largest
+        # magnitude among this player's OWN components only (never compared
+        # across players), so a component with no value (None, e.g. an
+        # unavailable component) never affects the scale. 0.0 when every
+        # component is None -- the template checks this before dividing.
+        "component_max_abs": max(
+            (abs(r["value"]) for r in component_value_rows if r["value"] is not None),
+            default=0.0,
+        ),
         "component_status_rows": component_status_rows,
+        "summary_sentence": _component_summary_sentence(
+            component_value_rows, detail.contact_luck_runs_per_100, batter_display_name
+        ),
         "trend_svg": v.render_trend_chart_svg(trend_points) if len(trend_points) >= 2 else None,
     }
 
@@ -238,6 +485,7 @@ def _homepage_proof_examples(page_data: dc.DemoPageData) -> list[dict[str, Any]]
     """
     return [
         {
+            "batter_id": ex.batter_id,
             "batter_name": ex.batter_name,
             "exit_velocity_mph": ex.exit_velocity_mph,
             "launch_angle_deg": ex.launch_angle_deg,
@@ -324,6 +572,35 @@ def build_dashboard(
         (r.lower_95_interval, r.upper_95_interval) for r in (*favorable_rows, *unfavorable_rows)
     ]
     qualified_domain = v.compute_interval_domain(qualified_intervals)
+    homepage_spectrum = _homepage_spectrum(
+        favorable_rows, unfavorable_rows, qualified_domain, root_prefix
+    )
+
+    # Biggest movers (homepage): the immediately preceding stored snapshot's
+    # payloads, looked up by walking `history` (newest first) to the entry
+    # right after `latest`'s own date -- not simply `history[1]`, since
+    # `history` (unlike `resolve_latest_snapshot`) does not exclude a date
+    # whose only valid snapshot is a backfill, so the two lists can diverge
+    # in principle. A missing/unloadable previous snapshot degrades to "no
+    # movers module" (see `c.build_biggest_movers_by_direction`'s own
+    # docstring), never a build failure -- this is presentation-only,
+    # additive information.
+    payload_cache: dict[str, c.SnapshotPayloads] = {latest.directory_name: payloads}
+    previous_payloads: c.SnapshotPayloads | None = None
+    history_dates = [h.data_through_date for h in history]
+    if latest.data_through_date in history_dates:
+        idx = history_dates.index(latest.data_through_date)
+        if idx + 1 < len(history):
+            prev_entry = history[idx + 1]
+            if prev_entry.preferred is not None:
+                try:
+                    previous_payloads = payload_cache.setdefault(
+                        prev_entry.preferred.directory_name,
+                        c.load_snapshot_payloads(prev_entry.preferred),
+                    )
+                except c.SnapshotPayloadError:
+                    previous_payloads = None
+    biggest_movers = c.build_biggest_movers_by_direction(payloads, previous_payloads)
 
     player_index = c.build_player_index(payloads)
     player_index_json = json.dumps(
@@ -491,6 +768,13 @@ def build_dashboard(
             qualified_count=status_data.qualified_count,
             player_count=len(player_index),
             proof_examples=_homepage_proof_examples(demo_page_data),
+            homepage_spectrum=homepage_spectrum,
+            biggest_movers=biggest_movers,
+            most_fortunate=favorable_rows[0] if favorable_rows else None,
+            most_unfortunate=unfavorable_rows[0] if unfavorable_rows else None,
+            total_analyzed_bbe=sum(
+                r.get("eligible_batted_balls") or 0 for r in payloads.public_score
+            ),
         )
     )
 
@@ -535,7 +819,6 @@ def build_dashboard(
         )
     )
 
-    payload_cache: dict[str, c.SnapshotPayloads] = {latest.directory_name: payloads}
     player_template = env.get_template("player.html")
     for entry in player_index:
         record = c.find_player_record(payloads, entry.batter_id)
@@ -544,7 +827,15 @@ def build_dashboard(
         trend_points = c.build_player_trend(history, entry.batter_id, payload_cache=payload_cache)
         player_dir = out_dir / "players" / str(entry.batter_id)
         player_dir.mkdir(parents=True, exist_ok=True)
-        view = _player_view(detail, trend_points, qualified_intervals)
+        view = _player_view(
+            detail,
+            trend_points,
+            qualified_intervals,
+            qualified_count=status_data.qualified_count,
+            favorable_rows=favorable_rows,
+            unfavorable_rows=unfavorable_rows,
+            root_prefix=root_prefix,
+        )
         (player_dir / "index.html").write_text(
             player_template.render(**base_context, active_page=None, **view)
         )
@@ -588,7 +879,10 @@ def build_dashboard(
         shutil.copy(explore_showcase_path, explore_dir / "showcase.json")
         shutil.copytree(explore_players_dir, explore_dir / "players", dirs_exist_ok=True)
         shutil.copytree(explore_games_dir, explore_dir / "games", dirs_exist_ok=True)
-        if explore_showcase_sensitivity_dir is not None and explore_showcase_sensitivity_dir.is_dir():
+        if (
+            explore_showcase_sensitivity_dir is not None
+            and explore_showcase_sensitivity_dir.is_dir()
+        ):
             shutil.copytree(
                 explore_showcase_sensitivity_dir,
                 explore_dir / "showcase-sensitivity",

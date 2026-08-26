@@ -25,13 +25,36 @@
   </div>
 
   <div data-role="play-body" hidden>
-    <div class="player-header">
-      <div>
-        <h1 data-role="play-batter-name"></h1>
-        <p class="player-meta" data-role="play-meta"></p>
+    <div class="play-hero-editorial">
+      <div class="player-header-identity">
+        <span data-role="play-batter-avatar"></span>
+        <div>
+          <h1 data-role="play-batter-name"></h1>
+          <p class="player-meta" data-role="play-meta"></p>
+        </div>
       </div>
-      <div>
-        <span class="demo-luck-badge" data-role="play-luck-badge">&mdash;</span>
+
+      <p class="play-hero-figure" data-role="play-luck-figure">&mdash;</p>
+      <p class="play-hero-narrative" data-role="play-narrative"></p>
+      <span class="demo-luck-badge" data-role="play-luck-badge">&mdash;</span>
+
+      <div class="play-hero-stat-row">
+        <div class="play-hero-stat">
+          <span class="play-hero-stat-label">Exit velocity</span>
+          <span class="play-hero-stat-value" data-role="play-ev">&mdash;</span>
+        </div>
+        <div class="play-hero-stat">
+          <span class="play-hero-stat-label">Launch angle</span>
+          <span class="play-hero-stat-value" data-role="play-la">&mdash;</span>
+        </div>
+        <div class="play-hero-stat">
+          <span class="play-hero-stat-label">Batted-ball type</span>
+          <span class="play-hero-stat-value" data-role="play-bb-type">&mdash;</span>
+        </div>
+        <div class="play-hero-stat">
+          <span class="play-hero-stat-label" title="The officially recorded contact result of this batted ball -- see the callout below for how this relates to the run-value accounting on this page.">Recorded result</span>
+          <span class="play-hero-stat-value" data-role="play-outcome">&mdash;</span>
+        </div>
       </div>
     </div>
 
@@ -52,39 +75,19 @@
       </p>
     </div>
 
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-label">Exit velocity</div>
-        <div class="stat-value" data-role="play-ev">&mdash;</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Launch angle</div>
-        <div class="stat-value" data-role="play-la">&mdash;</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Batted-ball type</div>
-        <div class="stat-value" data-role="play-bb-type">&mdash;</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label" title="The officially recorded contact result of this batted ball -- see the callout below for how this relates to the run-value accounting on this page.">Recorded result</div>
-        <div class="stat-value" data-role="play-outcome">&mdash;</div>
-      </div>
-    </div>
-
     <h2>Frozen model outcome probabilities</h2>
     <p class="page-subtitle" style="margin-bottom:8px;">
       The model's outcome distribution for this batted ball, computed before the result is known.
     </p>
     <div class="demo-prob-bars" data-role="play-prob-bars"></div>
 
-    <h2>Run value accounting</h2>
+    <h2>Model expectation vs. actual result</h2>
     <div class="demo-luck-diff">
       <span class="demo-rv-value demo-rv-value-expected" data-role="play-expected-rv">&mdash;</span>
       <span class="demo-luck-arrow" aria-hidden="true">&rarr;</span>
       <span class="demo-rv-value demo-rv-value-observed" data-role="play-observed-rv">&mdash;</span>
     </div>
     <p class="player-meta" style="margin:2px 0 10px;">Expected RV &rarr; Final observed RV</p>
-    <p class="demo-luck-figure" data-role="play-luck-figure">&mdash;</p>
 
     <p class="callout">
       Recorded result is the officially scored outcome of this batted ball; Final observed RV
