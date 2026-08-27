@@ -41,6 +41,15 @@
   </details>
 </div>
 
+{#
+  Phase 3 mobile hierarchy correction. This wrapper exists ONLY so the three
+  leaderboard-block children can be re-ordered at <=767, where the axis rail
+  and the distribution strip are hidden and the scale caption has nothing
+  visible left to caption. It is `display: contents` at every other width,
+  so the approved desktop layout is untouched -- see docs/design/responsive.md
+  § Mobile homepage hierarchy.
+#}
+<div class="home-leaderboard">
 {{ macros.axis_caption(axis_unit_label, qualified_count) }}
 
 {#
@@ -52,14 +61,17 @@
 #}
 <div class="ranking" data-role="ranking">
   <div class="ranking-tabs" role="tablist" aria-label="Official Contact Luck rankings">
+    {# The visible label shortens at mobile; the ACCESSIBLE NAME never does.
+       `.ranking-tab-rest` is clipped below 768 (visually hidden, not
+       `display:none`), so the button's accessible name stays the frozen
+       `public_labels` string verbatim at every width -- and the visible
+       text is a leading substring of it, which is what WCAG 2.5.3 asks. #}
     <button type="button" class="ranking-tab" role="tab" id="tab-favorable"
-            aria-selected="true" aria-controls="panel-favorable" tabindex="0">
-      Most favorable realized luck
-    </button>
+            aria-selected="true" aria-controls="panel-favorable" tabindex="0"
+       ><span class="ranking-tab-lead">Most favorable</span><span class="ranking-tab-rest"> realized luck</span></button>
     <button type="button" class="ranking-tab" role="tab" id="tab-unfavorable"
-            aria-selected="false" aria-controls="panel-unfavorable" tabindex="-1">
-      Least favorable outcomes relative to expectation
-    </button>
+            aria-selected="false" aria-controls="panel-unfavorable" tabindex="-1"
+       ><span class="ranking-tab-lead">Least favorable</span><span class="ranking-tab-rest"> outcomes relative to expectation</span></button>
   </div>
 
   <div class="ranking-panel" role="tabpanel" id="panel-favorable" aria-labelledby="tab-favorable" tabindex="0">
@@ -75,6 +87,7 @@
   <em>Sorted view</em> and is never presented as an alternative official ranking. The Rank
   column always shows the stored, frozen official rank — use it to return to that order.
 </p>
+</div>
 
 {#
   The two worked examples. They used to sit ABOVE the leaderboard as a pair of

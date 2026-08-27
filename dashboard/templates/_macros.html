@@ -18,8 +18,11 @@
 {% macro axis_caption(unit_label, qualified_count) %}
 <div class="cl-axis-head">
   <p class="cl-axis-unit">{{ unit_label }}</p>
+  {# Position-neutral on purpose: at <=767 this caption sits BELOW the table
+     (docs/design/responsive.md § Mobile homepage hierarchy), so "every row
+     below" would have been false there. The claim is unchanged. #}
   <p class="cl-axis-caption">
-    All {{ qualified_count }} qualified hitters on one scale — every row below is drawn on it.
+    All {{ qualified_count }} qualified hitters on one scale — every row in this table is drawn on it.
   </p>
 </div>
 {% endmacro %}

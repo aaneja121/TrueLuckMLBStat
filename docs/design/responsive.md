@@ -63,3 +63,68 @@ Three rules govern this, and the third is the one that keeps the system from dis
 
 The header is the only component with a content-driven breakpoint today. Adding a second
 means adding a row to that table, with its own measurement.
+
+---
+
+## Mobile homepage hierarchy
+
+Below 768 the homepage re-ranks its preamble. The rows were never the problem — the
+accumulated bands in front of them were. Measured at 390 px, the first hitter moved from
+**574 px to 427 px** from the top, and 390×844 went from 2 whole rows visible to 4 (with a
+fifth part-visible).
+
+Nothing here was bought with type, targets or row height, all of which are unchanged:
+
+| Band | Before | After | What changed |
+|---|---|---|---|
+| Page top air | 36 px | 20 px | `main` top padding `--sp-5` → `--sp-3` at mobile. The header already ends in its own padding; a second 24 px band was doubled space. |
+| Lede | 153 px | 133 px | The disclosure **shares the title's band** instead of owning one below it, and its target came **up** from 32 px to the 44 px floor while doing so. |
+| Scale caption | 48 px | 0 px | Moved **below** the table (see below). |
+| Ranking tabs | 79 px | 44 px | Two stacked full-width tabs → one row of two, each at 44 px (they were 40 px). |
+| Sort rail | 75 px | 46 px | Two wrapped rows of 11 px labels — the second holding "Sample" alone — → one row, each control at 44 px (they were 24.5 px). |
+| Filter | 30 px | 44 px | Raised **to** the `--target-min` floor — the last control on the page under it. Its 14 px comes back out of the margins either side (below). |
+
+Three rules govern how this was done, and they are the reusable part:
+
+1. **Re-order prose, never controls.** `.home-leaderboard` is a wrapper that is
+   `display: contents` at every width except mobile, where it becomes a flex column so the
+   axis caption can take `order` behind the table. It contains no focusable content, so
+   visual order and focus order cannot diverge. The lede's disclosure — which *is*
+   focusable — was **not** re-ordered for the same reason; it was moved onto a band that
+   already existed. A CSS `order` that moves a control past a table is a WCAG 2.4.3 defect,
+   not a layout technique.
+2. **Shorten what is seen, never what is announced.** The mobile ranking tabs read "Most
+   favorable" / "Least favorable". The rest of each frozen `public_labels` string is in
+   `.ranking-tab-rest`, **clipped, never `display: none`**, so the accessible name is still
+   "Most favorable realized luck" / "Least favorable outcomes relative to expectation" and
+   the visible text is a leading substring of it (WCAG 2.5.3). Verified against the
+   accessibility tree, not the DOM.
+3. **A control short of the target floor grows; the space comes from spacing, not from
+   other content.** The name filter was 30 px against a 44 px floor. An oversized hit area
+   over a 30 px field was rejected: at 4 px of clearance it would have overlapped the sort
+   buttons below it, and a tap landing on the wrong control is worse than a small one. The
+   field itself is 44 px, and its 14 px is repaid by the margins on either side —
+   `.ranking-tabs` bottom margin 8 → 4 px, `.leaderboard-controls` bottom margin 4 → 0 —
+   because the field now carries that air as its own internal padding, so those margins were
+   doubling what the control already provides.
+4. **A caption that moves must be true in both places.** The scale caption used to end
+   "every row below is drawn on it"; below the table that is false. It now reads "every row
+   in this table is drawn on it", which holds above and below. Desktop copy changed by three
+   words; desktop layout did not change at all.
+
+**Why the caption moves at all:** above 768 it captions a visible tick rail and a 124-mark
+distribution strip. Below 768 both are hidden (§ the matrix above), so pre-table it captions
+nothing the reader can see, while still charging 48 px for the position directly in front of
+the product. Below the table it sits with the leaderboard note, where the rest of the
+table's apparatus already lives.
+
+**Desktop is unchanged, and this was measured rather than assumed.** `tbody` top, lede
+height, tab height and sort-rail height are byte-identical before and after at 768, 800,
+900, 1100, 1280 and 1440.
+
+**Known floor:** at 390×844 the first row starts at 427 px and the mobile row is 104 px, so
+the 4th row ends at 843.4 px against an 844 px viewport. **Four whole rows is true by 0.6 px
+and should not be leaned on** — anything that renders the header a pixel taller makes it
+three, which is the correct trade under the priority order (target size first, density last)
+and not a regression. A fifth row needs the row itself to shrink, which is out of bounds. At
+320×700 the first row moved 597 px → 448 px, and 0 whole rows became 2.

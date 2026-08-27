@@ -90,6 +90,13 @@ def _css() -> str:
     return re.sub(r"/\*.*?\*/", "", STYLE_CSS.read_text(), flags=re.DOTALL)
 
 
+def _tab_names(html: str) -> list[str]:
+    """The accessible name of each ranking tab: its text content with markup
+    stripped, which is what the name is computed from."""
+    buttons = re.findall(r'role="tab"[^>]*>(.*?)</button>', html, flags=re.DOTALL)
+    return [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", b)).strip() for b in buttons]
+
+
 def _fields(html: str, table_id: str) -> list[dict[str, float]]:
     table = html.split(f'id="lb-{table_id}"', 1)[1].split("</table>", 1)[0]
     body = table.split("<tbody>", 1)[1]
@@ -297,9 +304,34 @@ class TestRankingTabs:
             assert first == "1"
 
     def test_neither_ranking_is_called_worst(self, home: str) -> None:
+        """The frozen `public_labels` string is the tab's ACCESSIBLE NAME at
+        every width. Mobile shortens what is seen (`.ranking-tab-lead`) and
+        clips the rest, so the name is still assembled from the whole
+        string -- assert on the assembled name, not on raw markup."""
         assert "worst" not in home.lower()
-        assert "Most favorable realized luck" in home
-        assert "Least favorable outcomes relative to expectation" in home
+        assert _tab_names(home) == [
+            "Most favorable realized luck",
+            "Least favorable outcomes relative to expectation",
+        ]
+
+    def test_the_shortened_mobile_label_is_a_leading_substring(self, home: str) -> None:
+        """WCAG 2.5.3: what a speech user says has to be what they see. The
+        visible mobile label is the FRONT of the accessible name, never a
+        paraphrase of it."""
+        leads = re.findall(r'class="ranking-tab-lead">([^<]+)<', home)
+        assert leads == ["Most favorable", "Least favorable"]
+        for lead, name in zip(leads, _tab_names(home), strict=True):
+            assert name.startswith(lead)
+
+    def test_the_clipped_label_tail_is_never_display_none(self) -> None:
+        """`display: none` would take the tail out of the accessibility tree
+        and shorten the ranking's name to "Most favorable" -- a different
+        claim. It is clipped instead, the same technique `.visually-hidden`
+        uses (guardrails anti-pattern 7)."""
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        block = mobile.split(".ranking-tab-rest {", 1)[1].split("}", 1)[0]
+        assert "display: none" not in block
+        assert "clip-path" in block
 
     def test_keyboard_navigation_is_implemented(self) -> None:
         js = APP_JS.read_text()
@@ -470,6 +502,96 @@ class TestMobileTransformation:
         head = mobile.split(".leaderboard th {", 1)[1].split("}", 1)[0]
         assert "display: block" in head
         assert "display: none" not in head
+
+
+class TestMobileHomepageHierarchy:
+    """The correction that moved the first hitter from 574px to 421px at 390.
+
+    Every assertion here is about WHICH CONTENT OWNS A VERTICAL BAND before
+    the table. None of it is allowed to be bought with smaller type, a
+    shorter row or a smaller target -- the tests below pin that too.
+    """
+
+    def test_the_reorder_wrapper_is_inert_above_the_breakpoint(self, home: str) -> None:
+        """`display: contents` means the wrapper has no box, so the approved
+        desktop hierarchy renders exactly as it did before it existed."""
+        assert 'class="home-leaderboard"' in home
+        css = _css()
+        base = css.split(".home-leaderboard { ", 1)[1].split("}", 1)[0]
+        assert "display: contents" in base
+
+    def test_the_scale_caption_moves_below_the_table_at_mobile(self) -> None:
+        """Above 768 it captions a visible tick rail and a 124-mark strip.
+        At 390 both are hidden, so pre-table it captions nothing on screen."""
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        block = mobile.split(".home-leaderboard {", 1)[1].split("}", 1)[0]
+        assert "display: flex" in block
+        order = {
+            name: int(
+                re.search(rf"\.home-leaderboard > \.{name} \{{ order: (\d+)", mobile).group(1)
+            )
+            for name in ("ranking", "leaderboard-note", "cl-axis-head")
+        }
+        assert order["ranking"] < order["cl-axis-head"]
+        assert order["leaderboard-note"] < order["cl-axis-head"]
+
+    def test_the_caption_claim_is_true_in_both_positions(self, home: str) -> None:
+        """It sits ABOVE the rows on desktop and BELOW them at mobile, so it
+        cannot say "every row below" any more."""
+        caption = home.split('class="cl-axis-caption"', 1)[1].split("</p>", 1)[0]
+        assert "every row in this table is drawn on it" in caption
+        assert "below" not in caption
+
+    def test_nothing_operable_above_the_first_row_is_under_the_target_floor(
+        self,
+    ) -> None:
+        """`--target-min` is 44px and EVERY control above the first hitter
+        now meets it. Three were short: the disclosure (32px), the ranking
+        tabs (40px) and the sort buttons (24.5px); the name filter (30px)
+        was the last. None of them was bought by shrinking something else.
+        """
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        for selector in (
+            ".lede-detail > summary {",
+            ".ranking-tab {",
+            ".leaderboard th .sort-button {",
+            ".leaderboard-filter-input {",
+        ):
+            block = mobile.split(selector, 1)[1].split("}", 1)[0]
+            assert "min-height: var(--target-min)" in block, selector
+
+    def test_the_filter_target_is_real_height_not_an_overlapping_hit_area(
+        self,
+    ) -> None:
+        """An oversized hit area over a 30px field would have reached into
+        the sort buttons 4px below it, and a tap landing on the wrong
+        control is worse than a small one. The field itself is 44px."""
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        block = mobile.split(".leaderboard-filter-input {", 1)[1].split("}", 1)[0]
+        assert "min-height: var(--target-min)" in block
+        assert "::before" not in block
+        assert "position: absolute" not in block
+
+    def test_the_correction_buys_no_space_from_type_or_rows(self) -> None:
+        """The prohibited ways to hit the target: smaller body type, a
+        shorter row, a tighter row grammar. None of them are in this block."""
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        row = mobile.split(".leaderboard tbody tr {", 1)[1].split("}", 1)[0]
+        assert "padding: var(--sp-2) 0" in row  # unchanged row rhythm
+        name = mobile.split(".leaderboard .player-link {", 1)[1].split("}", 1)[0]
+        assert "font-size: var(--fs-400)" in name  # still 16px
+        lede = mobile.split("\n  .lede {", 1)[1].split("}", 1)[0]
+        assert "font-size" not in lede
+
+    def test_the_sort_rail_is_one_row_of_real_headers(self, home: str) -> None:
+        """The visual compaction is a gap, not a demotion: four `<th
+        scope="col">` with `aria-sort` survive it."""
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        row = mobile.split(".leaderboard thead tr {", 1)[1].split("}", 1)[0]
+        assert "gap: 0 var(--sp-2)" in row
+        head = home.split('id="lb-favorable"', 1)[1].split("</thead>", 1)[0]
+        assert head.count('scope="col"') == 4
+        assert head.count("aria-sort=") == 4
 
 
 class TestNoTinyAxisLabels:
