@@ -89,13 +89,41 @@ def _get_repository_commit(repo_root: Path) -> str:
     return result.stdout.strip()
 
 
+#: Redesign Phase 1 numeric primitive. Contact Luck is a SIGNED quantity, so
+#: every rendering of one carries its sign explicitly -- the sign glyph is
+#: the non-colour channel for the favorable/unfavorable pair, and it is the
+#: only channel a screen reader, a monochrome display, or a colour-blind
+#: reader receives.
+#:
+#: The minus is U+2212 MINUS SIGN, not ASCII hyphen-minus. In a tabular-figure
+#: face the true minus is drawn to the same width and at the same height as
+#: the plus, so "-6.41" and "+7.62" align in a column; the hyphen is narrower
+#: and sits lower, which is exactly the misalignment the Zero Spine's value
+#: column cannot afford. See docs/design/typography.md § Numeric typography.
+#:
+#: SCOPE: Contact Luck values and run values ONLY. Exit velocity, launch
+#: angle, probabilities, shares, counts and interval WIDTHS are not signed
+#: quantities and must never be given a "+" -- a plus on an interval width
+#: would be meaningless.
+MINUS_SIGN = "\u2212"
+
+
+def format_signed(value: float | None, digits: int = 2) -> str:
+    """`+7.62` / `\u22126.41` / `+0.00`, with a true minus."""
+    if value is None:
+        return "\u2014"
+    return f"{value:+.{digits}f}".replace("-", MINUS_SIGN)
+
+
 def _make_jinja_env() -> Environment:
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(DASHBOARD_TEMPLATES_DIR)),
         autoescape=select_autoescape(["html"]),
         trim_blocks=True,
         lstrip_blocks=True,
     )
+    env.filters["signed"] = format_signed
+    return env
 
 
 def _leaderboard_view_rows(
@@ -139,20 +167,24 @@ _COMPONENT_LABELS = {
 def _player_view(
     detail: c.PlayerDetail,
     trend_points: list[c.TrendPoint],
-    qualified_intervals: Sequence[tuple[float, float]],
+    scale: v.ZeroScale,
 ) -> dict[str, Any]:
-    # Single-pass padding over the SAME raw interval set the leaderboard
-    # domain is built from, plus this player's own raw (unpadded) interval --
-    # never re-pad an already-padded domain (that silently shifts the zero
-    # fraction and puts this page's bar on a different effective scale than
-    # the player's own leaderboard row for the identical numbers). For a
-    # qualified player, this player's interval is already inside
-    # `qualified_intervals`, so `player_domain` comes out identical to the
-    # leaderboard's shared domain; for a non-qualified player, the domain
-    # widens (still with exactly one padding pass) to fit their own interval.
-    player_domain = v.compute_interval_domain(
-        [*qualified_intervals, (detail.lower_95_interval, detail.upper_95_interval)]
-    )
+    # Redesign Phase 1, decision D1a: this page uses the ONE canonical
+    # `league_per_100` scale, built from the qualified comparison
+    # population -- the identical scale the leaderboard row for this same
+    # player is drawn on. Invariant D.
+    #
+    # This replaces a per-player domain that was widened, with one padding
+    # pass, to fit a non-qualified player's own (often very wide,
+    # small-sample) interval. That widening kept the bar from clipping, but
+    # it moved the zero line to a different fraction of the field on those
+    # pages -- so the same page could not be read against the leaderboard,
+    # and under the Zero Spine direction it is the one place the site would
+    # draw two different zeros. A value outside the canonical domain now
+    # CLIPS, with an explicit continuation caret and the true numbers intact
+    # in text (see `render_interval_bar_svg`); the scale never moves to
+    # accommodate it. Qualified players are unaffected: their interval was
+    # already inside this domain, so their bar is unchanged.
     component_value_rows = [
         {"label": "Contact", "value": detail.components.contact_per_100},
         {"label": "Defensive execution", "value": detail.components.defensive_execution_per_100},
@@ -187,9 +219,17 @@ def _player_view(
                 point=detail.contact_luck_runs_per_100,
                 lower=detail.lower_95_interval,
                 upper=detail.upper_95_interval,
-                domain=player_domain,
+                domain=scale.domain,
                 compact=False,
             ),
+            "interval_clip_state": scale.clip_state(
+                point=detail.contact_luck_runs_per_100,
+                lower=detail.lower_95_interval,
+                upper=detail.upper_95_interval,
+            ),
+            "interval_point_state": scale.point_state(detail.contact_luck_runs_per_100),
+            "scale_domain_min": scale.domain_min,
+            "scale_domain_max": scale.domain_max,
         },
         "component_value_rows": component_value_rows,
         "component_status_rows": component_status_rows,
@@ -323,7 +363,16 @@ def build_dashboard(
     qualified_intervals = [
         (r.lower_95_interval, r.upper_95_interval) for r in (*favorable_rows, *unfavorable_rows)
     ]
-    qualified_domain = v.compute_interval_domain(qualified_intervals)
+    # Redesign Phase 1: the ONE canonical scale for Contact Luck Runs per
+    # 100, built once here and threaded to every renderer (Invariant D).
+    # `qualified_domain` is kept as its raw tuple for the call sites that
+    # still take one.
+    league_scale = v.ZeroScale.from_intervals(
+        "league_per_100",
+        "Runs / 100 eligible BBE",
+        qualified_intervals,
+    )
+    qualified_domain = league_scale.domain
 
     player_index = c.build_player_index(payloads)
     player_index_json = json.dumps(
@@ -468,6 +517,13 @@ def build_dashboard(
         "data_through_date_display": date.fromisoformat(latest.data_through_date).strftime(
             "%b. %-d, %Y"
         ),
+        # Redesign Phase 1, Invariant Z: the single zero locus, written onto
+        # <html> so CSS and Python can never disagree about where zero is.
+        # This is a LAYOUT percentage derived from already-computed snapshot
+        # values -- not a score, rank, interval or probability -- so it does
+        # not cross the "the dashboard displays, it never computes" line in
+        # PRODUCT.md #5; no scoring code is imported to produce it.
+        "cl_zero_fraction_css": f"{league_scale.zero_fraction * 100:.4f}%",
         "dashboard_version": DASHBOARD_VERSION,
         "snapshot_directory_name": latest.directory_name,
         "build_timestamp": build_timestamp,
@@ -544,7 +600,7 @@ def build_dashboard(
         trend_points = c.build_player_trend(history, entry.batter_id, payload_cache=payload_cache)
         player_dir = out_dir / "players" / str(entry.batter_id)
         player_dir.mkdir(parents=True, exist_ok=True)
-        view = _player_view(detail, trend_points, qualified_intervals)
+        view = _player_view(detail, trend_points, league_scale)
         (player_dir / "index.html").write_text(
             player_template.render(**base_context, active_page=None, **view)
         )

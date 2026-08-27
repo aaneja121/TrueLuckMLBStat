@@ -28,12 +28,26 @@ from visuals import (
     render_simulator_field_svg,
 )
 
-COMPACT_WIDTH, COMPACT_MARGIN = 220, 10
+COMPACT_WIDTH = 220
+#: Redesign Phase 1: the renderer no longer reserves an internal horizontal
+#: margin, so the plot field is the full viewBox width. `COMPACT_MARGIN`
+#: (formerly 10, with 28 on the full-size bar) is gone deliberately -- those
+#: two different margins put the same data's zero line at 0.4630 and 0.4640
+#: of width, which is the "0.463/0.464" DESIGN.md recorded as if it were one
+#: shared position. Horizontal breathing room is now the layout's job. See
+#: docs/design/zero-spine-implementation-plan.md § 0.1 and Invariant Z in
+#: tests/test_dashboard_zero_scale.py.
+COMPACT_MARGIN = 0
 
 
-def _expected_x(value: float, domain: tuple[float, float], *, width: int, margin: int) -> float:
+def _expected_x(value: float, domain: tuple[float, float], *, width: int, margin: int = 0) -> float:
     """Independently re-derives the linear map `render_interval_bar_svg`
     is supposed to implement: `margin + (value - domain_min) / span * inner_w`.
+
+    With the Phase 1 margin-free field this reduces to a plain
+    domain-fraction-of-width map, which is exactly the property Invariant Z
+    depends on. `margin` is retained as a parameter so the derivation stays
+    explicit rather than assumed.
     """
     domain_min, domain_max = domain
     inner_w = width - 2 * margin

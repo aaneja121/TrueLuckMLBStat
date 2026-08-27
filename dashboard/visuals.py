@@ -21,19 +21,33 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from content import TrendPoint
 
 __all__ = [
+    "ZeroScale",
     "compute_interval_domain",
     "render_demo_field_svg",
     "render_interval_bar_svg",
     "render_simulator_field_svg",
     "render_trend_chart_svg",
 ]
+
+#: Redesign Phase 1 (Zero Spine): every zero-centred instrument in the
+#: product registers zero at the SAME fraction of its own plot field, so a
+#: single page-level rule can descend through figures whose domains differ
+#: and always mean "zero". See `docs/design/zero-spine-implementation-plan.md`
+#: § Invariant Z. `CL_ZERO_FRACTION_PROPERTY` is the CSS custom property the
+#: build writes onto `<html>` once, from the canonical `league_per_100`
+#: scale, so CSS and Python can never disagree about where zero is.
+CL_ZERO_FRACTION_PROPERTY = "--cl-zero"
+
+ClipState = Literal["none", "low", "high", "both"]
+PointState = Literal["in", "below", "above"]
 
 
 def compute_interval_domain(
@@ -51,6 +65,132 @@ def compute_interval_domain(
     return lo - pad, hi + pad
 
 
+@dataclass(frozen=True)
+class ZeroScale:
+    """The canonical zero-centred quantitative scale for one named quantity.
+
+    Built ONCE per build and threaded to every renderer, so no page can
+    invent its own axis. The product has exactly three of these
+    (`league_per_100`, `run_value`, `component_per_100`); adding a fourth is
+    a design review, not a code change.
+
+    Two invariants this class exists to make mechanically true:
+
+    * **Invariant Z (zero locus).** `zero_fraction` is where zero sits in a
+      plot field, and EVERY renderer places zero there exactly -- so a rule
+      drawn at that fraction registers against every mark on the page.
+      Renderers therefore contribute no horizontal margin of their own
+      (see `render_interval_bar_svg`); breathing room is the layout's job.
+    * **Invariant D (domain identity).** Every rendering of Contact Luck
+      Runs per 100 uses the ONE snapshot-level `league_per_100` scale, built
+      from the qualified comparison population. No per-page recomputation,
+      no per-chart autoscaling. A value outside the domain CLIPS with an
+      explicit indicator (`clip_state`); the domain never widens to swallow
+      it, because a widened domain silently moves zero.
+
+    `true_min`/`true_max` are the unpadded observed extremes the scale was
+    built from, kept so a caller can tell "this is off the scale" from
+    "this is near the edge of the padding".
+    """
+
+    name: str
+    unit_label: str
+    domain_min: float
+    domain_max: float
+    true_min: float
+    true_max: float
+
+    @classmethod
+    def from_intervals(
+        cls,
+        name: str,
+        unit_label: str,
+        intervals: Sequence[tuple[float, float]],
+        *,
+        pad_fraction: float = 0.12,
+    ) -> ZeroScale:
+        lo, hi = compute_interval_domain(intervals, pad_fraction=pad_fraction)
+        lows = [low for low, _ in intervals] + [0.0]
+        highs = [high for _, high in intervals] + [0.0]
+        return cls(
+            name=name,
+            unit_label=unit_label,
+            domain_min=lo,
+            domain_max=hi,
+            true_min=min(lows),
+            true_max=max(highs),
+        )
+
+    @property
+    def domain(self) -> tuple[float, float]:
+        """The raw (min, max) tuple, for renderers that still take one."""
+        return (self.domain_min, self.domain_max)
+
+    @property
+    def span(self) -> float:
+        span = self.domain_max - self.domain_min
+        # `compute_interval_domain` always injects 0.0 and then pads, so a
+        # non-positive span is unreachable for a scale built through
+        # `from_intervals`. Guarded anyway: a directly-constructed
+        # degenerate scale must not produce a divide-by-zero or an
+        # off-field zero line.
+        return span if span > 0 else 1.0
+
+    @property
+    def zero_fraction(self) -> float:
+        """Where zero sits, as a fraction of the plot field. THE number."""
+        return (0.0 - self.domain_min) / self.span
+
+    def fraction_of(self, value: float) -> float:
+        """Unclamped position of `value`. May fall outside [0, 1]."""
+        return (value - self.domain_min) / self.span
+
+    def clamped_fraction_of(self, value: float) -> float:
+        return min(max(self.fraction_of(value), 0.0), 1.0)
+
+    def contains(self, value: float) -> bool:
+        return self.domain_min <= value <= self.domain_max
+
+    def point_state(self, point: float) -> PointState:
+        """Where the POINT ESTIMATE sits relative to the canonical domain.
+
+        Separate from `clip_state` because the two carry different meanings
+        and get different marks. An interval running off the edge says "the
+        uncertainty extends further than we can draw"; a point estimate off
+        the edge says "the estimate itself is not on this scale", which is a
+        much stronger statement and must never be rendered as a dot sitting
+        on the boundary -- that would assert the boundary IS the estimate.
+
+        Note that `point_state != "in"` always implies `clip_state` is
+        clipped on the same side, since `lower <= point <= upper`. The two
+        markers therefore never need to coexist on one edge, which is what
+        keeps the combination unambiguous.
+        """
+        if point < self.domain_min:
+            return "below"
+        if point > self.domain_max:
+            return "above"
+        return "in"
+
+    def clip_state(self, *, point: float, lower: float, upper: float) -> ClipState:
+        """Which end(s) of this mark fall outside the canonical domain.
+
+        Used to draw an explicit continuation caret. The graphical mark is
+        cut off; the NUMBERS never are -- callers keep rendering the true
+        point estimate and interval in text, so a clipped endpoint can never
+        be mistaken for the real one.
+        """
+        low_clipped = lower < self.domain_min or point < self.domain_min
+        high_clipped = upper > self.domain_max or point > self.domain_max
+        if low_clipped and high_clipped:
+            return "both"
+        if low_clipped:
+            return "low"
+        if high_clipped:
+            return "high"
+        return "none"
+
+
 def render_interval_bar_svg(
     *,
     point: float,
@@ -65,38 +205,164 @@ def render_interval_bar_svg(
     line. Exact values are always in the `<title>`/`aria-label`, never ONLY
     in the title -- the point, the interval line, and the zero line are all
     drawn directly on the bar itself.
+
+    **Invariant Z (redesign Phase 1).** The plot field is the FULL viewBox
+    width: this function contributes no horizontal margin of its own, so
+    `zero_x / width` is exactly the scale's zero fraction at every size.
+    It previously reserved `margin=10` inside a 220-wide box and `margin=28`
+    inside a 480-wide one, which put the same data's zero line at 0.4630 and
+    0.4640 of width respectively -- equal only when zero sits dead centre.
+    That ~0.1% divergence is the "0.463/0.464" recorded in `DESIGN.md` as if
+    it were one shared position; it is two. Horizontal breathing room is now
+    the layout's job (CSS padding on the containing cell), never the
+    coordinate space's, because anything inside the coordinate space moves
+    zero. See `docs/design/zero-spine-implementation-plan.md` § 0.1.
+
+    **Clipping (decision D1a).** The canonical `league_per_100` domain comes
+    from the QUALIFIED comparison population, and never widens per page --
+    a widened domain silently moves zero. A value outside it is therefore
+    drawn cut off at the field edge with an explicit continuation caret and
+    a `data-clipped` attribute, and the accessible label states both the
+    true numbers and the fact that the mark extends beyond the displayed
+    range. The point dot is NOT drawn at a clamped position: a dot sitting
+    on the edge would assert that the edge is the estimate. The caret is
+    information, not decoration.
     """
     width, height = (220, 32) if compact else (480, 72)
-    margin = 10 if compact else 28
-    inner_w = width - 2 * margin
     domain_min, domain_max = domain
     if domain_max <= domain_min:
         domain_max = domain_min + 1.0
+    span = domain_max - domain_min
 
     def x(value: float) -> float:
-        return margin + (value - domain_min) / (domain_max - domain_min) * inner_w
+        return (value - domain_min) / span * width
 
+    # Only a CLIPPED end is inset, and only far enough to seat the caret;
+    # an unclipped end sits at its true position. Neither affects `zero_x`,
+    # which is always the domain's own zero fraction of the full width.
+    caret_w = 7.0 if compact else 10.0
+    caret_h = 4.0 if compact else 6.0
+    point_r = 4 if compact else 6
+    # The off-scale point marker is drawn at the POINT's scale, not the
+    # line's: same visual weight as the dot it stands in for, so it reads as
+    # "the estimate, pushed off the edge" rather than as a bigger caret.
+    point_mark_w = point_r * 2.4
+    point_mark_h = point_r * 1.5
     mid_y = height / 2
     zero_x = x(0.0)
-    lower_x = x(max(lower, domain_min))
-    upper_x = x(min(upper, domain_max))
-    point_x = x(min(max(point, domain_min), domain_max))
     sign_class = "interval-positive" if point >= 0 else "interval-negative"
     size_class = "interval-bar-compact" if compact else "interval-bar-full"
 
+    point_state = "below" if point < domain_min else "above" if point > domain_max else "in"
+    low_clipped = lower < domain_min or point < domain_min
+    high_clipped = upper > domain_max or point > domain_max
+    clip_state = (
+        "both"
+        if low_clipped and high_clipped
+        else "low"
+        if low_clipped
+        else "high"
+        if high_clipped
+        else "none"
+    )
+
+    # The portion of the interval that actually lands inside the field. A
+    # small-sample interval can sit ENTIRELY outside the canonical domain
+    # (18 such players in the 2026-08-14 snapshot), in which case there is no
+    # segment to draw and only the off-scale point marker is rendered --
+    # never a zero-length or negative-width line.
+    visible_lo = max(lower, domain_min)
+    visible_hi = min(upper, domain_max)
+
+    # Accessible text carries every fact the glyphs carry, plus the domain
+    # itself, so a screen-reader user never has to infer clipping from a
+    # shape they cannot see.
+    direction = {"low": "below", "high": "above", "both": "below and above"}.get(clip_state)
+    notes = []
+    if point_state != "in":
+        notes.append(
+            f"the point estimate lies {point_state} the displayed range"
+        )
+    if clip_state != "none":
+        notes.append(f"the 95 percent interval extends {direction} the displayed range")
+    clip_note = ""
+    if notes:
+        clip_note = (
+            f". Off scale: {'; and '.join(notes)}. The displayed range covers "
+            f"{domain_min:+.2f} to {domain_max:+.2f}; the figures above are the actual values"
+        )
+
     parts = [
         f'<svg class="interval-bar {size_class}" viewBox="0 0 {width} {height}" '
-        f'preserveAspectRatio="xMidYMid meet" role="img" aria-label="Point estimate '
-        f"{point:.2f} runs per 100 eligible batted balls; 95 percent interval "
-        f'{lower:.2f} to {upper:.2f}">',
-        f"<title>{point:.2f} runs/100 (95% interval: {lower:.2f} to {upper:.2f})</title>",
+        f'preserveAspectRatio="xMidYMid meet" role="img" data-clipped="{clip_state}" '
+        f'data-point-offscale="{point_state}" '
+        f'aria-label="Point estimate {point:+.2f} runs per 100 eligible batted balls; '
+        f'95 percent interval {lower:+.2f} to {upper:+.2f}{clip_note}">',
+        f"<title>{point:+.2f} runs/100 (95% interval: {lower:+.2f} to "
+        f"{upper:+.2f}){clip_note}</title>",
         f'<line class="interval-zero-line" x1="{zero_x:.1f}" y1="4" '
         f'x2="{zero_x:.1f}" y2="{height - 4}"></line>',
-        f'<line class="interval-range {sign_class}" x1="{lower_x:.1f}" y1="{mid_y:.1f}" '
-        f'x2="{upper_x:.1f}" y2="{mid_y:.1f}"></line>',
-        f'<circle class="interval-point {sign_class}" cx="{point_x:.1f}" cy="{mid_y:.1f}" '
-        f'r="{4 if compact else 6}"></circle>',
     ]
+
+    if visible_hi > visible_lo:
+        lower_x = caret_w if low_clipped else x(visible_lo)
+        upper_x = width - caret_w if high_clipped else x(visible_hi)
+        parts.append(
+            f'<line class="interval-range {sign_class}" x1="{lower_x:.1f}" '
+            f'y1="{mid_y:.1f}" x2="{upper_x:.1f}" y2="{mid_y:.1f}"></line>'
+        )
+
+    if point_state == "in":
+        parts.append(
+            f'<circle class="interval-point {sign_class}" cx="{x(point):.1f}" '
+            f'cy="{mid_y:.1f}" r="{point_r}"></circle>'
+        )
+
+    def edge_mark(side: str) -> str:
+        """One mark per clipped edge, encoding the stronger of the two facts.
+
+        Two shapes, deliberately different in BOTH fill and scale so they
+        stay apart at a glance:
+
+          * an OPEN outward chevron at the interval line's weight --
+            "the interval continues past here; the estimate is inside".
+          * a SOLID outward triangle at the point marker's scale, carrying
+            the same `--surface` ring the in-domain dot has --
+            "the POINT ESTIMATE itself lies beyond this edge".
+
+        The solid marker wins where both apply, because an off-scale point
+        already implies an off-scale interval on that side (see
+        `ZeroScale.point_state`) and drawing both would be mud. The
+        accessible label states both facts regardless of which is drawn.
+
+        An off-scale point marker can only ever appear on the full-size
+        player bar: the leaderboard's domain is built from exactly the
+        qualified population it draws, so a leaderboard row cannot clip.
+        Legibility at the compact bar's mobile size is therefore not a
+        constraint here (asserted in tests/test_dashboard_zero_scale.py).
+        """
+        outward = -1 if side == "low" else 1
+        edge = 0.0 if side == "low" else float(width)
+        if point_state == ("below" if side == "low" else "above"):
+            base = edge - outward * point_mark_w
+            return (
+                f'<polygon class="interval-point-offscale {sign_class}" points="'
+                f"{edge:.1f},{mid_y:.1f} {base:.1f},{mid_y - point_mark_h:.1f} "
+                f'{base:.1f},{mid_y + point_mark_h:.1f}"></polygon>'
+            )
+        tip_x = edge + outward * 1.0
+        back_x = edge - outward * (caret_w - 1.0)
+        return (
+            f'<polyline class="interval-clip-caret {sign_class}" points="'
+            f"{back_x:.1f},{mid_y - caret_h:.1f} {tip_x:.1f},{mid_y:.1f} "
+            f'{back_x:.1f},{mid_y + caret_h:.1f}"></polyline>'
+        )
+
+    if low_clipped:
+        parts.append(edge_mark("low"))
+    if high_clipped:
+        parts.append(edge_mark("high"))
+
     if not compact:
         parts.append(
             f'<text class="interval-axis-label" x="{zero_x:.1f}" y="{height - 6:.1f}" '
@@ -118,6 +384,31 @@ def render_trend_chart_svg(
     `retrospective_backfill` point gets a distinct marker class
     (`trend-point-backfill`) so it can never be mistaken for a genuine
     contemporaneous observation.
+
+    **DECLARED EXCEPTION to Invariant D (decision D2, approved 2026-08-26).**
+    The y-domain here is PER PLAYER, not the canonical `league_per_100`
+    scale, and that is deliberate: this figure answers "has this player's
+    own number moved over the season?", a different analytical question from
+    "where does this player sit in the league?". Forcing the league domain
+    onto it would render almost every player's trend as a flat line in the
+    middle of an empty chart -- consistent, and useless.
+
+    Because the exception is real, it has to be paid for honestly. A reader
+    must never be able to cross-read this figure against a leaderboard bar
+    as though they shared a scale. The compensations this figure owes, per
+    the approved decision:
+
+      * zero always drawn and explicitly identified            (done today)
+      * at least three meaningful y-axis ticks                  (Phase 4)
+      * the unit displayed on the axis                          (Phase 4)
+      * a faint band showing the canonical league range         (Phase 4)
+      * y-axis labels >= 12 CSS px after mobile scaling         (Phase 4)
+      * an accessible textual description of the shape          (Phase 4)
+      * no styling implying it shares the leaderboard's scale   (Phase 4)
+
+    Phase 1 records the exception; Phase 4 rebuilds the figure and discharges
+    the rest. Do NOT "fix" this to the league domain in the meantime -- that
+    is not a bug. See docs/design/zero-spine-implementation-plan.md § 1.12.
     """
     if not points:
         return '<p class="trend-empty">No historical snapshots available yet.</p>'

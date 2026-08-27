@@ -43,12 +43,12 @@
       <div class="homepage-proof-rows">
         <div class="homepage-proof-row">
           <span class="homepage-proof-row-label">Expected RV</span>
-          <span class="demo-rv-value demo-rv-value-expected">{{ "%+.2f"|format(ex.expected_run_value) }}</span>
+          <span class="demo-rv-value demo-rv-value-expected">{{ ex.expected_run_value | signed }}</span>
         </div>
         <div class="homepage-proof-row">
           <span class="homepage-proof-row-label">Contact Luck</span>
           <span class="demo-luck-figure homepage-proof-figure {{ 'interval-positive' if ex.favorable else 'interval-negative' }}">
-            {{ "%+.2f"|format(ex.contact_luck_runs) }}
+            {{ ex.contact_luck_runs | signed }}
           </span>
         </div>
       </div>

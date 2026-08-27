@@ -1,5 +1,11 @@
 <!doctype html>
-<html lang="en">
+{# `--cl-zero` is the Zero Spine's single zero locus (Invariant Z): the
+   fraction of a plot field at which the canonical `league_per_100` scale
+   places zero, computed once per build in `dashboard/build.py` from the
+   qualified comparison population. Every zero-centred instrument registers
+   against it, so CSS and the build-time SVG can never disagree about where
+   zero is. It is a layout percentage, not a derived statistic. #}
+<html lang="en" style="--cl-zero: {{ cl_zero_fraction_css }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -26,9 +26,9 @@
         data-bbe="{{ row.bbe }}" data-games="{{ row.games }}" data-interval-width="{{ row.interval_width }}">
       <td class="rank-cell numeric">{{ row.official_rank }}</td>
       <td><a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a></td>
-      <td class="numeric">{{ "%.2f"|format(row.score) }}</td>
+      <td class="numeric">{{ row.score | signed }}</td>
       <td class="interval-col">{{ row.interval_svg | safe }}</td>
-      <td class="numeric hide-mobile">{{ "%.1f"|format(row.total_runs) }}</td>
+      <td class="numeric hide-mobile">{{ row.total_runs | signed(1) }}</td>
       <td class="numeric hide-mobile">{{ row.bbe }}</td>
       <td class="numeric hide-mobile">{{ row.games }}</td>
       <td class="numeric hide-mobile">{{ "%.1f"|format(row.interval_width) }}</td>

@@ -56,7 +56,7 @@
         {% endfor %}
       </div>
       <p class="demo-rv-line">Expected run value:
-        <span class="demo-rv-value demo-rv-value-expected">{{ "%+.2f"|format(example.expected_run_value) }}</span>
+        <span class="demo-rv-value demo-rv-value-expected">{{ example.expected_run_value | signed }}</span>
       </p>
     </div>
 
@@ -64,7 +64,7 @@
       <h3>Reality</h3>
       <p class="demo-outcome">Result: <strong>{{ example.outcome_label }}</strong></p>
       <p class="demo-rv-line">Observed run value:
-        <span class="demo-rv-value demo-rv-value-observed">{{ "%+.2f"|format(example.observed_run_value) }}</span>
+        <span class="demo-rv-value demo-rv-value-observed">{{ example.observed_run_value | signed }}</span>
       </p>
       <p class="demo-des">&ldquo;{{ example.description }}&rdquo;</p>
     </div>
@@ -72,15 +72,15 @@
     <div class="demo-stage" data-stage="4">
       <h3>Contact Luck</h3>
       <div class="demo-luck-diff">
-        <span class="demo-rv-value demo-rv-value-expected">{{ "%+.2f"|format(example.expected_run_value) }}</span>
+        <span class="demo-rv-value demo-rv-value-expected">{{ example.expected_run_value | signed }}</span>
         <span class="demo-luck-arrow" aria-hidden="true">&rarr;</span>
-        <span class="demo-rv-value demo-rv-value-observed">{{ "%+.2f"|format(example.observed_run_value) }}</span>
+        <span class="demo-rv-value demo-rv-value-observed">{{ example.observed_run_value | signed }}</span>
       </div>
       <span class="demo-luck-badge {{ 'demo-luck-badge-favorable' if example.contact_luck_runs >= 0 else 'demo-luck-badge-unfavorable' }}">
         {{ "Favorable" if example.contact_luck_runs >= 0 else "Unfavorable" }}
       </span>
       <p class="demo-luck-figure {{ 'interval-positive' if example.contact_luck_runs >= 0 else 'interval-negative' }}">
-        {{ "%+.2f"|format(example.contact_luck_runs) }} runs
+        {{ example.contact_luck_runs | signed }} runs
       </p>
       <p class="demo-explanation">{{ example.explanation }}</p>
     </div>

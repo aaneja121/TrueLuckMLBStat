@@ -37,10 +37,10 @@
   </div>
   <div>
     <div class="player-hero-figure {{ 'interval-positive' if player.score >= 0 else 'interval-negative' }}">
-      {{ "%+.2f"|format(player.score) }} runs / 100
+      {{ player.score | signed }} runs / 100
     </div>
     <p class="player-meta" style="margin-top:2px;">
-      95% interval: [{{ "%+.2f"|format(player.lower) }}, {{ "%+.2f"|format(player.upper) }}]
+      95% interval: [{{ player.lower | signed }}, {{ player.upper | signed }}]
     </p>
     <p class="player-orientation">
       Runs / 100 compares the run value of this player's realized eligible batted-ball outcomes
@@ -52,11 +52,37 @@
 </div>
 
 {{ player.interval_svg | safe }}
+{% if player.interval_clip_state != "none" %}
+{# Redesign Phase 1, decision D1a: this page is drawn on the ONE canonical
+   league scale, built from the qualified comparison population, and that
+   scale never widens for a single page -- widening it would move the zero
+   line and make this page unreadable against the leaderboard. A small-sample
+   interval wider than the league's therefore runs off the edge of the
+   drawing. The caret marks where it continues; this line states, in text,
+   what the drawing cannot: the true numbers, which are printed above, are
+   the real ones. Without it a missing point dot has no explanation. #}
+<p class="interval-clip-note">
+  {% if player.interval_point_state != "in" %}
+    This player's Contact Luck of <strong>{{ player.score | signed }} runs / 100</strong> lies
+    {{ player.interval_point_state }} the league-wide scale drawn above, which covers
+    {{ player.scale_domain_min | signed }} to {{ player.scale_domain_max | signed }}. The
+    marker at the {{ "left" if player.interval_point_state == "below" else "right" }} edge shows
+    the direction it lies in — it is not the value. Small samples produce values and intervals
+    far wider than the range of qualified hitters; the scale is the same one every player is
+    drawn on, so it is not widened to fit one page.
+  {% else %}
+    The interval above is cut off at the edge of the league-wide scale{% if player.interval_clip_state == "both" %} on both sides{% endif %}:
+    it is wider than the range covered by qualified hitters, so it continues beyond what is
+    drawn. The point estimate itself is on the scale.
+  {% endif %}
+  The figures above are the actual point estimate and interval.
+</p>
+{% endif %}
 
 <div class="stat-grid">
   <div class="stat-card">
     <div class="stat-label">Total Contact Luck Runs</div>
-    <div class="stat-value">{{ "%+.1f"|format(player.total_runs) }}</div>
+    <div class="stat-value">{{ player.total_runs | signed(1) }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Eligible BBE</div>
@@ -88,7 +114,7 @@
     {% for row in component_value_rows %}
     <tr>
       <td>{{ row.label }}</td>
-      <td class="numeric">{{ "%+.2f"|format(row.value) if row.value is not none else "—" }}</td>
+      <td class="numeric">{{ row.value | signed }}</td>
     </tr>
     {% endfor %}
   </tbody>

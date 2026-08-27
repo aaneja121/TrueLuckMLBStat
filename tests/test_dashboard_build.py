@@ -154,7 +154,12 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        assert "<title>5.25 runs/100 (95% interval: 1.10 to 9.40)</title>" in html
+        # Redesign Phase 1: Contact Luck values now carry an explicit sign
+        # wherever they are stated, including in the accessible text -- the
+        # sign glyph is the non-colour channel for the favorable/unfavorable
+        # pair, and a screen reader never receives the colour. This is a
+        # deliberate presentation change, not a formatting drift.
+        assert "<title>+5.25 runs/100 (95% interval: +1.10 to +9.40)</title>" in html
 
     def test_component_status_reason_codes_propagate_to_player_page(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -511,9 +516,12 @@ class TestIntervalDomainConsistency:
         # identical to where a much-less-negative value would also clamp.
         # Confirm no clamping happened: Bob's lower bound must sit strictly
         # inside the drawable area, not pinned to the margin.
-        compact_width, compact_margin = 220, 10
-        assert bob_pos["lower"] > compact_margin + 0.5
-        assert bob_pos["lower"] < compact_width - compact_margin
+        # The drawable area is now the full viewBox (no internal margin),
+        # so "not clamped" means strictly inside 0..width rather than
+        # strictly inside the old inset.
+        compact_width = 220
+        assert bob_pos["lower"] > 0.5
+        assert bob_pos["lower"] < compact_width
 
         # And the point estimate must sit at its mathematically correct
         # proportional location within Bob's own CI.
@@ -550,18 +558,24 @@ class TestIntervalDomainConsistency:
         row_pos = _bar_positions(row_svg)
         player_pos = _bar_positions(player_svg)
 
-        compact_width, compact_margin = 220, 10
-        full_width, full_margin = 480, 28
+        # Redesign Phase 1 (Invariant Z): the renderer contributes no
+        # horizontal margin, so a position's fraction is simply its share of
+        # the viewBox width. The previous margins (10 on the 220-wide bar,
+        # 28 on the 480-wide one) are exactly why this assertion needed a
+        # 1e-3 tolerance: they placed the same data's zero at 0.4630 and
+        # 0.4640 of width. The two now agree to the emitted coordinate
+        # precision, so the tolerance tightens.
+        compact_width = 220
+        full_width = 480
 
-        def fractions(pos: dict[str, float], width: int, margin: int) -> dict[str, float]:
-            inner_w = width - 2 * margin
-            return {k: (v - margin) / inner_w for k, v in pos.items()}
+        def fractions(pos: dict[str, float], width: int) -> dict[str, float]:
+            return {k: v / width for k, v in pos.items()}
 
-        row_fractions = fractions(row_pos, compact_width, compact_margin)
-        player_fractions = fractions(player_pos, full_width, full_margin)
+        row_fractions = fractions(row_pos, compact_width)
+        player_fractions = fractions(player_pos, full_width)
 
         for key in ("zero", "lower", "point", "upper"):
-            assert row_fractions[key] == pytest.approx(player_fractions[key], abs=1e-3), (
+            assert row_fractions[key] == pytest.approx(player_fractions[key], abs=5e-4), (
                 f"{key} fraction differs between leaderboard row "
                 f"({row_fractions[key]:.4f}) and player detail page "
                 f"({player_fractions[key]:.4f}) -- they must share one scale"

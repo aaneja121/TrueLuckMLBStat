@@ -38,8 +38,12 @@
 
   function formatSigned(value) {
     if (value === null || value === undefined) return "—";
+    // Redesign Phase 1 numeric primitive: explicit sign, and U+2212 MINUS
+    // SIGN rather than ASCII hyphen-minus, so signed Contact Luck / run
+    // values align in a tabular-figure column and read identically to the
+    // build-time `signed` Jinja filter in dashboard/build.py.
     var sign = value >= 0 ? "+" : "";
-    return sign + value.toFixed(2);
+    return sign + value.toFixed(2).replace("-", "\u2212");
   }
 
   function humanizeBbType(bbType) {

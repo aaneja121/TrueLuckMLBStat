@@ -101,7 +101,12 @@ class TestDemoPageBuild:
         html = (tmp_path / "dist" / "demo" / "index.html").read_text()
         assert 'data-example-id="hard_contact_out"' in html
         assert 'data-example-id="weak_contact_single"' in html
-        assert "-1.55 runs" in html
+        # Redesign Phase 1 numeric primitive: signed Contact Luck / run
+        # values render with U+2212 MINUS SIGN, not ASCII hyphen-minus,
+        # so they align in a tabular-figure column. Asserted with the
+        # real glyph so a silent regression to "-" fails here.
+        assert "\u22121.55 runs" in html
+        assert "-1.55 runs" not in html
         assert "+0.71 runs" in html
         assert "The contact was worth more than the recorded outcome." in html
         assert (
@@ -275,7 +280,12 @@ class TestSimulatorSectionBuild:
         html = self._build(tmp_path)
         assert "Why Contact Luck Exists" in html
         assert 'data-role="demo-play-all"' in html
-        assert "-1.55 runs" in html
+        # Redesign Phase 1 numeric primitive: signed Contact Luck / run
+        # values render with U+2212 MINUS SIGN, not ASCII hyphen-minus,
+        # so they align in a tabular-figure column. Asserted with the
+        # real glyph so a silent regression to "-" fails here.
+        assert "\u22121.55 runs" in html
+        assert "-1.55 runs" not in html
         assert "+0.71 runs" in html
 
     def test_both_reference_plays_are_selectable(self, tmp_path: Path) -> None:
