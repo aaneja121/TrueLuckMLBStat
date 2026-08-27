@@ -294,8 +294,13 @@ middle of an empty chart — technically consistent, practically useless.
 explicitly — always draw and label the zero line, render ≥3 explicit y tick values with the
 unit, and add a faint `league_per_100` range band behind the plot so the reader can see how
 much of the league range this view covers. The trend is then visibly its own scale rather than
-silently a different one. **This is a deliberate exception to shared-scale and needs your
-sign-off (G2).**
+silently a different one.
+
+**Decision D2 is approved**: the trend keeps its player-specific y-domain as a declared
+exception to shared-scale. The *rendered* sign-off is gate **G2**, and it sits at the end of
+**Phase 4, not Phase 1** — Phase 1 establishes the primitive, the tokens and the canonical
+domain rule, but it does not revise the trend chart, so in Phase 1 there is nothing rendered
+to approve. What G2 checks is listed in Phase 4, item 15.
 
 ---
 
@@ -514,7 +519,22 @@ Common to every phase — stated once rather than repeated sixteen times:
     identical markup across pages; measure build time before and after.
 15. **Completion criteria.** Cross-route spine registration verified by measurement, not by
     eye; unqualified and near-zero states reviewed; `make check` green; screenshots approved
-    (**G5**).
+    (**G5**); and the trend chart's declared exception approved as rendered (**G2**, relocated
+    here from Phase 1). G2 is checked on a rendered trend chart at 1440 / 1280 / 390 in both
+    themes, and verifies:
+    - the **player-specific y-domain is retained** — D2 stands, and the league domain is never
+      forced onto the trend;
+    - **zero is always visible** — drawn, labelled, and inside the y-range on every player;
+    - **≥ 3 meaningful y tick values** are rendered, not just the endpoints;
+    - the **unit is visible on the figure** (`runs / 100`), not only in surrounding prose;
+    - the faint **`league_per_100` range band** is drawn behind the plot as context, so the
+      reader can see how much of the league range this view covers;
+    - every **mobile label holds ≥ 12 CSS px** after viewBox scaling at 390, or the chart
+      degrades to the sparkline form in item 9;
+    - the **accessible description** states value, date and unit per point;
+    - **nothing in the figure implies the trend shares the leaderboard's scale** — no borrowed
+      spine styling, no shared axis chrome, and the exception is stated in the figure's own
+      caption or label.
 16. **Dependencies.** Phases 1–3 (the leaderboard defines the axis this page must match).
 
 ---
@@ -742,14 +762,18 @@ themes:
 | Gate | After | What you are approving |
 |---|---|---|
 | **G1** | Phase 1 | The `overflow-wrap` test reversal, and the two-grade token set |
-| **G2** | Phase 1 | The trend's declared exception, rendered |
 | **G3** | Phase 3 | **V1 vs V2 value placement** — the single most consequential visual choice |
 | **G4** | Phase 3 | The leaderboard as a whole: axis, distribution strip, spine, density |
+| **G2** | Phase 4 | The trend's declared exception, rendered — criteria in Phase 4, item 15 |
 | **G5** | Phase 4 | The player hero, and the unqualified/near-zero/clipped states |
 | **G6** | Phase 5 | Explore as a discovery instrument rather than a filter form |
 | **G7** | Phase 6 | The play page's run-value instrument and what gets no spine |
 | **G8** | Phase 7 | `/status/` replacement and the untouched demo |
 | **G9** | Phase 8 | Final anti-vibecode review across all eight routes |
+
+The table is ordered by phase, not by gate number: **G2 was relocated from Phase 1 to Phase 4**
+because the trend chart is not revised until the player page is rebuilt, so Phase 1 renders
+nothing for it to approve. Decision **D2** itself is settled and is not part of this gate.
 
 ---
 
@@ -758,7 +782,7 @@ themes:
 ```
 D1, D2  →  Phase 1  →  Phase 2  →  Phase 3  →  Phase 4  →  Phase 5  →  Phase 6  →  Phase 7  →  Phase 8
 decisions  foundation   shell      leaderboard   player     explore      play      demo/meth/status  polish
-           G1, G2                   G3, G4        G5          G6           G7            G8            G9
+           G1                       G3, G4        G2, G5      G6           G7            G8            G9
 ```
 
 Phase 3 is the pivot: it is where the direction either works or does not, and it is the

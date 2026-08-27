@@ -73,6 +73,10 @@ and above, `+0.06em` on uppercase micro-labels, `0` everywhere else.
 - Contact Luck values always carry an explicit sign: `+7.62`, `−6.41`, `±0.00`. The sign is
   the **non-colour channel** for the semantic pair.
 - Use the true minus **U+2212**, never a hyphen, so `−6.41` and `+7.62` align in a column.
+- **Explicit signs are scoped to signed quantities.** Contact Luck and run-value figures get
+  the `+`/`−` treatment because their sign is the reading; unsigned quantities — exit
+  velocity, launch angle, probabilities, percentages, interval width, counts — never do. A
+  `+` on a quantity that cannot be negative reads as a claim about direction that isn't there.
 - Precision is fixed per quantity, never per context: per-100 → 2 dp; total runs → 1 dp;
   counts → integer; probabilities → 1 dp percent.
 - Intervals render one scale step below their point estimate, in brackets, on the same unit.
