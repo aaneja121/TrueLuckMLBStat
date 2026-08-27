@@ -153,11 +153,21 @@ class TestZeroSpineRegistration:
         assert "cl-axis-figure" in head
 
     def test_axis_and_rows_share_one_grid_track(self) -> None:
+        """Ticks, distribution strip and every row's field are the SAME track
+        of the same grid -- which is what makes them register by construction
+        rather than by arithmetic that happens to agree."""
         css = _css()
-        axis = css.split(".cl-axis-figure {", 1)[1].split("}", 1)[0]
-        field = css.split(".verdict-inner .cl-scale-field {", 1)[1].split("}", 1)[0]
-        assert "grid-column: 2" in axis
-        assert "grid-column: 2" in field
+
+        def track(selector: str) -> str:
+            block = css.split(selector, 1)[1].split("}", 1)[0]
+            return re.search(r"grid-column:\s*([^;]+);", block).group(1).strip()
+
+        assert (
+            track(".cl-axis-figure {")
+            == track(".cl-distribution {")
+            == track(".verdict-inner .cl-scale-field {")
+            == "1"
+        )
 
     def test_no_geometry_is_derived_by_arithmetic(self) -> None:
         css = _css()
@@ -206,7 +216,6 @@ class TestVerdictCell:
         body = home.split('id="lb-favorable"', 1)[1].split("<tbody>", 1)[1]
         start = body.find('data-player-name="Jake Burger"')
         row = body[start : start + 2000]
-        assert 'data-sign="neg"' in row
         assert "is-unfavorable" in row
         assert "cl-scale-unfavorable" in row
 
@@ -224,39 +233,43 @@ class TestVerdictCell:
         assert "data-crosses" not in css
 
 
-class TestValuePlacementVariants:
-    """Both variants ship until gate G3 is decided; neither is user-facing."""
+class TestValuePlacement:
+    """Gate G3 is decided: V1 ships, V2 is gone.
 
-    def test_both_variants_exist(self) -> None:
+    V1 is one fixed-width numeral box after the plot field, right-aligned at
+    a constant x. V2 -- sign-aware margins on either side of the field -- was
+    rejected because a mixed-sign sort scatters the numerals across two
+    columns. See `docs/design/tables.md` § Value placement.
+    """
+
+    def test_the_rejected_variant_left_nothing_behind(self) -> None:
         css = _css()
-        assert '[data-value-placement="v2"]' in css
-        assert "--lb-lead" in css
+        js = APP_JS.read_text()
+        for leftover in ("value-placement", "--lb-lead", "data-sign"):
+            assert leftover not in css, leftover
+            assert leftover not in js, leftover
 
-    def test_v2_reserves_the_lead_track_so_the_field_never_moves(self) -> None:
-        """The failure this guards is subtle and fatal: if V2 simply moved
-        the numeral before the field on unfavorable rows, those rows' plot
-        fields would start further right than favorable rows' and the spine
-        would register against nothing.
+    def test_the_numeral_is_one_fixed_width_box_after_the_field(self) -> None:
+        css = _css()
+        value = css.split("\n.verdict-value {", 1)[1].split("}", 1)[0]
+        assert "grid-column: 2" in value
+        assert "text-align: right" in value
+
+    def test_the_field_is_the_first_track_so_nothing_can_shift_it(self) -> None:
+        """The failure this guards is subtle and fatal: anything reserved to
+        the LEFT of the plot field moves that row's field off the shared
+        percentage basis, and the spine registers against nothing.
         """
         css = _css()
-        switch = css.split('[data-value-placement="v2"]', 1)[1].split("}", 1)[0]
-        assert "--lb-lead" in switch
         # The grid declaration, not one of the later per-breakpoint overrides.
         inner = re.search(r"\n\.verdict-inner \{([^}]*grid-template-columns[^}]*)\}", css).group(1)
-        assert "var(--lb-lead)" in inner
-        # The field is track 2 in BOTH variants -- nothing re-orders it.
+        tracks = inner.split("grid-template-columns:", 1)[1].split(";", 1)[0].split()
+        assert tracks[0] == "minmax(0,"
         assert (
-            "grid-column: 2" in css.split(".verdict-inner .cl-scale-field {", 1)[1].split("}", 1)[0]
+            "grid-column: 1" in css.split(".verdict-inner .cl-scale-field {", 1)[1].split("}", 1)[0]
         )
 
-    def test_the_variant_switch_is_development_only(self) -> None:
-        js = APP_JS.read_text()
-        assert "value-placement" in js
-        assert "localStorage" in js
-        # No control is rendered anywhere.
-        assert "data-role='value-placement'" not in js
-
-    def test_no_variant_places_a_value_at_an_interval_endpoint(self) -> None:
+    def test_no_value_sits_at_an_interval_endpoint(self) -> None:
         css = _css()
         value = css.split(".verdict-value {", 1)[1].split("}", 1)[0]
         assert "--cl-pt" not in value

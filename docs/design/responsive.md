@@ -14,7 +14,7 @@ inside them — see § Content-driven component breakpoints.
 | Element | Desktop | Laptop | Narrow | Mobile |
 |---|---|---|---|---|
 | **Navigation** (application header — **switches at 1100, not 1024**; see below) | Inline row, search inline | Inline row, search inline — field narrows, zone rules tighten, field label goes visually hidden | Identity + provenance / routes in one row / full-width search, as three ruled lines | Disclosure menu, 44 px targets, search as a full-screen sheet. **Never a two-row wrap.** |
-| **Leaderboard** | 6 columns, merged verdict cell | Evidence tier merges to one sample cell | Two-line ruled row | Two-line ruled row |
+| **Leaderboard** | 6 columns, merged verdict cell | Evidence tier merges to one sample cell | Three-line ruled row; spine segmented (`docs/design/tables.md`) | Three-line ruled row; axis rail and distribution strip drop below 768 |
 | **Tables (general)** | `min-width` contract + visible scroll affordance | same | same | Re-authored form, not a squeeze |
 | **Player header** | 8/4 split; score and interval share a baseline | same | Stacked; interval stays attached to the score | same |
 | **Charts** | Full figure | Full figure | Re-authored viewBox | Simplified form (sparkline + endpoints) |

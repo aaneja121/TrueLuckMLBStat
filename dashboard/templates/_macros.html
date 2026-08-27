@@ -62,7 +62,7 @@
        26px wrong and the error happened to cancel at this zero fraction.
        Here the ticks, the distribution and every row's plot field are the
        same table column laid out by the same grid tracks, so they cannot
-       disagree at any width, in any variant, for any domain. #}
+       disagree at any width, for any domain. #}
     <tr class="cl-axis-row" aria-hidden="true">
       <td colspan="2"></td>
       <td class="col-verdict">
@@ -137,13 +137,11 @@
       </td>
 
       {# ── The verdict cell ──────────────────────────────────────────────
-         One cell, one statement. The numeral and the mark are siblings in a
-         flex row, so V1 and V2 differ only by the numeral's `order` and
-         alignment -- the same DOM, one value node, no duplicated text for a
-         screen reader, and a constant x in both variants regardless of how
-         the table is sorted. #}
-      <td class="col-verdict verdict {{ 'is-favorable' if row.favorable else 'is-unfavorable' }}"
-          data-sign="{{ 'pos' if row.favorable else 'neg' }}">
+         One cell, one statement. The numeral and the mark are grid siblings
+         in the same cell -- one value node, no duplicated text for a screen
+         reader, and a numeral at a constant x however the table is sorted
+         (value placement V1, settled at gate G3). #}
+      <td class="col-verdict verdict {{ 'is-favorable' if row.favorable else 'is-unfavorable' }}">
         <div class="verdict-inner">
           <span class="verdict-value num">{{ row.score | signed }}</span>
           <div class="cl-scale-field {{ 'cl-scale-favorable' if row.favorable else 'cl-scale-unfavorable' }}"

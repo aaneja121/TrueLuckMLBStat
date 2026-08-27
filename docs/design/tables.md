@@ -43,16 +43,81 @@ they are four tiers.
 
 ---
 
+## Value placement — settled at V1 (gate G3)
+
+**Decision: V1.** One fixed-width numeral box after the plot field, right-aligned at a
+constant x for all 124 rows. Sign is carried three ways — the explicit `+` / `−` (U+2212)
+glyph, the mark's colour, and the mark's side of the spine.
+
+**V2 was built, rendered, and rejected.** V2 aligned unfavorable numerals at a constant x on
+the field's left margin and favorable numerals at a constant x on its right, making the
+alignment itself a sign cue. It is genuinely more elegant *under the default sort*, where the
+rows within a ranking are almost all one sign. It fails under any mixed-sign sort: re-sorting
+by BBE interleaves the signs, the numerals alternate between two columns down the page, and
+exact-value scanning — the thing the numeral exists for — degrades exactly when it matters
+most. Value position must not depend on sort order (§ 1.6 of
+`docs/design/zero-spine-implementation-plan.md`), and V2 makes value *column* depend on it.
+
+The division of labour is the reason V1 wins rather than a taste call:
+
+| Read | Carried by |
+|---|---|
+| Where this hitter sits in the league, and how wide the uncertainty is | The Zero Spine field — position against a shared scale |
+| What the number actually is, comparable down the column | The fixed numeral column — one x, tabular figures, decimals aligned |
+
+V2 asks the spine's coordinate space to do the numeral's job too. V1 keeps the two reads on
+two devices.
+
+**Consequences, now enforced by `tests/test_dashboard_leaderboard.py`:**
+
+- The plot field is the **first track** of the verdict cell at every width. Nothing is
+  reserved to its left, so no row's field can start further right than another's — which is
+  the failure mode that would silently destroy the shared percentage basis the spine
+  registers against.
+- No development-only variant switch ships. The `?value-placement=` query parameter, its
+  `localStorage` key, the `--lb-lead` reserved track and the `data-sign` row attribute all
+  existed only to serve V2 and are gone.
+- Neither variant ever placed a numeral at an interval endpoint, and that stays banned: the
+  numeral's x is a constant, never a function of `--cl-lo` / `--cl-hi` / `--cl-pt`.
+
+---
+
 ## Mobile leaderboard
 
-Not "fewer columns" — a different row structure. A two-line ruled row:
+Not "fewer columns" — a different row structure. As shipped, a **three-line** ruled row, one
+job per line:
 
 ```
- 1   Pete Crow-Armstrong                        +7.62
-     321 BBE · 120 G          |———●————|   (shared zero axis)
+ 1   Pete Crow-Armstrong
+     |————●————|                              +7.62
+     321 BBE · 120 G
 ```
 
-The name owns a full-width line, so mid-word breaks become structurally impossible.
+This is a declared departure from the two-line sketch this file originally carried, which put
+the numeral on the name's line and the field on the evidence line. That sketch splits the
+verdict across two lines and contradicts rule 1 above — the point estimate and its interval
+are one statement in one cell. The stronger rule wins: value and field stay adjacent on one
+line. Every property the two-line row was buying survives, because the name still owns a
+full-width line, so mid-word breaks remain structurally impossible.
+
+### Zero registration is segmented on mobile — intentionally
+
+**The invariant is: every verdict field registers zero at the same x.** It holds at 390: the
+row grid gives every field the same content column, so the spine segments all land on one x
+and read as a single rule down the page.
+
+**The invariant is not: the amber rule must be physically unbroken from the first row to the
+last.** At mobile the spine is drawn per field and bleeds over the row's vertical padding, so
+consecutive verdict lines abut — but the name line and the evidence line sit between them and
+carry no spine. The rule is therefore *segmented*: continuous through the data, interrupted by
+identity and apparatus.
+
+That is the correct behaviour, not a defect to fix. Drawing the spine through the player-name
+line to buy literal continuity would put a measurement rule through a text field that has no
+position on the scale — a mark that means nothing where it is drawn, which design principle 5
+prohibits. **Do not restore literal continuity at mobile.** Above 768 the question does not
+arise: the axis rail and the distribution strip are present, the rows are one line each, and
+the spine runs unbroken from the tick labels to the last hitter.
 
 Measured against the **full 628-player set**, not just the 124 qualified: the longest name
 is "Christian Encarnacion-Strand" (28 characters). At 390 px the name line has **310 px**

@@ -218,6 +218,11 @@ Two aligned columns, and the alignment itself becomes a sign cue. Elegant under 
 sort; noisier under a re-sort, when values alternate sides. Worth seeing rendered before
 choosing. **Approval gate G3.**
 
+> **G3 is decided: V1 ships, V2 is removed.** Rendered at 1440 and 390 in both themes, V2's
+> alternating margins made a mixed-sign sort (by BBE) hard to scan, which is the failure this
+> very section warns about. The variant switch, `--lb-lead` and `data-sign` are gone. Full
+> rationale: `docs/design/tables.md` § Value placement — settled at V1 (gate G3).
+
 Optional polish either way: on row hover/focus, a hairline leader from dot to numeral.
 
 ### 1.7 Very-near-zero behaviour
@@ -762,7 +767,7 @@ themes:
 | Gate | After | What you are approving |
 |---|---|---|
 | **G1** | Phase 1 | The `overflow-wrap` test reversal, and the two-grade token set |
-| **G3** | Phase 3 | **V1 vs V2 value placement** — the single most consequential visual choice |
+| **G3** ✅ | Phase 3 | **V1 vs V2 value placement** — the single most consequential visual choice. **Decided: V1** (`docs/design/tables.md` § Value placement) |
 | **G4** | Phase 3 | The leaderboard as a whole: axis, distribution strip, spine, density |
 | **G2** | Phase 4 | The trend's declared exception, rendered — criteria in Phase 4, item 15 |
 | **G5** | Phase 4 | The player hero, and the unqualified/near-zero/clipped states |

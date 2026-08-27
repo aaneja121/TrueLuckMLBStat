@@ -5,32 +5,6 @@
 (function () {
   "use strict";
 
-  // ══ Value-placement variant · development only ═══════════════════════════
-  // Redesign Phase 3, approval gate G3. V1 and V2 are the two candidate value
-  // placements; both ship so they can be compared on real data at real
-  // widths. There is deliberately NO user-facing control -- this reads a
-  // query parameter or a remembered choice and writes one attribute.
-  // Removed once the placement is chosen.
-  function initValuePlacementVariant() {
-    var allowed = { v1: true, v2: true };
-    var choice = null;
-    try {
-      var q = new URLSearchParams(window.location.search).get("value-placement");
-      if (q && allowed[q]) {
-        choice = q;
-        window.localStorage.setItem("cl-value-placement", q);
-      } else {
-        choice = window.localStorage.getItem("cl-value-placement");
-      }
-    } catch (err) {
-      choice = null;
-    }
-    document.documentElement.setAttribute(
-      "data-value-placement",
-      allowed[choice] ? choice : "v1"
-    );
-  }
-
   // ══ Official ranking tabs ════════════════════════════════════════════════
   // Real `role="tablist"` buttons with a roving tabindex, replacing a pair of
   // `display:none` radios that were absent from the accessibility tree AND
@@ -534,7 +508,6 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    initValuePlacementVariant();
     initRankingTabs();
     initLeaderboardSort();
     initLeaderboardFilter();

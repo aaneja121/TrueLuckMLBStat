@@ -139,10 +139,8 @@
      table column and a sibling div agree, both derive their offset and
      width from these numbers.
 
-     `--lb-lead` is the reserved slot to the LEFT of the plot field. It is
-     zero in V1 and one value-box wide in V2 -- which is what keeps V2 from
-     moving the field on unfavorable rows and silently destroying the shared
-     basis it is supposed to register against. */
+     The plot field is the FIRST track of the verdict cell at every width,
+     so nothing to its left can move it off the shared basis. */
   --lb-rank: 3.5rem;
   --lb-player: 15rem;
   --lb-evidence: 16rem;
@@ -151,12 +149,7 @@
   --lb-interval: 13ch;
   --lb-value-col: calc(var(--lb-value) + var(--sp-3));
   --lb-interval-col: calc(var(--lb-interval) + var(--sp-3));
-  --lb-lead: 0px;
 }
-
-/* Development-only variant switch (approval gate G3). Set by `app.js` from
-   `?value-placement=v2` or `localStorage`; no user-facing control ships. */
-:root[data-value-placement="v2"] { --lb-lead: var(--lb-value-col); }
 
 @media (max-width: 639px) {
   :root { --gutter: var(--sp-4); }
@@ -1058,7 +1051,7 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
    calculated anywhere. */
 .cl-axis-figure {
   position: relative;
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
   min-width: 0;
 }
@@ -1138,7 +1131,7 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
    read after, it is the same measurement the rows beneath are drawn from. */
 .cl-distribution {
   position: relative;
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
   height: 30px;
   min-width: 0;
@@ -1352,18 +1345,17 @@ table.leaderboard tbody tr[hidden] { display: none; }
 /* ══ The verdict cell ════════════════════════════════════════════════════
    ONE cell: the point estimate and the interval that qualifies it are one
    statement on the league-wide shared axis (docs/design/tables.md rule 1).
-   The numeral and the mark are flex siblings, so the two value-placement
-   variants differ only in `order` and text alignment -- same DOM, one value
-   node, and a constant x in both regardless of sort order. */
+   The numeral and the mark are grid siblings -- one value node, no
+   duplicated text for a screen reader, and a constant x regardless of how
+   the table is sorted. */
 td.verdict { padding: 0 var(--sp-3); }
 
-/* Four fixed tracks, no gaps: gaps live inside the value/interval boxes so
-   that a zero-width lead track in V1 does not shift the field by a gap. The
-   plot field is always track 2, always the same box. */
+/* Three fixed tracks, no gaps: gaps live inside the value/interval boxes so
+   nothing between the tracks can shift the field. The plot field is always
+   track 1, always the same box, at every width. */
 .verdict-inner {
   display: grid;
   grid-template-columns:
-    var(--lb-lead)
     minmax(0, 1fr)
     var(--lb-value-col)
     var(--lb-interval-col);
@@ -1378,7 +1370,7 @@ td.verdict { padding: 0 var(--sp-3); }
 .verdict-inner > * { grid-row: 1; }
 
 .verdict-value {
-  grid-column: 3;
+  grid-column: 2;
   align-self: center;
   padding-left: var(--sp-3);
   text-align: right;
@@ -1390,7 +1382,7 @@ td.verdict { padding: 0 var(--sp-3); }
 .verdict.is-unfavorable .verdict-value { color: var(--unfav-text); }
 
 .verdict-interval {
-  grid-column: 4;
+  grid-column: 3;
   align-self: center;
   padding-left: var(--sp-3);
   text-align: right;
@@ -1400,7 +1392,7 @@ td.verdict { padding: 0 var(--sp-3); }
 }
 
 .verdict-inner .cl-scale-field {
-  grid-column: 2;
+  grid-column: 1;
   min-width: 0;
   align-self: stretch;
 }
@@ -1449,23 +1441,22 @@ td.verdict { padding: 0 var(--sp-3); }
   z-index: 2;
 }
 
-/* ── V1 / V2 value placement ─────────────────────────────────────────────
-   Both variants ship behind a development-only switch (`?value-placement=`
-   or `localStorage`, see app.js). There is no user-facing control: this is
-   approval gate G3, not a preference.
+/* ── Value placement: SETTLED at V1 (approval gate G3) ───────────────────
+   One fixed-width numeral box after the field, right-aligned at one
+   constant x for all 124 rows. Decimals align down the whole column and the
+   numeral never moves, whatever the table is sorted by.
 
-   V1 (default): one fixed-width numeral box after the field, right-aligned
-   at one constant x for all 124 rows.
-   V2: two sign-aware margins -- unfavorable values align at a constant x on
-   the field's left, favorable at a constant x on its right. The alignment
-   itself becomes a sign cue. Neither variant places a value at an interval
-   endpoint, and neither moves when the table is re-sorted. */
-[data-value-placement="v2"] .verdict[data-sign="neg"] .verdict-value {
-  grid-column: 1;
-  padding-left: 0;
-  padding-right: var(--sp-3);
-  text-align: right;
-}
+   V2 -- two sign-aware margins, unfavorable numerals aligned on the field's
+   left and favorable on its right -- was built, rendered and REJECTED: the
+   alignment reads well only while the rows are mostly one sign, and sorting
+   by BBE (or anything else mixed-sign) scatters the numerals between two
+   columns exactly when exact-value scanning matters most. The division of
+   labour is the reason: the spine carries the distributional read, the
+   fixed numeral column carries the exact-value read. Its development-only
+   `?value-placement=` / `localStorage` switch and its `data-sign` hook are
+   gone with it. Rationale: `docs/design/tables.md` § Value placement.
+
+   Neither variant ever placed a value at an interval endpoint. */
 
 /* ══ Evidence ════════════════════════════════════════════════════════════
    One compressed sample cell rather than three columns of equal weight:
@@ -1689,26 +1680,15 @@ td.evidence {
     min-height: 0;
     align-items: center;
   }
-  .verdict-inner .cl-scale-field {
-    grid-column: 1;
-    min-height: 20px;
-  }
+  /* Only the interval track is dropped here; field and numeral keep the
+     track numbers they hold at every other width. */
+  .verdict-inner .cl-scale-field { min-height: 20px; }
   /* The segment must still bleed over the row's padding so the spine stays
      continuous through the transformation -- the property this phase is
      testing at 390. */
   .leaderboard .cl-scale-field::before {
     top: calc(-1 * var(--sp-2));
     bottom: calc(-1 * var(--sp-2));
-  }
-  .verdict-value { grid-column: 2; }
-  /* V2's sign-aware margins are a desktop device. At 390 there is one value
-     column, and alternating a number between two sides down a scanning list
-     would cost exactly the alignment V2 exists to buy. */
-  [data-value-placement="v2"] .verdict[data-sign="neg"] .verdict-value {
-    grid-column: 2;
-    padding-left: var(--sp-3);
-    padding-right: 0;
-    text-align: right;
   }
 
   .leaderboard td.evidence {
