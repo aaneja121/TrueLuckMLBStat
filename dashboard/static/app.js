@@ -5,50 +5,173 @@
 (function () {
   "use strict";
 
-  function initLeaderboardSort() {
-    var tables = document.querySelectorAll("table.leaderboard[data-sortable]");
-    Array.prototype.forEach.call(tables, function (table) {
-      var tbody = table.querySelector("tbody");
-      var labelSelector = table.getAttribute("data-sorted-label-target");
-      var label = labelSelector ? document.querySelector(labelSelector) : null;
-      var headers = table.querySelectorAll("th[data-sort-key]");
-      var currentSort = null;
+  // ══ Value-placement variant · development only ═══════════════════════════
+  // Redesign Phase 3, approval gate G3. V1 and V2 are the two candidate value
+  // placements; both ship so they can be compared on real data at real
+  // widths. There is deliberately NO user-facing control -- this reads a
+  // query parameter or a remembered choice and writes one attribute.
+  // Removed once the placement is chosen.
+  function initValuePlacementVariant() {
+    var allowed = { v1: true, v2: true };
+    var choice = null;
+    try {
+      var q = new URLSearchParams(window.location.search).get("value-placement");
+      if (q && allowed[q]) {
+        choice = q;
+        window.localStorage.setItem("cl-value-placement", q);
+      } else {
+        choice = window.localStorage.getItem("cl-value-placement");
+      }
+    } catch (err) {
+      choice = null;
+    }
+    document.documentElement.setAttribute(
+      "data-value-placement",
+      allowed[choice] ? choice : "v1"
+    );
+  }
 
-      Array.prototype.forEach.call(headers, function (th) {
-        th.addEventListener("click", function () {
-          var key = th.getAttribute("data-sort-key");
-          var type = th.getAttribute("data-sort-type") || "number";
-          var dir = currentSort && currentSort.key === key && currentSort.dir === "desc" ? "asc" : "desc";
-          currentSort = { key: key, dir: dir };
+  // ══ Official ranking tabs ════════════════════════════════════════════════
+  // Real `role="tablist"` buttons with a roving tabindex, replacing a pair of
+  // `display:none` radios that were absent from the accessibility tree AND
+  // the tab order. The two rankings are independent frozen orders; switching
+  // between them is navigation, not a filter, and neither is "worst."
+  function initRankingTabs() {
+    var groups = document.querySelectorAll("[data-role='ranking']");
+    Array.prototype.forEach.call(groups, function (group) {
+      var tabs = Array.prototype.slice.call(group.querySelectorAll("[role='tab']"));
+      if (!tabs.length) return;
 
-          var rows = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
-          rows.sort(function (a, b) {
-            var av = a.dataset[key];
-            var bv = b.dataset[key];
-            if (type === "number") {
-              av = parseFloat(av);
-              bv = parseFloat(bv);
-            }
-            if (av < bv) return dir === "asc" ? -1 : 1;
-            if (av > bv) return dir === "asc" ? 1 : -1;
-            return 0;
-          });
-          rows.forEach(function (row) {
-            tbody.appendChild(row);
-          });
-
-          if (label) {
-            label.textContent =
-              key === "officialRank"
-                ? ""
-                : "Sorted view — not the official Contact Luck ranking. " +
-                  "The official rank is preserved in its own column.";
+      function select(tab, moveFocus) {
+        tabs.forEach(function (t) {
+          var selected = t === tab;
+          t.setAttribute("aria-selected", selected ? "true" : "false");
+          t.tabIndex = selected ? 0 : -1;
+          var panel = document.getElementById(t.getAttribute("aria-controls"));
+          if (!panel) return;
+          if (selected) {
+            panel.removeAttribute("hidden");
+          } else {
+            panel.setAttribute("hidden", "");
           }
+        });
+        if (moveFocus) tab.focus();
+      }
+
+      tabs.forEach(function (tab, i) {
+        tab.addEventListener("click", function () {
+          select(tab, false);
+        });
+        tab.addEventListener("keydown", function (evt) {
+          var next = null;
+          if (evt.key === "ArrowRight" || evt.key === "ArrowDown") next = tabs[(i + 1) % tabs.length];
+          else if (evt.key === "ArrowLeft" || evt.key === "ArrowUp") next = tabs[(i - 1 + tabs.length) % tabs.length];
+          else if (evt.key === "Home") next = tabs[0];
+          else if (evt.key === "End") next = tabs[tabs.length - 1];
+          if (!next) return;
+          evt.preventDefault();
+          select(next, true);
         });
       });
     });
   }
 
+  // ══ Accessible sorting ═══════════════════════════════════════════════════
+  // The baseline bound a click handler to a bare `<th>`: mouse-only, outside
+  // the tab order, no `aria-sort`, no announcement. Here the control is a
+  // real button inside the header cell, `aria-sort` tracks the state, and a
+  // polite live region says what changed.
+  //
+  // Rank is a RESTORE, not a two-way toggle. Toggling its direction produced
+  // a reverse-rank order that reads like a ranking but is not the official
+  // one; there is now exactly one path back to the frozen order and it always
+  // means the same thing.
+  //
+  // Sorting is presentational: it reorders rows already rendered from the
+  // snapshot and never recomputes a score, a rank or an interval.
+  var SORTED_VIEW_LABEL =
+    "Sorted view — not the official Contact Luck ranking. " +
+    "The official rank is preserved in its own column.";
+
+  function initLeaderboardSort() {
+    var tables = document.querySelectorAll("table.leaderboard[data-sortable]");
+    Array.prototype.forEach.call(tables, function (table) {
+      var tbody = table.querySelector("tbody");
+      var headers = Array.prototype.slice.call(table.querySelectorAll("th[data-sort-key]"));
+      var label = document.querySelector(table.getAttribute("data-sorted-label-target"));
+      var status = document.querySelector(table.getAttribute("data-sort-status-target"));
+
+      function apply(th, dir) {
+        var key = th.getAttribute("data-sort-key");
+        var type = th.getAttribute("data-sort-type") || "number";
+        var restores = th.hasAttribute("data-sort-restores");
+
+        var rows = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
+        rows.sort(function (a, b) {
+          var av = a.dataset[key];
+          var bv = b.dataset[key];
+          if (type === "number") {
+            av = parseFloat(av);
+            bv = parseFloat(bv);
+          }
+          if (av < bv) return dir === "asc" ? -1 : 1;
+          if (av > bv) return dir === "asc" ? 1 : -1;
+          return 0;
+        });
+        rows.forEach(function (row) {
+          tbody.appendChild(row);
+        });
+
+        headers.forEach(function (h) {
+          h.setAttribute("aria-sort", "none");
+        });
+        th.setAttribute("aria-sort", dir === "asc" ? "ascending" : "descending");
+
+        // The three simultaneous expressions of sorted state
+        // (docs/design/tables.md rule 5): `aria-sort` above, the visible
+        // label, and the official accent leaving the rank column -- the last
+        // driven by this one attribute, which the stylesheet keys off.
+        if (restores) {
+          table.removeAttribute("data-sorted");
+          if (label) label.textContent = "";
+          if (status) status.textContent = "Official ranking restored, by rank ascending.";
+        } else {
+          table.setAttribute("data-sorted", "");
+          if (label) label.textContent = SORTED_VIEW_LABEL;
+          if (status) {
+            status.textContent =
+              "Sorted by " +
+              th.textContent.trim().split("\n")[0] +
+              ", " +
+              (dir === "asc" ? "ascending" : "descending") +
+              ". This is a sorted view, not the official ranking.";
+          }
+        }
+      }
+
+      headers.forEach(function (th) {
+        var button = th.querySelector("[data-role='sort']");
+        if (!button) return;
+        button.addEventListener("click", function () {
+          var restores = th.hasAttribute("data-sort-restores");
+          // The restore control has one direction, always. Everything else
+          // toggles, defaulting to descending -- "most of this first" is what
+          // a reader wants from a leaderboard column.
+          var dir;
+          if (restores) {
+            dir = "asc";
+          } else {
+            dir = th.getAttribute("aria-sort") === "descending" ? "asc" : "desc";
+          }
+          apply(th, dir);
+        });
+      });
+    });
+  }
+
+  // ══ Filter ═══════════════════════════════════════════════════════════════
+  // Same matching behaviour as the baseline, now with a real label, a result
+  // count in a polite live region, and an empty state that says what to do.
   function initLeaderboardFilter() {
     var inputs = document.querySelectorAll("input[data-role='leaderboard-filter']");
     Array.prototype.forEach.call(inputs, function (input) {
@@ -56,12 +179,36 @@
       var table = targetSelector ? document.querySelector(targetSelector) : null;
       if (!table) return;
       var tbody = table.querySelector("tbody");
+      var status = document.querySelector(input.getAttribute("data-status-target"));
+      var empty = document.querySelector(
+        "[data-role='filter-empty'][data-for-table='" + targetSelector + "']"
+      );
+
       input.addEventListener("input", function () {
-        var q = input.value.trim().toLowerCase();
+        var q = normalizeSearchText(input.value);
+        var shown = 0;
         Array.prototype.forEach.call(tbody.querySelectorAll("tr"), function (row) {
-          var name = (row.dataset.playerName || "").toLowerCase();
-          row.style.display = !q || name.indexOf(q) !== -1 ? "" : "none";
+          var name = normalizeSearchText(row.dataset.playerName || "");
+          var match = !q || name.indexOf(q) !== -1;
+          row.hidden = !match;
+          if (match) shown += 1;
         });
+        if (empty) {
+          if (shown === 0) {
+            empty.removeAttribute("hidden");
+          } else {
+            empty.setAttribute("hidden", "");
+          }
+        }
+        if (status) {
+          status.textContent = !q
+            ? ""
+            : shown === 0
+              ? "No hitters match."
+              : shown === 1
+                ? "1 hitter matches."
+                : shown + " hitters match.";
+        }
       });
     });
   }
@@ -387,6 +534,8 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    initValuePlacementVariant();
+    initRankingTabs();
     initLeaderboardSort();
     initLeaderboardFilter();
     initSiteNavDisclosure();

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -126,31 +127,119 @@ def _make_jinja_env() -> Environment:
     return env
 
 
-def _leaderboard_view_rows(
-    rows: list[c.LeaderboardRow], domain: tuple[float, float], root_prefix: str
+def _pct(fraction: float) -> str:
+    """A CSS percentage for the Zero Spine plot field.
+
+    Four decimals for the same reason `--cl-zero` carries four: at a ~900px
+    field, one decimal is a ~0.9px error, which is visible as a mark sitting
+    off the spine. Values are NOT clamped -- `.cl-scale-field` clips, and the
+    clip state is reported separately so the row can draw a caret.
+    """
+    return f"{fraction * 100:.4f}%"
+
+
+def _axis_ticks(scale: v.ZeroScale) -> list[dict[str, Any]]:
+    """Labelled tick positions for the leaderboard's shared axis header.
+
+    Rendered as HTML text at a real CSS size, deliberately not as SVG:
+    `docs/design/guardrails.md` anti-pattern 11 bans SVG text below 12 CSS px
+    after viewBox scaling, and a scaled axis label is exactly how the baseline
+    produced 5.5px tick text on mobile. HTML text does not scale with a
+    viewBox, so this surface cannot reproduce that defect.
+
+    Step is chosen so the axis carries roughly 5-9 ticks whatever the span,
+    always including zero. Zero is flagged so the header can mark it without
+    the template deciding what zero is.
+    """
+    span = scale.span
+    for step in (1.0, 2.0, 2.5, 5.0, 10.0, 20.0, 25.0, 50.0):
+        if span / step <= 9:
+            break
+    start = math.ceil(scale.domain_min / step) * step
+    ticks: list[dict[str, Any]] = []
+    value = start
+    while value <= scale.domain_max + 1e-9:
+        # `-0.0` formats as "-0.00"; normalise it away before it reaches a label.
+        clean = 0.0 if abs(value) < 1e-9 else value
+        ticks.append(
+            {
+                "value": clean,
+                "label": format_signed(clean, 0 if step >= 1 else 1),
+                "left": _pct(scale.fraction_of(clean)),
+                "is_zero": abs(clean) < 1e-9,
+            }
+        )
+        value += step
+    return ticks
+
+
+def _distribution_marks(
+    rows: list[c.LeaderboardRow], scale: v.ZeroScale
 ) -> list[dict[str, Any]]:
+    """Every qualified hitter as one mark on the shared axis.
+
+    This is the league distribution the reader should be able to READ before
+    reading any individual row (`docs/design/information-architecture.md`, the
+    10-second budget). It is the same scale and the same percentage basis the
+    rows below use, so the shape above and the rows beneath are literally the
+    same measurement -- not an illustration of it.
+    """
+    marks = []
+    for row in rows:
+        point = row.contact_luck_runs_per_100
+        marks.append(
+            {
+                "left": _pct(scale.clamped_fraction_of(point)),
+                "favorable": point >= 0,
+                "name": row.batter_name or f"Player {row.batter_id}",
+                "score": point,
+            }
+        )
+    return sorted(marks, key=lambda m: m["score"])
+
+
+def _leaderboard_view_rows(
+    rows: list[c.LeaderboardRow], scale: v.ZeroScale, root_prefix: str
+) -> list[dict[str, Any]]:
+    """One dict per ranked row, carrying LAYOUT PERCENTAGES rather than an SVG.
+
+    Redesign Phase 3. The leaderboard's interval bar was 124 independent
+    inline SVGs, each scaling on its own inside a `margin: 0 auto` cell, so a
+    row's absolute zero x depended on that cell's width -- which is why the
+    baseline spine read as 124 unrelated ticks. These percentages feed the
+    `.cl-scale` CSS primitive instead: every field shares one containing block
+    and one percentage basis, so one rule at `--cl-zero` registers against all
+    124 rows by construction.
+
+    A layout percentage is not a score, rank, interval or probability, and no
+    scoring code is imported to produce it (`CLAUDE.md` rule 6).
+    """
     view_rows = []
     for row in rows:
+        point = row.contact_luck_runs_per_100
+        lower = row.lower_95_interval
+        upper = row.upper_95_interval
         view_rows.append(
             {
                 "official_rank": row.official_rank,
                 "batter_id": row.batter_id,
                 "batter_name": row.batter_name or f"Player {row.batter_id}",
                 "url": f"{root_prefix}players/{row.batter_id}/",
-                "score": row.contact_luck_runs_per_100,
-                "lower": row.lower_95_interval,
-                "upper": row.upper_95_interval,
-                "interval_width": row.upper_95_interval - row.lower_95_interval,
+                "score": point,
+                "lower": lower,
+                "upper": upper,
+                "interval_width": upper - lower,
                 "total_runs": row.total_contact_luck_runs,
                 "bbe": row.eligible_batted_balls,
                 "games": row.games,
-                "interval_svg": v.render_interval_bar_svg(
-                    point=row.contact_luck_runs_per_100,
-                    lower=row.lower_95_interval,
-                    upper=row.upper_95_interval,
-                    domain=domain,
-                    compact=True,
-                ),
+                # Sign follows the POINT ESTIMATE only, identically whether or
+                # not the interval crosses zero (preserved product invariant).
+                "favorable": point >= 0,
+                "pt_pct": _pct(scale.clamped_fraction_of(point)),
+                "lo_pct": _pct(scale.clamped_fraction_of(lower)),
+                "hi_pct": _pct(scale.clamped_fraction_of(upper)),
+                "clip_state": scale.clip_state(point=point, lower=lower, upper=upper),
+                "point_state": scale.point_state(point),
             }
         )
     return view_rows
@@ -552,9 +641,12 @@ def build_dashboard(
         index_template.render(
             **base_context,
             active_page="leaderboard",
-            favorable_rows=_leaderboard_view_rows(favorable_rows, qualified_domain, root_prefix),
+            axis_ticks=_axis_ticks(league_scale),
+            axis_unit_label=league_scale.unit_label,
+            distribution_marks=_distribution_marks(favorable_rows, league_scale),
+            favorable_rows=_leaderboard_view_rows(favorable_rows, league_scale, root_prefix),
             unfavorable_rows=_leaderboard_view_rows(
-                unfavorable_rows, qualified_domain, root_prefix
+                unfavorable_rows, league_scale, root_prefix
             ),
             qualified_count=status_data.qualified_count,
             player_count=len(player_index),

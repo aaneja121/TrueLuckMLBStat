@@ -250,7 +250,10 @@ class TestPageGrid:
         # The gutter changes at mobile; a hardcoded -20px bleed would leave a
         # 4px inset at 390 once it did.
         css = _strip_css_comments(STYLE_CSS.read_text())
-        for selector in (".page-hero {", ".player-header {"):
+        # `.page-hero` was retired in Phase 3 (the homepage band and its 3px
+        # decorative amber border); `.player-header` is the remaining
+        # full-bleed band until Phase 4 rebuilds it.
+        for selector in (".player-header {",):
             block = css.split(selector, 1)[1].split("}", 1)[0]
             assert "calc(-1 * var(--gutter))" in block, selector
             assert "-20px" not in block, selector

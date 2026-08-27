@@ -1,0 +1,496 @@
+"""Redesign Phase 3 -- the Zero Spine leaderboard.
+
+What is asserted here is the *contract* the leaderboard now rests on: one
+shared percentage basis, one verdict cell, real tab and sort semantics,
+labelled filters, and the preserved ranking invariants. Styling is not
+asserted; Phase 8 may reskin any of this without touching a test.
+
+Rendered geometry -- spine registration in real pixels, rows above the fold,
+the mobile transformation -- is verified with the globally configured
+Playwright MCP, because this repository has no browser-automation test
+dependency (`CLAUDE.md` § Verification before claiming done). The build-time
+half of registration IS assertable, and is: every row's percentages come from
+one `ZeroScale`, and there is exactly one zero locus on the page.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import build as dashboard_build
+import pytest
+
+from dashboard_snapshot_fixtures import default_player_record, write_snapshot
+
+STYLE_CSS = Path(__file__).resolve().parents[1] / "dashboard" / "static" / "style.css"
+APP_JS = Path(__file__).resolve().parents[1] / "dashboard" / "static" / "app.js"
+
+LONGEST_REAL_NAME = "Christian Encarnacion-Strand"
+
+
+def _players() -> list[dict]:
+    return [
+        # A strong positive, a strong negative, a near-zero negative whose
+        # interval crosses zero, a wide interval, and one unqualified player.
+        default_player_record(
+            batter_id=1, batter_name="Pete Crow-Armstrong", score=7.62, lower=3.15, upper=11.81
+        ),
+        default_player_record(
+            batter_id=2, batter_name="Salvador Perez", score=-6.41, lower=-9.63, upper=-3.23
+        ),
+        default_player_record(
+            batter_id=3, batter_name="Jake Burger", score=-0.06, lower=-4.10, upper=3.98
+        ),
+        default_player_record(
+            batter_id=4, batter_name=LONGEST_REAL_NAME, score=0.19, lower=-3.30, upper=3.91
+        ),
+        default_player_record(
+            batter_id=5,
+            batter_name="Unqualified Ulysses",
+            score=12.0,
+            lower=-30.0,
+            upper=54.0,
+            bbe=6,
+            qualification_status="small_sample",
+        ),
+    ]
+
+
+@pytest.fixture(scope="module")
+def site(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    tmp_path = tmp_path_factory.mktemp("lb")
+    out_root, art_root = tmp_path / "outputs", tmp_path / "artifacts"
+    for day in ("2026-01-01", "2026-01-02"):
+        write_snapshot(
+            out_root,
+            art_root,
+            directory_name=day,
+            data_through_date=day,
+            snapshot_label=None,
+            generated_at=f"{day}T00:00:00+00:00",
+            players=_players(),
+        )
+    dist = tmp_path / "dist"
+    dashboard_build.build_dashboard(
+        out_dir=dist,
+        outputs_root=out_root,
+        artifacts_root=art_root,
+        build_timestamp="2026-01-02T12:00:00+00:00",
+    )
+    return dist
+
+
+@pytest.fixture(scope="module")
+def home(site: Path) -> str:
+    return (site / "index.html").read_text()
+
+
+def _css() -> str:
+    return re.sub(r"/\*.*?\*/", "", STYLE_CSS.read_text(), flags=re.DOTALL)
+
+
+def _fields(html: str, table_id: str) -> list[dict[str, float]]:
+    table = html.split(f'id="lb-{table_id}"', 1)[1].split("</table>", 1)[0]
+    body = table.split("<tbody>", 1)[1]
+    out = []
+    for style in re.findall(r'class="cl-scale-field[^"]*"[^>]*style="([^"]+)"', body):
+        out.append(
+            {
+                "lo": float(re.search(r"--cl-lo:\s*([\d.]+)%", style).group(1)),
+                "hi": float(re.search(r"--cl-hi:\s*([\d.]+)%", style).group(1)),
+                "pt": float(re.search(r"--cl-pt:\s*([\d.]+)%", style).group(1)),
+            }
+        )
+    return out
+
+
+class TestZeroSpineRegistration:
+    def test_the_page_declares_exactly_one_zero_locus(self, home: str) -> None:
+        loci = set(re.findall(r"--cl-zero:\s*([\d.]+%)", home))
+        assert len(loci) == 1
+
+    def test_no_row_carries_its_own_zero(self, home: str) -> None:
+        for table_id in ("favorable", "unfavorable"):
+            body = home.split(f'id="lb-{table_id}"', 1)[1].split("</table>", 1)[0]
+            assert "--cl-zero" not in body.split("<tbody>", 1)[1]
+
+    def test_every_row_carries_all_three_positions(self, home: str) -> None:
+        for table_id in ("favorable", "unfavorable"):
+            fields = _fields(home, table_id)
+            assert fields
+            for f in fields:
+                assert 0.0 <= f["lo"] <= 100.0
+                assert 0.0 <= f["hi"] <= 100.0
+                assert f["lo"] <= f["pt"] <= f["hi"]
+
+    def test_both_rankings_use_the_same_scale(self, home: str) -> None:
+        """The same hitter appears in both tables at the same position."""
+        fav = home.split('id="lb-favorable"', 1)[1].split("</table>", 1)[0]
+        unfav = home.split('id="lb-unfavorable"', 1)[1].split("</table>", 1)[0]
+
+        def field_for(table: str, name: str) -> str:
+            start = table.find(f'data-player-name="{name}"')
+            assert start != -1
+            return re.search(
+                r'class="cl-scale-field[^"]*"[^>]*style="([^"]+)"', table[start:]
+            ).group(1)
+
+        for name in ("Pete Crow-Armstrong", "Salvador Perez"):
+            assert field_for(fav, name) == field_for(unfav, name)
+
+    def test_the_axis_lives_inside_the_table(self, home: str) -> None:
+        """Registration by construction, not by arithmetic.
+
+        The axis ticks and the distribution strip must be table rows in the
+        verdict column, sharing the rows' grid tracks. A sibling element whose
+        offset is calculated from column widths rendered 26px wrong.
+        """
+        table = home.split('id="lb-favorable"', 1)[1].split("</tbody>", 1)[0]
+        head = table.split("<thead>", 1)[1]
+        assert 'class="cl-axis-row"' in head
+        assert 'class="cl-distribution-row"' in head
+        assert "cl-axis-figure" in head
+
+    def test_axis_and_rows_share_one_grid_track(self) -> None:
+        css = _css()
+        axis = css.split(".cl-axis-figure {", 1)[1].split("}", 1)[0]
+        field = css.split(".verdict-inner .cl-scale-field {", 1)[1].split("}", 1)[0]
+        assert "grid-column: 2" in axis
+        assert "grid-column: 2" in field
+
+    def test_no_geometry_is_derived_by_arithmetic(self) -> None:
+        css = _css()
+        assert "--cl-field-offset" not in css
+        assert "--cl-field-width" not in css
+
+
+class TestVerdictCell:
+    def test_point_estimate_and_interval_share_one_cell(self, home: str) -> None:
+        body = home.split('id="lb-favorable"', 1)[1].split("<tbody>", 1)[1]
+        cell = body.split('<td class="col-verdict', 1)[1].split("</td>", 1)[0]
+        assert "verdict-value" in cell
+        assert "cl-scale-field" in cell
+        assert "verdict-interval" in cell
+
+    def test_the_interval_is_never_behind_a_toggle(self, home: str) -> None:
+        assert "<details" not in home.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+        body = home.split('id="lb-favorable"', 1)[1].split("<tbody>", 1)[1]
+        rows = body.count("<tr data-official-rank=")
+        assert body.count('class="verdict-interval num">') == rows
+
+    def test_the_interval_survives_the_narrow_layout_in_the_a11y_tree(self) -> None:
+        """Hidden visually where the column cannot hold it -- never removed.
+
+        `display: none` would take the uncertainty numbers out of the
+        accessibility tree, and intervals shipping alongside every point
+        estimate is a product commitment, not a column.
+        """
+        css = _css()
+        narrow = css.split("@media (max-width: 1023px) {", 1)[1].split("\n}", 1)[0]
+        block = narrow.split(".verdict-interval {", 1)[1].split("}", 1)[0]
+        assert "display: none" not in block
+        assert "clip-path" in block
+
+    def test_every_value_carries_an_explicit_sign_and_a_true_minus(self, home: str) -> None:
+        body = home.split('id="lb-favorable"', 1)[1].split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+        values = re.findall(r'class="verdict-value num">([^<]+)<', body)
+        assert values
+        for v in values:
+            assert v[0] in "+−", v
+            assert "-" not in v  # ASCII hyphen never reaches a displayed value
+
+    def test_sign_follows_the_point_estimate_not_the_interval(self, home: str) -> None:
+        """Jake Burger is -0.06 with an interval spanning zero: unfavorable
+        colouring, no de-emphasis, identical treatment to any other row."""
+        body = home.split('id="lb-favorable"', 1)[1].split("<tbody>", 1)[1]
+        start = body.find('data-player-name="Jake Burger"')
+        row = body[start : start + 2000]
+        assert 'data-sign="neg"' in row
+        assert "is-unfavorable" in row
+        assert "cl-scale-unfavorable" in row
+
+    def test_no_treatment_weakens_an_interval_that_crosses_zero(self) -> None:
+        """Guardrails anti-pattern 17. The mark that draws an interval, and
+        the mark that draws its point estimate, carry no fade, dash, italic
+        or filter -- and nothing keys off whether the interval spans zero."""
+        css = _css()
+        for selector in (".cl-scale-interval {", ".cl-scale-point {", ".verdict-value {"):
+            block = css.split(selector, 1)[1].split("}", 1)[0]
+            for banned in ("opacity", "font-style", "dashed", "filter:"):
+                assert banned not in block, (selector, banned)
+        # No rule anywhere selects on "the interval crosses zero".
+        assert "crosses-zero" not in css
+        assert "data-crosses" not in css
+
+
+class TestValuePlacementVariants:
+    """Both variants ship until gate G3 is decided; neither is user-facing."""
+
+    def test_both_variants_exist(self) -> None:
+        css = _css()
+        assert '[data-value-placement="v2"]' in css
+        assert "--lb-lead" in css
+
+    def test_v2_reserves_the_lead_track_so_the_field_never_moves(self) -> None:
+        """The failure this guards is subtle and fatal: if V2 simply moved
+        the numeral before the field on unfavorable rows, those rows' plot
+        fields would start further right than favorable rows' and the spine
+        would register against nothing.
+        """
+        css = _css()
+        switch = css.split('[data-value-placement="v2"]', 1)[1].split("}", 1)[0]
+        assert "--lb-lead" in switch
+        # The grid declaration, not one of the later per-breakpoint overrides.
+        inner = re.search(r"\n\.verdict-inner \{([^}]*grid-template-columns[^}]*)\}", css).group(1)
+        assert "var(--lb-lead)" in inner
+        # The field is track 2 in BOTH variants -- nothing re-orders it.
+        assert (
+            "grid-column: 2" in css.split(".verdict-inner .cl-scale-field {", 1)[1].split("}", 1)[0]
+        )
+
+    def test_the_variant_switch_is_development_only(self) -> None:
+        js = APP_JS.read_text()
+        assert "value-placement" in js
+        assert "localStorage" in js
+        # No control is rendered anywhere.
+        assert "data-role='value-placement'" not in js
+
+    def test_no_variant_places_a_value_at_an_interval_endpoint(self) -> None:
+        css = _css()
+        value = css.split(".verdict-value {", 1)[1].split("}", 1)[0]
+        assert "--cl-pt" not in value
+        assert "--cl-hi" not in value
+        assert "--cl-lo" not in value
+
+
+class TestRankingTabs:
+    def test_the_two_rankings_are_real_tabs(self, home: str) -> None:
+        assert 'role="tablist"' in home
+        assert home.count('role="tab"') == 2
+        assert home.count('role="tabpanel"') == 2
+        assert 'aria-selected="true"' in home
+        assert 'aria-selected="false"' in home
+
+    def test_no_display_none_radio_pattern_survives(self, home: str) -> None:
+        assert "tab-radio" not in home
+        assert 'type="radio"' not in home
+        assert ".tab-radio" not in _css()
+
+    def test_both_rankings_begin_at_rank_one(self, home: str) -> None:
+        for table_id in ("favorable", "unfavorable"):
+            body = home.split(f'id="lb-{table_id}"', 1)[1].split("<tbody>", 1)[1]
+            first = re.search(r'<tr data-official-rank="(\d+)"', body).group(1)
+            assert first == "1"
+
+    def test_neither_ranking_is_called_worst(self, home: str) -> None:
+        assert "worst" not in home.lower()
+        assert "Most favorable realized luck" in home
+        assert "Least favorable outcomes relative to expectation" in home
+
+    def test_keyboard_navigation_is_implemented(self) -> None:
+        js = APP_JS.read_text()
+        tabs = js.split("function initRankingTabs()", 1)[1].split(
+            "function initLeaderboardSort", 1
+        )[0]
+        for key in ('"ArrowRight"', '"ArrowLeft"', '"Home"', '"End"', "tabIndex"):
+            assert key in tabs, key
+
+
+class TestSorting:
+    def test_sortable_headers_are_buttons_with_aria_sort(self, home: str) -> None:
+        head = home.split('id="lb-favorable"', 1)[1].split("</thead>", 1)[0]
+        headers = re.findall(r"<th[^>]*data-sort-key[^>]*>", head)
+        assert len(headers) == 4
+        for th in headers:
+            assert "aria-sort=" in th
+        assert head.count('class="sort-button"') == 4
+
+    def test_no_click_handler_on_a_bare_header(self) -> None:
+        js = APP_JS.read_text()
+        assert 'th.addEventListener("click"' not in js
+        assert "[data-role='sort']" in js
+
+    def test_rank_restores_official_order_and_never_reverses(self, home: str) -> None:
+        """The flagged direction ambiguity: a reversible Rank column produced
+        an order that looks like a ranking but is not the official one."""
+        head = home.split('id="lb-favorable"', 1)[1].split("</thead>", 1)[0]
+        rank_th = re.search(r"<th[^>]*data-sort-key=\"officialRank\"[^>]*>", head).group(0)
+        assert 'data-sort-restores="official"' in rank_th
+        assert 'aria-sort="ascending"' in rank_th
+
+        js = APP_JS.read_text()
+        sort = js.split("function initLeaderboardSort()", 1)[1]
+        assert "restores" in sort
+        assert 'dir = "asc"' in sort
+
+    def test_sorted_state_has_three_simultaneous_expressions(self, home: str) -> None:
+        js = APP_JS.read_text()
+        sort = js.split("function initLeaderboardSort()", 1)[1]
+        # 1. aria-sort on the header
+        assert 'setAttribute("aria-sort"' in sort
+        # 2. the visible label, verbatim
+        assert "Sorted view — not the official Contact Luck ranking. " in js
+        # 3. the official accent leaving the rank column
+        assert 'setAttribute("data-sorted", "")' in sort
+        assert 'removeAttribute("data-sorted")' in sort
+        assert "table.leaderboard:not([data-sorted]) td.rank-cell" in _css()
+
+    def test_the_sorted_label_is_absent_on_the_default_view(self, home: str) -> None:
+        label = home.split('id="sorted-label-favorable"', 1)[1].split("</p>", 1)[0]
+        assert label.strip() == ">" or label.strip().endswith(">")
+        assert "Sorted view" not in home.split("<tbody>", 1)[0]
+
+    def test_sort_changes_are_announced(self, home: str) -> None:
+        assert 'role="status" id="sort-status-favorable"' in home
+        js = APP_JS.read_text()
+        assert "status.textContent" in js
+
+
+class TestFilters:
+    def test_each_filter_has_a_real_label(self, home: str) -> None:
+        for table_id in ("favorable", "unfavorable"):
+            assert f'<label class="leaderboard-filter-label" for="filter-{table_id}">' in home
+            field = home.split(f'id="filter-{table_id}"', 1)[1].split(">", 1)[0]
+            assert "placeholder=" in field  # a hint, in addition to the label
+
+    def test_filter_ids_are_unique(self, home: str) -> None:
+        ids = re.findall(r'id="(filter-[a-z]+)"', home)
+        assert sorted(ids) == ["filter-favorable", "filter-unfavorable"]
+
+    def test_filter_results_are_announced_and_have_an_empty_state(self, home: str) -> None:
+        assert 'role="status" id="filter-status-favorable"' in home
+        assert 'data-role="filter-empty"' in home
+        js = APP_JS.read_text()
+        assert "hitters match" in js
+
+
+class TestColumnArchitecture:
+    def test_the_derived_column_is_gone(self, home: str) -> None:
+        """Interval width is recoverable from the interval already drawn, and
+        it was the column silently clipped at every desktop width."""
+        assert "Interval width" not in home
+        # Still available to sorting, because the datum is not lost.
+        assert "data-interval-width=" in home
+
+    def test_identity_and_verdict_never_shed(self) -> None:
+        """The tiers themselves are never hidden at any width. (A column's
+        secondary sub-label is apparatus, not the column, and may go.)"""
+        css = _css()
+        for selector in (".col-rank", ".col-player", ".col-verdict", ".col-evidence"):
+            pattern = re.escape(selector) + r"(?![\w-])[^{]*\{([^}]*)\}"
+            for block in re.findall(pattern, css):
+                assert "display: none" not in block, selector
+
+    def test_the_scroll_container_declares_a_min_width_contract(self, home: str) -> None:
+        """`.overflow-x` without one is guardrails anti-pattern 6."""
+        assert 'class="leaderboard-scroll overflow-x"' in home
+        block = _css().split("table.leaderboard {", 1)[1].split("}", 1)[0]
+        assert "min-width:" in block
+
+    def test_evidence_compresses_rather_than_disappearing(self, home: str) -> None:
+        body = home.split('id="lb-favorable"', 1)[1].split("<tbody>", 1)[1]
+        cell = body.split('<td class="col-evidence', 1)[1].split("</td>", 1)[0]
+        assert "BBE" in cell
+        assert "Scored Games" in cell
+        assert "runs" in cell
+
+
+class TestPreservedRankingInvariants:
+    def test_the_official_leaderboard_stays_qualified_only(self, home: str) -> None:
+        assert "Unqualified Ulysses" not in home.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+        # ...but they remain findable in the global search index.
+        assert "Unqualified Ulysses" in home
+
+    def test_official_rank_is_carried_by_the_row_not_recomputed(self, home: str) -> None:
+        js = APP_JS.read_text()
+        # The rank travels on the row as data, and the sort key names it in
+        # the markup -- the script only ever reads `row.dataset[key]`.
+        assert "data-official-rank" in home
+        assert 'data-sort-key="officialRank"' in home
+        assert "row.dataset[key]" not in js  # it is `a.dataset[key]`/`b.dataset[key]`
+        assert "dataset[key]" in js
+        # Sorting reorders rows already rendered from the snapshot: it reads
+        # `data-*` attributes and never touches a scoring input.
+        for banned in (
+            "expected_run_value",
+            "runs_per_100",
+            "lower_95",
+            "upper_95",
+            "qualification_status",
+        ):
+            assert banned not in js, banned
+
+    def test_unqualified_players_are_not_de_emphasised_anywhere(self) -> None:
+        css = _css()
+        assert ".unqualified" not in css
+        assert "small-sample" not in css
+
+
+class TestMobileTransformation:
+    def test_the_row_becomes_a_ruled_grid_not_a_squeezed_table(self) -> None:
+        css = _css()
+        mobile = css.split("@media (max-width: 767px) {", 1)[1]
+        block = mobile.split(".leaderboard tbody tr {", 1)[1].split("}", 1)[0]
+        assert "display: grid" in block
+        assert "grid-template-areas" in block
+        assert '"rank name"' in block
+
+    def test_the_name_owns_a_full_line_at_the_specified_size(self) -> None:
+        css = _css()
+        mobile = css.split("@media (max-width: 767px) {", 1)[1]
+        block = mobile.split(".leaderboard .player-link {", 1)[1].split("}", 1)[0]
+        assert "font-size: var(--fs-400)" in block  # 16px
+        assert "font-weight: 600" in block
+
+    def test_the_desktop_axis_rail_is_hidden_specifically_enough(self) -> None:
+        """A bare `.cl-axis-row` loses to `.leaderboard thead tr` and left a
+        collapsed tick rail stacked on an empty strip at 390."""
+        css = _css()
+        mobile = css.split("@media (max-width: 767px) {", 1)[1]
+        assert ".leaderboard thead tr.cl-axis-row" in mobile
+        assert ".leaderboard thead tr.cl-distribution-row" in mobile
+
+    def test_sorting_stays_operable_when_columns_stop_existing(self) -> None:
+        css = _css()
+        mobile = css.split("@media (max-width: 767px) {", 1)[1]
+        head = mobile.split(".leaderboard th {", 1)[1].split("}", 1)[0]
+        assert "display: block" in head
+        assert "display: none" not in head
+
+
+class TestNoTinyAxisLabels:
+    def test_the_leaderboard_emits_no_svg(self, home: str) -> None:
+        assert "<svg" not in home.split("<main", 1)[1]
+
+    def test_axis_ticks_are_html_text_at_a_real_size(self, home: str) -> None:
+        assert 'class="cl-axis-tick' in home
+        block = _css().split(".cl-axis-tick {", 1)[1].split("}", 1)[0]
+        assert "font-size: var(--fs-200)" in block  # 12px, the declared floor
+
+
+class TestColourCleanup:
+    def test_the_decorative_amber_hero_border_is_gone(self, home: str) -> None:
+        assert "page-hero" not in home
+        assert ".page-hero" not in _css()
+
+    def test_field_green_is_no_longer_page_furniture(self, home: str) -> None:
+        assert "page-hero-mark" not in home
+        assert "homepage-proof-card" not in home
+        css = _css()
+        assert ".page-hero-mark" not in css
+        assert ".homepage-proof-card" not in css
+
+    def test_the_worked_examples_kept_their_educational_content(self, home: str) -> None:
+        assert "Expected run value" in home
+        assert "Contact Luck on this ball" in home
+        assert "worked" in home
+
+    def test_amber_marks_the_official_record_and_the_zero_spine(self) -> None:
+        css = _css()
+        rank = css.split("table.leaderboard:not([data-sorted]) td.rank-cell {", 1)[1].split("}", 1)[
+            0
+        ]
+        assert "var(--accent-amber-text)" in rank
+        spine = css.split(".leaderboard .cl-scale-field::before {", 1)[1].split("}", 1)[0]
+        assert "var(--accent-amber-mark)" in spine

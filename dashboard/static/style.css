@@ -130,7 +130,33 @@
   /* Minimum tap area for anything pointed at (docs/design/accessibility.md
      #9). Nav links measured 90x25 in the baseline audit. */
   --target-min: 44px;
+
+  /* ══ Leaderboard geometry · Phase 3 ═════════════════════════════════════
+     The single source of the Zero Spine's percentage basis. The axis
+     header, the league distribution strip and all 124 row plot fields are
+     three independently laid-out components that must resolve to the SAME
+     box, or the spine registers against nothing. Rather than hoping a
+     table column and a sibling div agree, both derive their offset and
+     width from these numbers.
+
+     `--lb-lead` is the reserved slot to the LEFT of the plot field. It is
+     zero in V1 and one value-box wide in V2 -- which is what keeps V2 from
+     moving the field on unfavorable rows and silently destroying the shared
+     basis it is supposed to register against. */
+  --lb-rank: 3.5rem;
+  --lb-player: 15rem;
+  --lb-evidence: 16rem;
+  --lb-cell-pad: var(--sp-3);
+  --lb-value: 6ch;
+  --lb-interval: 13ch;
+  --lb-value-col: calc(var(--lb-value) + var(--sp-3));
+  --lb-interval-col: calc(var(--lb-interval) + var(--sp-3));
+  --lb-lead: 0px;
 }
+
+/* Development-only variant switch (approval gate G3). Set by `app.js` from
+   `?value-placement=v2` or `localStorage`; no user-facing control ships. */
+:root[data-value-placement="v2"] { --lb-lead: var(--lb-value-col); }
 
 @media (max-width: 639px) {
   :root { --gutter: var(--sp-4); }
@@ -761,46 +787,66 @@ main {
   padding-block: var(--sp-5) var(--sp-8);
 }
 
-/* Homepage hero band (currently used solely by index.html) -- the site's
-   "major section/background region" tier: a differentiated `--surface`
-   band (distinct from the plain `--page` background the leaderboard table
-   sits on below it) so the header region reads as intentional rather than
-   the h1 floating in the same flat plane as everything else. Full-bleed
-   within `main`'s own padding via matching negative margin/padding (see
-   `main`'s `padding: 24px 20px 64px` above) -- a standard banded-header
-   technique, not a giant marketing hero: the leaderboard table itself is
-   untouched and stays sober immediately below it. */
-.page-hero {
-  margin: -4px calc(-1 * var(--gutter)) 26px;
-  padding: 26px var(--gutter) 22px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  border-top: 3px solid var(--accent-amber);
-}
+/* ══ Homepage lede · Phase 3 ══════════════════════════════════════════════
+   RETIRED HERE: `.page-hero` (a full-bleed `--surface` band with a 3px amber
+   top border) and `.page-hero-mark` (a 190x48 green trajectory arc with an
+   amber apex dot).
 
-.page-hero-top {
+   The band was guardrails anti-pattern 15 -- a hero whose job was to restate
+   the page title -- and with the explainer callout and stat pills inside it
+   the homepage carried 786px of preamble before the first data row. The 3px
+   amber border was decoration in the one accent that is supposed to mean
+   "the frozen official record", and 3px is not one of the two sanctioned
+   emphasis weights. The green arc was `--accent-field` used as page
+   furniture, which `docs/design/color.md` demotes to illustration-only.
+
+   Neither is replaced by another accent. What sits here now is the axis and
+   the league distribution: not decoration, but the scale the table is drawn
+   on. */
+/* The lede is two lines and a control. Anything longer is preface, and
+   preface is what put the first data row 900px down the baseline page. */
+.lede {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
   flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-5);
+  margin: var(--sp-4) 0 var(--sp-3);
 }
-.page-hero-top h1 { margin: 0; }
 
-/* A foul-lines-and-arc line drawing echoing the same trajectory language
-   as the field diagrams on /demo/, in the muted field-green accent, with
-   one small amber dot marking the arc's apex -- the trajectory motif and
-   the brand accent appearing together, the way they do in the simulator's
-   own field. Purely decorative (`aria-hidden`), never implies an actual
-   batted-ball path or any data. */
-.page-hero-mark {
-  width: 190px;
-  height: 48px;
-  color: var(--accent-field);
-  opacity: 0.7;
+.lede-title {
   flex: none;
+  font-size: var(--fs-600);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  margin: 0;
 }
-.page-hero-mark svg { width: 100%; height: 100%; display: block; }
+
+.lede-line {
+  flex: 1 1 34ch;
+  margin: 0;
+  font-size: var(--fs-300);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* Progressive disclosure, not deletion: the full definition, the
+   qualification rule and the routes onward are all still here, one control
+   away, so the fold can hold the product instead of its preface. */
+.lede-detail { flex: none; font-size: var(--fs-200); }
+.lede-detail > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-thickness: var(--rule-hairline);
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+}
+.lede-detail > summary:hover { color: var(--text-primary); }
+.lede-detail-body { margin-bottom: var(--sp-2); }
+.lede-detail-body p { margin: 0 0 var(--sp-3); }
+
 
 h1 { font-size: 1.6rem; margin: 0 0 6px; }
 
@@ -852,84 +898,13 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
   padding: 6px 12px;
 }
 
-/* Homepage "BELIEVE" proof strip (Version 1.3.3 information-architecture
-   pass) -- a compact teaser, not a second demo: two small cards using the
-   SAME `.demo-rv-value`/`.demo-luck-figure`/`.demo-luck-badge` classes (and
-   their existing favorable/blue vs. unfavorable/red treatment) the
-   walkthrough on /demo/ already uses, just at a smaller scale, with no
-   field diagram and no animation. Numbers are rendered from `build.py`'s
-   `_homepage_proof_examples`, which reads the SAME loaded demo fixture
-   `_demo_view` uses for /demo/ itself -- see that function's docstring for
-   why this can never drift out of sync with the real page. */
-.homepage-proof {
-  margin: 4px 0 28px;
-}
-.homepage-proof-examples {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-}
-.homepage-proof-card {
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--accent-field);
-  border-radius: 10px;
-  padding: 14px 16px;
-  background: var(--surface);
-}
-.homepage-proof-name {
-  font-weight: 700;
-  margin: 0 0 2px;
-}
-.homepage-proof-contact {
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-  margin: 0 0 2px;
-  font-variant-numeric: tabular-nums;
-}
-.homepage-proof-outcome {
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-  margin: 0 0 10px;
-}
-/* Explicitly labeled rows -- NOT an "Expected -> Contact Luck" arrow flow.
-   Contact Luck is observed RV minus expected RV, so presenting the two
-   figures as one thing flowing into the other implied the wrong
-   relationship; each value now carries its own label instead. */
-.homepage-proof-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0 0 8px;
-}
-.homepage-proof-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 0.92rem;
-}
-.homepage-proof-row-label { color: var(--text-secondary); }
-/* Compound selector (two classes) so this reliably overrides the shared
-   `.demo-luck-figure` base size regardless of stylesheet order -- the
-   proof strip's figure must read as clearly smaller than the walkthrough's
-   own payoff number on /demo/, never competing with it. */
-.demo-luck-figure.homepage-proof-figure {
-  font-size: 1.05rem;
-  margin: 0;
-}
-.homepage-proof-link {
-  margin: 14px 0 0;
-  font-weight: 600;
-}
+/* REMOVED in Phase 3: the `.homepage-proof-*` card set. Two bordered,
+   rounded boxes with `border-top: 3px solid var(--accent-field)`, sitting
+   above the leaderboard. Green as a card top-border is the use
+   `docs/design/color.md` demotes to illustration-only, and the boxes held
+   the position of greatest prominence ahead of the product. The content
+   survives as `.worked-*` below the table; the decoration does not. */
 
-/* Sits directly under `.homepage-proof`, which already carries its own
-   bottom margin -- tighter top margin than the global `h2` default so the
-   two don't stack into an oversized gap. */
-.homepage-leaderboard-heading { margin-top: 6px; }
-
-@media (max-width: 640px) {
-  .homepage-proof-examples { grid-template-columns: 1fr; }
-}
 
 /* Version 1.4.1 Showcase Plays -- editorial cards above the generic player
    search on /explore/. Deliberately close cousins of `.homepage-proof-*`
@@ -1044,108 +1019,706 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
 .terminology-tab {
   border: 1px solid var(--border);
   background: var(--surface);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 8px 14px;
   font-size: 0.9rem;
   color: var(--text-secondary);
   cursor: pointer;
 }
 
-.tab-radio { display: none; }
-.tab-panel { display: none; }
-
-#tab-favorable:checked ~ #panel-favorable,
-#tab-unfavorable:checked ~ #panel-unfavorable {
-  display: block;
+/* ══ Shared axis header · Phase 3 ═════════════════════════════════════════
+   The measuring axis, drawn once, in the SAME grid column the rows use.
+   `.cl-axis-figure` is width-matched to the verdict column by
+   `--cl-field-width`/`--cl-field-offset`, which the table sets from its own
+   colgroup, so the ticks, the distribution and every row's mark share one
+   percentage basis rather than three that merely look aligned. */
+.cl-axis-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+  margin-bottom: var(--sp-2);
+}
+.cl-axis-unit {
+  margin: 0;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.cl-axis-caption {
+  margin: 0;
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
 }
 
-#tab-favorable:checked ~ .terminology-tabs label[for="tab-favorable"],
-#tab-unfavorable:checked ~ .terminology-tabs label[for="tab-unfavorable"] {
-  color: var(--text-primary);
-  border-color: var(--text-primary);
+/* The axis figure occupies the plot-field track of the same `.verdict-inner`
+   grid every row uses, so its coordinate space IS the rows'. No offset is
+   calculated anywhere. */
+.cl-axis-figure {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+.cl-axis-row td,
+.cl-distribution-row td {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.cl-axis-row .verdict-inner,
+.cl-distribution-row .verdict-inner { min-height: 0; }
+/* The rule starts at the axis and runs down: the distribution strip carries
+   the same spine segment the rows do, so zero is one continuous line from
+   the tick label to the last hitter. */
+.cl-distribution::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: calc(-1 * var(--sp-1));
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.cl-distribution-label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: var(--sp-3);
+  vertical-align: middle;
+}
+
+/* Tick text is HTML at a real CSS size. Never SVG text: a viewBox-scaled
+   label is what produced 5.5px axis type on mobile in the baseline
+   (guardrails anti-pattern 11), and this surface now has no SVG at all. */
+.cl-axis-ticks {
+  position: relative;
+  height: 20px;
+}
+.cl-axis-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: var(--fs-200);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.cl-axis-tick::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: var(--rule-hairline);
+  height: var(--sp-1);
+  background: var(--baseline);
+}
+/* Zero is the one tick that is a structural fact rather than a gradation,
+   so it carries the accent that means the frozen official record -- the
+   same amber the spine below is drawn in, because they are the same line. */
+.cl-axis-tick.is-zero {
+  color: var(--accent-amber-text);
   font-weight: 600;
 }
+.cl-axis-tick.is-zero::after {
+  background: var(--accent-amber-mark);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+}
 
+/* The league distribution: 124 marks on the axis the rows use. Read before
+   any individual row, this answers "where does the league sit" in one look;
+   read after, it is the same measurement the rows beneath are drawn from. */
+.cl-distribution {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  height: 30px;
+  min-width: 0;
+}
+/* One mark per qualified hitter. Thin, low-opacity and overlapping on
+   purpose: density where the league clusters is the reading, and no single
+   hitter should look like a labelled datum in a figure about all of them. */
+.cl-distribution-mark {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  background: currentColor;
+  opacity: 0.5;
+}
+
+/* ══ Ranking tabs ════════════════════════════════════════════════════════
+   Real buttons in a `role="tablist"`. The baseline used `display:none`
+   radios with `<label>`s, which put an operable control outside both the
+   accessibility tree and the tab order (guardrails anti-pattern 7). No
+   pills: a selected ranking is marked by weight, an amber rule and
+   `aria-selected`, so the state never rests on colour alone. */
+.ranking-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-2);
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.ranking-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: var(--rule-emphasis) solid transparent;
+  margin-bottom: -1px;
+  padding: 0;
+  min-height: var(--target-min);
+  font: inherit;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.ranking-tab:hover { color: var(--text-primary); }
+.ranking-tab[aria-selected="true"] {
+  color: var(--accent-amber-text);
+  font-weight: 600;
+  border-bottom-color: var(--accent-amber-mark);
+}
+.ranking-panel:focus { outline: none; }
+
+/* ══ Filter ══════════════════════════════════════════════════════════════
+   A labelled field on a rule, not a boxed filter bar. */
 .leaderboard-controls {
   display: flex;
-  gap: 12px;
+  gap: var(--sp-2) var(--sp-5);
   flex-wrap: wrap;
-  align-items: center;
-  margin-bottom: 10px;
+  align-items: baseline;
+  margin-bottom: var(--sp-1);
 }
-
-.leaderboard-search {
-  flex: 1 1 220px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-recessed);
-  color: var(--text-primary);
-  font-size: 0.92rem;
+.leaderboard-filter {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
 }
-
-.sorted-view-label {
-  font-size: 0.82rem;
+.leaderboard-filter-label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
+  white-space: nowrap;
+}
+.leaderboard-filter-input {
+  width: 15ch;
+  padding: var(--sp-1) 0;
+  border: 0;
+  border-bottom: var(--rule-hairline) solid var(--baseline);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+}
+.leaderboard-filter-input::placeholder { color: var(--text-muted); }
+.leaderboard-filter-input:focus-visible { border-bottom-color: var(--accent-amber-mark); }
+
+/* The sorted-view label is a preserved product commitment, not a hint: it
+   appears on ANY user re-sort and never on the default view. */
+.sorted-view-label {
+  margin: 0;
+  font-size: var(--fs-200);
+  color: var(--accent-amber-text);
   min-height: 1.2em;
 }
+.sorted-view-label:empty { min-height: 0; }
+
+.leaderboard-empty {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+
+/* ══ The leaderboard ═════════════════════════════════════════════════════ */
+.leaderboard-scroll { overflow-x: auto; }
 
 table.leaderboard {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92rem;
+  table-layout: fixed;
+  font-size: var(--fs-300);
+  /* The min-width contract `.overflow-x` shipped without in the baseline,
+     which is why a 1158px table clipped silently inside a 1100px box at
+     every desktop width (docs/design/tables.md rule 3). */
+  min-width: 640px;
 }
+
+.leaderboard col.col-rank { width: var(--lb-rank); }
+.leaderboard col.col-player { width: var(--lb-player); }
+.leaderboard col.col-verdict { width: auto; }
+.leaderboard col.col-evidence { width: var(--lb-evidence); }
 
 table.leaderboard th {
   text-align: left;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--baseline);
-  color: var(--text-secondary);
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
+  padding: 0 var(--sp-3) var(--sp-1);
+  border-bottom: var(--rule-hairline) solid var(--baseline);
+  vertical-align: bottom;
 }
+table.leaderboard th.col-rank,
+table.leaderboard td.col-rank { padding-left: 0; }
+table.leaderboard th.col-evidence,
+table.leaderboard td.col-evidence { padding-right: 0; text-align: right; }
 
-table.leaderboard th[data-sort-key]:hover { color: var(--text-primary); }
+/* The header control is a BUTTON, not a click handler on a `<th>`: the
+   baseline's sort was mouse-only, absent from the tab order and announced
+   nothing (accessibility.md #4). */
+.sort-button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: var(--sp-1) 0;
+  font: inherit;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.sort-button:hover { color: var(--text-primary); }
+.col-evidence .sort-button { flex-direction: row-reverse; }
 
+/* Direction is a glyph, never colour or position alone, and it is absent
+   until the column is actually the sort key. */
+.sort-indicator::before { content: ""; }
+th[aria-sort="ascending"] .sort-indicator::before { content: "\2191"; }
+th[aria-sort="descending"] .sort-indicator::before { content: "\2193"; }
+
+.col-verdict-sub,
+.col-evidence-sub {
+  display: block;
+  font-size: var(--fs-100);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+.col-evidence-sub { text-align: right; }
+
+/* 44px is the CEILING, not the target (the plan's own density guard). A
+   plot per row is taller than a text row, and the failure mode of this
+   design is drifting into a sparse art piece: at 74px only four hitters
+   were above the fold at 1440x900, against a floor of eight. */
 table.leaderboard td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--gridline);
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: var(--rule-hairline) solid var(--gridline);
   vertical-align: middle;
 }
 
-table.leaderboard td.numeric,
-table.leaderboard th.numeric {
-  font-variant-numeric: tabular-nums;
+table.leaderboard td.rank-cell {
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-muted);
+  text-align: right;
+  padding-right: var(--sp-3);
+}
+/* Amber on the rank column IS the frozen official record -- the sanctioned
+   use. `app.js` sets `data-sorted` on the table the moment a user re-sorts,
+   and the accent leaves: one of the three simultaneous expressions of
+   sorted state (docs/design/tables.md rule 5). */
+table.leaderboard:not([data-sorted]) td.rank-cell {
+  color: var(--accent-amber-text);
+  font-weight: 600;
+}
+
+table.leaderboard tbody tr:hover { background: var(--surface-recessed); }
+table.leaderboard tbody tr[hidden] { display: none; }
+
+.leaderboard .col-player { overflow: hidden; }
+.player-link {
+  color: var(--text-primary);
+  font-weight: 500;
+  text-decoration: none;
+  display: block;
+  padding: 0;
+}
+.player-link:hover { color: var(--accent-amber-text); text-decoration: underline; }
+
+/* ══ The verdict cell ════════════════════════════════════════════════════
+   ONE cell: the point estimate and the interval that qualifies it are one
+   statement on the league-wide shared axis (docs/design/tables.md rule 1).
+   The numeral and the mark are flex siblings, so the two value-placement
+   variants differ only in `order` and text alignment -- same DOM, one value
+   node, and a constant x in both regardless of sort order. */
+td.verdict { padding: 0 var(--sp-3); }
+
+/* Four fixed tracks, no gaps: gaps live inside the value/interval boxes so
+   that a zero-width lead track in V1 does not shift the field by a gap. The
+   plot field is always track 2, always the same box. */
+.verdict-inner {
+  display: grid;
+  grid-template-columns:
+    var(--lb-lead)
+    minmax(0, 1fr)
+    var(--lb-value-col)
+    var(--lb-interval-col);
+  align-items: stretch;
+  min-height: 28px;
+}
+/* All three items belong to ONE grid row. Without this, auto-placement put
+   the field (explicit column 2) on a second implicit row because the value
+   before it had already advanced the cursor past column 2 -- which is what
+   dropped the interval text onto its own line, 20px below the value it
+   qualifies. */
+.verdict-inner > * { grid-row: 1; }
+
+.verdict-value {
+  grid-column: 3;
+  align-self: center;
+  padding-left: var(--sp-3);
+  text-align: right;
+  font-size: var(--fs-300);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.verdict.is-favorable .verdict-value { color: var(--fav-text); }
+.verdict.is-unfavorable .verdict-value { color: var(--unfav-text); }
+
+.verdict-interval {
+  grid-column: 4;
+  align-self: center;
+  padding-left: var(--sp-3);
+  text-align: right;
+  font-size: var(--fs-200);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-muted);
+}
+
+.verdict-inner .cl-scale-field {
+  grid-column: 2;
+  min-width: 0;
+  align-self: stretch;
+}
+
+/* ── The spine ───────────────────────────────────────────────────────────
+   Drawn on the FIELD, not on the row or the table, because the field is the
+   coordinate space `--cl-zero` is a fraction of. Every field is the same
+   table column, so every segment lands on the same x; each spans its row's
+   full height with no gap, so the segments read as one continuous rule down
+   the table body rather than 124 stray ticks. */
+/* The segment bleeds over the row's vertical padding so consecutive rows
+   abut: the spine reads as ONE rule down the table body rather than 124
+   stray ticks, which is the difference `docs/design/tables.md` rule 2 is
+   drawing. It is still per-field, which is what makes it register. */
+.leaderboard .cl-scale-field::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--sp-1));
+  bottom: calc(-1 * var(--sp-1));
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.45;
+  pointer-events: none;
+}
+/* Marks paint above the spine, so a near-zero dot sitting ON zero stays
+   legible (its `--surface` ring does the separating). */
+.leaderboard .cl-scale-interval,
+.leaderboard .cl-scale-point { z-index: 1; }
+
+/* Clipped ends. The mark stops at the boundary and says so; the NUMERAL is
+   never clipped, so the exact value is always readable beside it. */
+.cl-scale-field[data-clipped="low"]::after,
+.cl-scale-field[data-clipped="both"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 6px solid currentColor;
+  z-index: 2;
+}
+
+/* ── V1 / V2 value placement ─────────────────────────────────────────────
+   Both variants ship behind a development-only switch (`?value-placement=`
+   or `localStorage`, see app.js). There is no user-facing control: this is
+   approval gate G3, not a preference.
+
+   V1 (default): one fixed-width numeral box after the field, right-aligned
+   at one constant x for all 124 rows.
+   V2: two sign-aware margins -- unfavorable values align at a constant x on
+   the field's left, favorable at a constant x on its right. The alignment
+   itself becomes a sign cue. Neither variant places a value at an interval
+   endpoint, and neither moves when the table is re-sorted. */
+[data-value-placement="v2"] .verdict[data-sign="neg"] .verdict-value {
+  grid-column: 1;
+  padding-left: 0;
+  padding-right: var(--sp-3);
   text-align: right;
 }
 
-/* Centers the "95% interval" header over the interval-bar column, and the
-   header/cell padding is identical (both come from the shared `th`/`td`
-   rules above) so the header and every bar beneath it share one effective
-   column width -- the bar itself is centered via `.interval-bar-compact`'s
-   own `margin: 0 auto` below, since `text-align` alone doesn't center a
-   block-level, fixed-width child. */
-table.leaderboard td.interval-col,
-table.leaderboard th.interval-col {
-  text-align: center;
+/* ══ Evidence ════════════════════════════════════════════════════════════
+   One compressed sample cell rather than three columns of equal weight:
+   BBE carries the reading, the rest is apparatus. */
+td.evidence {
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-muted);
+  font-size: var(--fs-200);
+  white-space: nowrap;
 }
+.evidence-primary { color: var(--text-secondary); font-size: var(--fs-300); }
+.evidence-unit { color: var(--text-muted); }
+.evidence-sep { padding: 0 var(--sp-1); color: var(--gridline); }
 
-table.leaderboard td.rank-cell {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-  width: 2.5em;
+.leaderboard-note {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
 }
-
-/* Whole-cell target in a 124-row register: the row's own hover is the
-   affordance, so the name is not permanently underlined. Opted out of the
-   Phase 2 link rule deliberately -- underlining 124 names would make the
-   table unreadable, and the leaderboard is not redesigned until Phase 3. */
-.player-link { color: var(--text-primary); font-weight: 500; text-decoration: none; }
-.player-link:hover { color: var(--accent-amber-text); text-decoration: underline; }
 
 .overflow-x { overflow-x: auto; }
+
+/* ══ Worked examples · Phase 3 ═══════════════════════════════════════════
+   RETIRED HERE: `.homepage-proof-card`, two bordered rounded boxes with
+   `--accent-field` top borders, sitting ABOVE the leaderboard.
+
+   Green as a card top-border is exactly the use `docs/design/color.md`
+   demotes -- an illustration-only token competing with the semantic pair on
+   the same visual device -- and two generic boxes held the position of
+   greatest prominence ahead of the product. The educational content is not
+   deleted: it moved below the leaderboard, where a reader has already seen
+   the thing it explains, and became a ruled ledger of the run-value idea
+   instead of a card set. */
+.worked {
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-5);
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.worked-lede { margin: 0 0 var(--sp-5); color: var(--text-secondary); }
+
+.worked-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-6);
+}
+.worked-item { border-top: var(--rule-hairline) solid var(--baseline); padding-top: var(--sp-3); }
+.worked-name { margin: 0; font-size: var(--fs-500); font-weight: 600; }
+.worked-contact {
+  margin: var(--sp-1) 0 var(--sp-3);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.worked-ledger { margin: 0; }
+.worked-ledger-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding: var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--gridline);
+  font-size: var(--fs-300);
+}
+.worked-ledger-row dt { color: var(--text-secondary); }
+.worked-ledger-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.worked-ledger-row.is-result { border-bottom: var(--rule-emphasis) solid var(--baseline); }
+.worked-ledger-row.is-result dt { color: var(--text-primary); font-weight: 600; }
+.worked-luck { font-size: var(--fs-500); font-weight: 700; }
+.is-favorable .worked-luck { color: var(--fav-text); }
+.is-unfavorable .worked-luck { color: var(--unfav-text); }
+.worked-verdict {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.is-favorable .worked-verdict { color: var(--fav-text); }
+.is-unfavorable .worked-verdict { color: var(--unfav-text); }
+.worked-link { margin-top: var(--sp-5); font-size: var(--fs-300); }
+
+/* ══ Leaderboard · narrow and mobile ═════════════════════════════════════
+   Not a squeezed table -- a different row structure (docs/design/tables.md
+   § Mobile leaderboard). Two ruled lines per hitter:
+
+       1   Pete Crow-Armstrong                       +7.62
+           321 BBE · 120 G      |———●————|   (shared zero axis)
+
+   The name owns a full-width line, so a mid-word break is structurally
+   impossible rather than merely discouraged. The spine still runs through
+   every row's field, so the continuous zero registration survives the
+   transformation -- which is the claim Phase 3 exists to test.
+
+   Implemented by re-flowing the SAME table markup with grid: the
+   accessibility tree keeps real rows and cells, so nothing is traded away
+   for the layout. */
+@media (max-width: 1023px) {
+  :root {
+    --lb-player: 11rem;
+    --lb-evidence: 11rem;
+    --lb-interval-col: 0px;
+  }
+  .verdict-interval {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 767px) {
+  /* The axis header and the distribution strip are desktop instruments:
+     below this width they would have to align to a table that no longer has
+     columns. The SCALE does not disappear -- the spine still runs through
+     every row's field, which is the claim this phase exists to test. What
+     goes is the tick rail and the 124-mark strip, neither of which can be
+     read at 390 without dropping tick text under 12 CSS px. */
+  /* Specificity note: `.leaderboard thead tr { display: flex }` below is
+     (0,2,1) and would otherwise win over a bare `.cl-axis-row` (0,1,0),
+     which is exactly what left a collapsed tick rail and an empty League
+     strip stacked on top of each other at 390. */
+  .leaderboard thead tr.cl-axis-row,
+  .leaderboard thead tr.cl-distribution-row { display: none; }
+  .cl-axis-head { display: block; margin-bottom: var(--sp-2); }
+  .cl-axis-unit { display: none; }
+  .cl-axis-caption { margin-top: 0; font-size: var(--fs-200); }
+
+  /* The lede compresses to a title and one line; the definition stays one
+     control away. */
+  .lede { gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-3); }
+  .lede-line { flex-basis: 100%; }
+  .lede-detail > summary { min-height: 32px; }
+
+  .ranking-tabs { gap: 0; }
+  .ranking-tab {
+    flex: 1 1 100%;
+    min-height: 40px;
+    border-bottom-width: var(--rule-hairline);
+  }
+  .ranking-tab[aria-selected="true"] { border-bottom-width: var(--rule-emphasis); }
+
+  .leaderboard thead tr { padding-bottom: var(--sp-1); }
+
+  .leaderboard-scroll { overflow-x: visible; }
+  table.leaderboard { min-width: 0; display: block; }
+  .leaderboard colgroup { display: none; }
+
+  .leaderboard thead { display: block; }
+  /* Column heads are meaningless once rows re-flow, but the SORT controls
+     are not: they stay, as a labelled row of buttons. */
+  .leaderboard thead tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-4);
+    border-bottom: var(--rule-hairline) solid var(--baseline);
+  }
+  .leaderboard th { display: block; padding: 0; border: 0; }
+  .col-verdict-sub,
+  .col-evidence-sub { display: none; }
+
+  /* A RULED ROW, not a squeezed table.
+     `docs/design/tables.md` sketches this as two lines with the value on
+     line 1 and the plot field on line 2. That sketch splits the verdict
+     across two lines, which contradicts the same file's rule 1 -- the point
+     estimate and its interval are ONE statement in ONE cell. The stronger
+     rule wins: the value and the field stay adjacent on one line, and the
+     row is three lines with one job each. Reported as a deliberate
+     departure rather than taken silently.
+
+     Every requirement of the two-line row survives: the name owns a full
+     line (so a mid-word break is structurally impossible), the verdict is
+     intact, and the field is full-width -- which at 390 is the widest plot
+     field the layout can give it. The spine's percentage basis is the row's
+     own content column, identical for every row, so the continuous zero
+     registration survives the transformation. */
+  .leaderboard tbody { display: block; }
+  .leaderboard tbody tr {
+    display: grid;
+    grid-template-columns: 2.25rem minmax(0, 1fr);
+    grid-template-areas:
+      "rank name"
+      "rank verdict"
+      "rank evidence";
+    row-gap: 0;
+    padding: var(--sp-2) 0;
+    border-bottom: var(--rule-hairline) solid var(--gridline);
+  }
+  .leaderboard tbody tr[hidden] { display: none; }
+  .leaderboard td { display: block; padding: 0; border: 0; }
+  .verdict-inner { min-height: 20px; align-items: center; }
+  .leaderboard td.evidence { line-height: 1.3; }
+
+  .leaderboard td.col-rank {
+    grid-area: rank;
+    text-align: left;
+    padding-right: var(--sp-2);
+    align-self: start;
+  }
+  .leaderboard td.col-player { grid-area: name; overflow: visible; }
+  /* 16px/600 on its own full line. Measured against the full 628-player
+     set: "Christian Encarnacion-Strand" is the longest name at 28
+     characters and ~224px, against ~310px available at 390. */
+  .leaderboard .player-link {
+    padding: 0;
+    font-size: var(--fs-400);
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .leaderboard td.verdict { grid-area: verdict; }
+  .verdict-inner {
+    grid-template-columns: minmax(0, 1fr) var(--lb-value-col);
+    min-height: 0;
+    align-items: center;
+  }
+  .verdict-inner .cl-scale-field {
+    grid-column: 1;
+    min-height: 20px;
+  }
+  /* The segment must still bleed over the row's padding so the spine stays
+     continuous through the transformation -- the property this phase is
+     testing at 390. */
+  .leaderboard .cl-scale-field::before {
+    top: calc(-1 * var(--sp-2));
+    bottom: calc(-1 * var(--sp-2));
+  }
+  .verdict-value { grid-column: 2; }
+  /* V2's sign-aware margins are a desktop device. At 390 there is one value
+     column, and alternating a number between two sides down a scanning list
+     would cost exactly the alignment V2 exists to buy. */
+  [data-value-placement="v2"] .verdict[data-sign="neg"] .verdict-value {
+    grid-column: 2;
+    padding-left: var(--sp-3);
+    padding-right: 0;
+    text-align: right;
+  }
+
+  .leaderboard td.evidence {
+    grid-area: evidence;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .worked-list { grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
+}
 
 /* Interval bar (leaderboard rows + player detail) */
 .interval-bar { display: block; }
@@ -1562,30 +2135,15 @@ main:focus-visible { outline: none; box-shadow: none; }
 }
 .site-footer-build { font-variant-numeric: tabular-nums lining-nums; }
 
-/* Desktop-only presentation polish (v1.2.1): the 1440px real-browser QA
-   pass found the leaderboard reading as a narrow, dense central column with
-   a lot of unused horizontal space. Purely visual -- no data/logic change,
-   no effect on the approved mobile layout below (disjoint media ranges). */
-@media (min-width: 900px) {
-  table.leaderboard { font-size: 1rem; }
-
-  table.leaderboard th { padding: 11px 10px; }
-  table.leaderboard td { padding: 13px 10px; }
-
-  table.leaderboard th:nth-child(2),
-  table.leaderboard td:nth-child(2) {
-    min-width: 220px;
-  }
-
-  /* Scales both dimensions together (native aspect ratio 220:32) so the
-     bar enlarges uniformly rather than letterboxing inside a wider box --
-     the SVG's own internal viewBox/coordinates (visuals.py) are untouched. */
-  .interval-bar-compact { width: 300px; height: 44px; }
-}
+/* REMOVED in Phase 3: a v1.2.1 `@media (min-width: 900px)` block that set
+   `table.leaderboard td { padding: 13px 10px }`, `th { padding: 11px 10px }`
+   and a 300x44 compact interval bar. It was written to make a sparse table
+   look less empty; against the Zero Spine row it did the opposite, silently
+   overriding the new padding and holding rows at 54.5px and the header row
+   at 70px -- four hitters above the fold instead of eight. The compact SVG
+   bar it also sized no longer exists on this surface. */
 
 @media (max-width: 640px) {
-  table.leaderboard { font-size: 0.84rem; }
-  .interval-bar-compact { width: 108px; }
   .player-hero-figure { font-size: 1.9rem; }
   /* Total runs / eligible BBE / games / interval width move to the player
      page on mobile -- keeping Rank, Player, Runs/100, and the interval bar
