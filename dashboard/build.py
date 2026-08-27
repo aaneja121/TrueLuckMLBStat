@@ -375,12 +375,24 @@ def build_dashboard(
     qualified_domain = league_scale.domain
 
     player_index = c.build_player_index(payloads)
+    # Redesign Phase 2: the global search marks a player it finds who holds no
+    # official rank, rather than suppressing them -- unqualified players keep a
+    # page, a score and an interval and are never de-emphasised
+    # (`docs/design/guardrails.md`, preserved product invariants). `ranked` is a
+    # verbatim read of the snapshot's own `qualification_status`, resolved here
+    # at build time so no rank semantics are ever decided in JavaScript
+    # (`CLAUDE.md` rule 6).
+    _qualification_by_id = {
+        record["batter_id"]: record.get("qualification_status")
+        for record in payloads.public_score
+    }
     player_index_json = json.dumps(
         [
             {
                 "batter_id": e.batter_id,
                 "batter_name": e.batter_name,
                 "url": f"{root_prefix}players/{e.batter_id}/",
+                "ranked": _qualification_by_id.get(e.batter_id) == "qualified",
             }
             for e in player_index
         ],

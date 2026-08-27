@@ -191,7 +191,16 @@ class TestDemoPageBuild:
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "demo" / "index.html").read_text()
-        assert '<a href="/demo/" class="active">How It Works</a>' in html
+        # Redesign Phase 2 moved the active-route marker from a bare
+        # `class="active"` to `is-active` PLUS `aria-current="page"` -- the
+        # state is now in the accessibility tree as well as the stylesheet.
+        # Asserted at the contract ("/demo/ is the one route marked current")
+        # rather than at one spelling of the markup.
+        nav = html.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+        assert nav.count('aria-current="page"') == 1
+        current = [line for line in nav.splitlines() if 'aria-current="page"' in line]
+        assert current and "/demo/" in current[0] and "How It Works" in current[0]
+        assert "is-active" in current[0]
 
     def test_build_fails_loudly_when_demo_fixture_is_missing(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)

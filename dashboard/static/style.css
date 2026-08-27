@@ -112,6 +112,28 @@
   --rule-emphasis: 2px;
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
+
+  /* ══ Page grid · Phase 2 ════════════════════════════════════════════════
+     Two measures on one page (docs/design/layout.md): the DATA measure is
+     what tables, figures and the future Zero Spine plot field register
+     against; the PROSE measure is narrower so explanatory text never runs
+     the full data width. `--gutter` is the single horizontal anchor every
+     route shares -- header, main and footer all use `.page-shell`, so the
+     wordmark, the first table column and the footer rule sit on the same
+     vertical line at every width. Full-bleed bands inside `main` bleed by
+     exactly `--gutter`, so this token is the only place that distance is
+     written down. */
+  --measure-data: 1200px;
+  --measure-prose: 68ch;
+  --gutter: var(--sp-5);
+
+  /* Minimum tap area for anything pointed at (docs/design/accessibility.md
+     #9). Nav links measured 90x25 in the baseline audit. */
+  --target-min: 44px;
+}
+
+@media (max-width: 639px) {
+  :root { --gutter: var(--sp-4); }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -211,12 +233,25 @@ h1 {
   word-break: normal;
 }
 
-/* Phase 1 fixes the CONTRAST here only (mark grade -> text grade). The
-   design system also wants links in ink-primary with an underline, so blue
-   stops being a non-semantic colour -- that is a shell/typography change
-   and lands with Phase 2, not here. */
-a { color: var(--fav-text); text-decoration: none; }
-a:hover { text-decoration: underline; }
+/* ══ Links · Phase 2 ══════════════════════════════════════════════════════
+   THE CHANGE. Links were `--fav-text` -- the same blue that means "this
+   player's Contact Luck is favorable." `docs/design/color.md`: the
+   diverging pair is reserved for the sign of a point estimate, and no
+   link, border, state or decoration may use it. So an ordinary link is now
+   ink with a rule under it: the underline is the affordance, colour is not
+   spent, and the hover/focus channels are weight and ring rather than hue.
+   The 0.12em offset keeps the rule clear of descenders in both families.
+
+   Components that are anchors but do not READ as links -- nav routes,
+   search options, whole-row table links -- opt out below with
+   `text-decoration: none`; each is a control with its own affordance. */
+a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-thickness: var(--rule-hairline);
+  text-underline-offset: 0.12em;
+}
+a:hover { text-decoration-thickness: var(--rule-emphasis); }
 
 /* A single, site-wide focus ring in the new identity accent -- distinct
    from Contact Luck's blue/red semantics (see the `--accent-amber`
@@ -237,30 +272,69 @@ summary:focus-visible,
   box-shadow: 0 0 0 calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--page);
 }
 
+/* ══ Page shell · the one horizontal contract ═════════════════════════════
+   Header, main and footer all wear `.page-shell`, so every route hangs off
+   the same two vertical lines. The named grid lines are the declared plot
+   field: `content-start`/`content-end` bound the DATA measure, which is
+   what a Zero Spine instrument registers against in later phases. Nothing
+   is painted here -- a zero rule is drawn only by a figure that actually
+   has a zero (docs/design/guardrails.md; DESIGN.md principle 5). */
+.page-shell {
+  width: 100%;
+  max-width: var(--measure-data);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* The prose measure. Narrower than the data measure on the same page so
+   explanatory text is never set at table width (docs/design/layout.md). */
+.prose { max-width: var(--measure-prose); }
+
+/* ══ Header ══════════════════════════════════════════════════════════════
+   A thin ruled band, not an app bar: no fill, no shadow, no rounded
+   container. The hairline underneath it is the top rule of the page's own
+   ruled system -- the same weight as every other divider on the site. The
+   2px amber-soft border it replaced read as chrome and spent the accent on
+   the frame instead of on the record. */
 .site-header {
-  border-bottom: 2px solid var(--accent-amber-soft);
-  background: var(--surface);
+  position: relative;  /* containing block for the mobile nav disclosure */
+  border-bottom: var(--rule-hairline) solid var(--border);
+  background: var(--page);
 }
 
+/* The header is a ruled register, not a row of chrome: four zones --
+   identity, routes, search, provenance -- separated by the same hairline
+   the rest of the site uses as a divider. That is the scorebook's fixed
+   column frame doing the structural work, so nothing needs a fill, a
+   capsule or a shadow to read as a distinct zone. */
 .site-header-inner {
-  max-width: 1140px;
-  margin: 0 auto;
-  padding: 14px 20px;
-  display: flex;
+  display: grid;
+  grid-template-areas: "brand nav search meta";
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
+  column-gap: var(--sp-5);
+  padding-block: var(--sp-2);
 }
 
-.site-title {
+.global-search,
+.data-through {
+  padding-left: var(--sp-5);
+  border-left: var(--rule-hairline) solid var(--border);
+  align-self: stretch;
+}
+
+.site-wordmark {
+  grid-area: brand;
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: var(--fs-500);
+  letter-spacing: -0.01em;
   color: var(--text-primary);
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  min-height: var(--target-min);
 }
+.site-wordmark:hover { text-decoration: none; }
 
 /* Tiny abstract baseball-seam mark -- the site's one small recurring
    ornament (see `.seam-divider` below for its other use, on /demo/).
@@ -307,97 +381,384 @@ summary:focus-visible,
   background: var(--border);
 }
 
+/* ══ Navigation ══════════════════════════════════════════════════════════
+   Routes read as a ruled register of destinations, not as pills. No
+   background, no capsule, no icon: the word is the target. Every link
+   carries the 44px minimum tap area from the primitive, which is what the
+   90x25 baseline failed. */
 .site-nav {
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-}
-
-.site-nav a {
-  color: var(--text-secondary);
-  font-size: 0.92rem;
+  grid-area: nav;
+  justify-self: end;
   position: relative;
-  padding-bottom: 3px;
-  transition: color 0.15s ease;
 }
 
-.site-nav a:hover {
+.site-nav-list {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  color: var(--text-secondary);
+  font-size: var(--fs-300);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: var(--rule-emphasis) solid transparent;
+}
+.site-nav-list a:hover {
   color: var(--text-primary);
+  text-decoration: none;
+  border-bottom-color: var(--baseline);
 }
 
-/* Active section reads in the amber accent (text + underline), not just a
-   neutral color swap -- this is the single highest-visibility place for
-   the brand accent to register on every page load. */
-.site-nav a.active {
+/* The active route is the one amber use in the header besides provenance:
+   `docs/design/color.md` names the active nav item explicitly. Text grade,
+   because this is text; a square 2px rule, because the rounded 2px radius
+   it replaced was a fourth radius outside the declared set of three. The
+   underline is a second, non-colour channel, so the state does not depend
+   on hue alone. */
+.site-nav-list a.is-active {
   color: var(--accent-amber-text);
   font-weight: 600;
-}
-.site-nav a.active::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent-amber);
+  border-bottom-color: var(--accent-amber-mark);
 }
 
-.global-search-wrap {
+/* Mobile disclosure trigger. A word, not a hamburger -- the routes are
+   named things and "Menu" says what the control does. Hidden at >=640 by
+   the media query at the end of this block. */
+.site-nav-toggle {
+  display: none;
+  align-items: center;
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+  padding-inline: var(--sp-3);
+  background: none;
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+  cursor: pointer;
+}
+
+/* ══ Global search · combobox ════════════════════════════════════════════
+   A field on the page's own plane, not a rounded pill dropped into a
+   navbar: hairline box, control radius, recessed ground so it reads as
+   operable against the header's page ground. */
+.global-search {
+  grid-area: search;
   position: relative;
-}
-
-.global-search-wrap input {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-recessed);
-  color: var(--text-primary);
-  font-size: 0.86rem;
-  width: 200px;
-}
-
-.search-results-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
-  z-index: 20;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
-.search-results-dropdown[hidden] { display: none; }
+/* Visible, associated label -- a placeholder is never a label
+   (docs/design/accessibility.md #5). At true desktop the label is the
+   field's own eyebrow, in the same uppercase micro register as the
+   provenance label beside it; the placeholder carries the format hint.
 
-.search-result-item {
-  padding: 7px 12px;
-  font-size: 0.86rem;
-  color: var(--text-primary);
-}
-
-.search-result-item:hover {
-  background: var(--page);
-  text-decoration: none;
-}
-
-.data-through-badge {
-  font-size: 0.82rem;
+   Below 1280 the label goes visually hidden and the <label for> keeps
+   doing the programmatic work. Measured reason: the label plus the five
+   route labels plus the wordmark plus provenance need more than the 976px
+   of content a 1024 viewport has, and the routes are the one thing in the
+   header that must not shrink. */
+.global-search-label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px 10px;
   white-space: nowrap;
 }
 
+@media (max-width: 1279px) {
+  .global-search-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* Laptop (1024-1279) keeps the single inline row, but the two zones that
+     CAN give ground do so: the field narrows and the zone stems tighten.
+     The routes never shrink -- five legible destinations are the point of
+     the header. Measured at 1024: this is what brings the row inside the
+     976px of content the viewport has. */
+  .global-search-input { width: 140px; }
+  .global-search,
+  .data-through { padding-left: var(--sp-4); }
+  .site-header-inner { column-gap: var(--sp-4); }
+}
+
+.global-search-input {
+  width: 200px;
+  min-width: 0;
+  min-height: var(--target-min);
+  padding: var(--sp-2) var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+}
+.global-search-input::placeholder { color: var(--text-muted); }
+
+.global-search-close {
+  display: none;
+  min-height: var(--target-min);
+  padding-inline: var(--sp-3);
+  background: none;
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+  cursor: pointer;
+}
+
+.global-search-listbox {
+  position: absolute;
+  top: calc(100% + var(--sp-1));
+  right: 0;
+  min-width: 260px;
+  max-width: min(92vw, 380px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  z-index: 20;
+  background: var(--surface);
+  border: var(--rule-hairline) solid var(--baseline);
+  border-radius: var(--radius-control);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.global-search-listbox[hidden] { display: none; }
+
+/* Results are a ruled list of one object type -- the card rule's case 1 is
+   about a set you scan ACROSS; a dropdown of eight names is a register you
+   read DOWN, so it gets rules, not boxes. */
+.global-search-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  min-height: var(--target-min);
+  border-top: var(--rule-hairline) solid var(--border);
+  cursor: pointer;
+}
+.global-search-option:first-child { border-top: 0; }
+.global-search-option a {
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: var(--fs-300);
+}
+/* Hover and keyboard-active render identically -- the active option is the
+   same state whichever device drove it. Recessed tint, no colour. */
+.global-search-option:hover,
+.global-search-option[aria-selected="true"] {
+  background: var(--surface-recessed);
+  box-shadow: inset var(--rule-emphasis) 0 0 var(--baseline);
+}
+
+/* Unqualified players are findable and are marked, never suppressed and
+   never de-emphasised (docs/design/guardrails.md, preserved invariants).
+   Neutral muted apparatus, same register as the batter id elsewhere. */
+.global-search-note {
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.global-search-empty {
+  padding: var(--sp-3);
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
+}
+
+/* ══ Data-through provenance ═════════════════════════════════════════════
+   Amber, because this IS the frozen official record's timestamp -- the
+   canonical sanctioned use alongside the active route. Not a pill: the
+   999px radius is reserved for status pills (qualification status and the
+   Favorable/Unfavorable badge) and this is neither. A hairline stem to its
+   left ties it to the header rule. */
+.data-through {
+  grid-area: meta;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.data-through-label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.data-through-value {
+  font-size: var(--fs-200);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--accent-amber-text);
+}
+
+/* ══ Responsive shell ════════════════════════════════════════════════════
+   Three structural states, not one layout squeezed. Breakpoints per
+   docs/design/responsive.md (>=1280 desktop, 1024-1279 laptop, 640-1023
+   narrow, <640 mobile); the shell only needs to change at 1024 and 640. */
+@media (min-width: 640px) {
+  /* The nav list ships `hidden` so that a JS-less mobile browser is not
+     stuck with an open menu; from here up it is simply the nav. */
+  .site-nav-list[hidden] { display: flex; }
+}
+
+@media (max-width: 1099px) {
+  /* Narrow. The routes stay in ONE row -- but on a line of their own, not
+     sharing one with the wordmark. Measured: the five route labels need
+     493px at their normal size, and 493 + wordmark + search + provenance
+     does not fit on one line below ~1100 (at 1024 it overran by 13px even
+     with the field narrowed and the zone stems tightened). The
+     alternatives were shrinking the route type to fit -- compressed
+     desktop -- or wrapping to a second nav row, which is banned outright.
+     So the row structure changes instead: identity + provenance, then
+     routes, then search. Three ruled lines, each with one job.
+
+     1100 is this component's CONTENT-DRIVEN breakpoint, not a global one.
+     The site's default responsive tiers are unchanged and still put the
+     laptop/narrow boundary at 1024; every other component starts there.
+     The header departs from it because its content measurably cannot
+     satisfy the one-row contract below ~1100, and that departure is local
+     to the header -- see `docs/design/responsive.md`
+     § Content-driven component breakpoints, which records the measurement
+     and the rule that such a breakpoint must be measured and documented
+     rather than chosen. */
+  .site-header-inner {
+    grid-template-areas:
+      "brand  meta"
+      "nav    nav"
+      "search search";
+    grid-template-columns: 1fr auto;
+    column-gap: var(--sp-4);
+    row-gap: var(--sp-1);
+    padding-bottom: var(--sp-3);
+  }
+  .site-nav { justify-self: start; }
+  .site-nav-list a { font-size: var(--fs-300); }
+  .data-through {
+    padding-left: var(--sp-4);
+    justify-content: center;
+  }
+  .site-nav-list { gap: var(--sp-4); }
+  .global-search {
+    justify-self: stretch;
+    padding-left: 0;
+    border-left: 0;
+  }
+  .global-search-input { flex: 1 1 auto; width: auto; }
+  .global-search-listbox { left: 0; right: 0; max-width: none; }
+}
+
+@media (max-width: 639px) {
+  /* Mobile: the routes collapse behind a disclosure and the provenance
+     moves to its own ruled line, so the header stays one brand-height row.
+     The open list is a full-width ruled register hung off the header --
+     not a floating rounded panel. */
+  /* Mobile: identity and its provenance stack into one block on the left,
+     the disclosure sits beside them spanning both, and the search field
+     takes the full width beneath. Two rows of controls, not three. */
+  .site-header-inner {
+    grid-template-areas:
+      "brand  nav"
+      "meta   nav"
+      "search search";
+    grid-template-columns: 1fr auto;
+    column-gap: var(--sp-3);
+    row-gap: var(--sp-1);
+  }
+  .site-nav { align-self: center; }
+  .site-nav { position: static; }
+  .site-nav-toggle { display: inline-flex; }
+  .site-nav-list,
+  .site-nav-list[hidden] { display: none; }
+  .site-nav-list:not([hidden]) {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 30;
+    background: var(--surface);
+    border-bottom: var(--rule-hairline) solid var(--baseline);
+  }
+  .site-nav-list li { border-top: var(--rule-hairline) solid var(--border); }
+  .site-nav-list a {
+    display: flex;
+    padding-inline: var(--gutter);
+    font-size: var(--fs-400);
+    border-bottom: 0;
+    border-left: var(--rule-emphasis) solid transparent;
+  }
+  .site-nav-list a.is-active { border-left-color: var(--accent-amber-mark); }
+
+  .data-through {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: var(--sp-2);
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  /* The full-screen search sheet. Mobile is not compressed desktop: at
+     this width a dropdown of eight names under a 40px field is unusable,
+     so focusing the field promotes it to the whole viewport with the
+     results as a ruled list filling the space. Driven by a body class so
+     the page behind it can be locked from scrolling. */
+  body.search-sheet-open { overflow: hidden; }
+  body.search-sheet-open .global-search {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    grid-template-areas:
+      "field close"
+      "list list";
+    grid-template-columns: 1fr auto;
+    align-content: start;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+    background: var(--page);
+  }
+  body.search-sheet-open .global-search-input { grid-area: field; }
+  body.search-sheet-open .global-search-close { grid-area: close; display: inline-flex; }
+  body.search-sheet-open .global-search-listbox {
+    grid-area: list;
+    position: static;
+    max-height: none;
+    max-width: none;
+    border: 0;
+    border-top: var(--rule-hairline) solid var(--border);
+    border-radius: var(--radius-0);
+  }
+  /* Rows keep their own inset in the sheet: zeroing it put the "No official
+     rank" marker flush against the viewport edge. */
+  body.search-sheet-open .global-search-option { padding-inline: var(--sp-2); }
+}
+
 main {
-  max-width: 1140px;
-  margin: 0 auto;
-  padding: 24px 20px 64px;
+  display: block;
+  padding-block: var(--sp-5) var(--sp-8);
 }
 
 /* Homepage hero band (currently used solely by index.html) -- the site's
@@ -410,8 +771,8 @@ main {
    technique, not a giant marketing hero: the leaderboard table itself is
    untouched and stays sober immediately below it. */
 .page-hero {
-  margin: -4px -20px 26px;
-  padding: 26px 20px 22px;
+  margin: -4px calc(-1 * var(--gutter)) 26px;
+  padding: 26px var(--gutter) 22px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   border-top: 3px solid var(--accent-amber);
@@ -448,21 +809,15 @@ h1 { font-size: 1.6rem; margin: 0 0 6px; }
    (methodology/status/player) too, per the visual-identity pass: shared
    identity there comes through headings/nav/focus/surfaces, never through
    baseball motifs on every row or card. */
+/* Phase 2: the amber tick that used to sit on EVERY `h2` is gone.
+   `docs/design/guardrails.md` anti-pattern 1 -- decoration applied
+   uniformly to every heading is decoration masquerading as structure, and
+   it was the single largest consumer of an accent that is supposed to mean
+   "the frozen official record." Section separation is now the rule above
+   the heading plus the space around it. */
 h2 {
   font-size: 1.2rem;
   margin: 32px 0 10px;
-  position: relative;
-  padding-left: 14px;
-}
-h2::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0.24em;
-  width: 4px;
-  height: 0.82em;
-  background: var(--accent-amber);
-  border-radius: 2px;
 }
 h3 { font-size: 1rem; margin: 20px 0 8px; }
 
@@ -649,7 +1004,8 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
   border-radius: 999px;
   padding: 2px 8px;
 }
-.showcase-card-link { font-weight: 600; white-space: nowrap; }
+.showcase-card-link { font-weight: 600; white-space: nowrap; text-decoration: none; }
+.showcase-card-link:hover { text-decoration: underline; }
 
 .showcase-reveal-button {
   margin-top: 12px;
@@ -782,7 +1138,11 @@ table.leaderboard td.rank-cell {
   width: 2.5em;
 }
 
-.player-link { color: var(--text-primary); font-weight: 500; }
+/* Whole-cell target in a 124-row register: the row's own hover is the
+   affordance, so the name is not permanently underlined. Opted out of the
+   Phase 2 link rule deliberately -- underlining 124 names would make the
+   table unreadable, and the leaderboard is not redesigned until Phase 3. */
+.player-link { color: var(--text-primary); font-weight: 500; text-decoration: none; }
 .player-link:hover { color: var(--accent-amber-text); text-decoration: underline; }
 
 .overflow-x { overflow-x: auto; }
@@ -934,8 +1294,31 @@ table.leaderboard td.rank-cell {
   border-radius: var(--radius-control);
   transform: translateY(-200%);
 }
+.skip-link:focus,
 .skip-link:focus-visible {
   transform: translateY(0);
+}
+
+/* The skip target itself. `tabindex="-1"` on <main> makes it focusable so
+   the jump actually moves focus (not just the scroll position); the ring
+   is suppressed because the destination is a region, not a control, and a
+   2px amber box around the whole page reads as an error state. */
+main:focus { outline: none; }
+main:focus-visible { outline: none; box-shadow: none; }
+
+/* ══ Reduced motion ══════════════════════════════════════════════════════
+   docs/design/accessibility.md #12. The shell's only transitions are
+   colour/weight changes on hover; the /demo/ ball flight opts back in
+   explicitly because there the movement IS the information. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ══ Visually hidden ═════════════════════════════════════════════════════
@@ -985,8 +1368,8 @@ table.leaderboard td.rank-cell {
   flex-wrap: wrap;
   gap: 24px;
   align-items: flex-start;
-  margin: -4px -20px 22px;
-  padding: 24px 20px 20px;
+  margin: -4px calc(-1 * var(--gutter)) 22px;
+  padding: 24px var(--gutter) 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   border-top: 3px solid var(--accent-amber);
@@ -1000,17 +1383,14 @@ table.leaderboard td.rank-cell {
 }
 .player-name-row h1 { margin: 0; }
 
-/* Small trajectory ornament next to the player name -- same motif as the
-   homepage hero and the field diagrams, not a literal "player card"
-   graphic. */
-.player-header-mark {
-  width: 100px;
-  height: 32px;
-  color: var(--accent-field);
-  opacity: 0.7;
-  flex: none;
-}
-.player-header-mark svg { width: 100%; height: 100%; display: block; }
+/* RETIRED in Phase 2: `.player-header-mark` was a 100x32 open-chevron
+   "trajectory" ornament beside the player name. Phase 1 gave the open
+   outward chevron a meaning in the Zero Scale primitive -- "the interval
+   continues past this edge" -- and an identical shape sitting decoratively
+   at the top of the same page, a few hundred pixels above a figure that
+   uses it as a legend, is a collision in the visual vocabulary, not a
+   flourish. Removed rather than replaced: nothing was being communicated,
+   so nothing needs to take its place (DESIGN.md principle 5). */
 
 /* Compact uppercase metadata treatment -- MLBAM ID / data-through date /
    the 95% interval line -- distinct from `.page-subtitle`'s plain prose
@@ -1142,14 +1522,45 @@ table.leaderboard td.rank-cell {
 .snapshot-type-retrospective_backfill { color: var(--text-muted); font-style: italic; }
 .snapshot-type-invalid_incomplete_snapshot { color: var(--unfav-text); }
 
-footer.site-footer {
-  max-width: 1140px;
-  margin: 40px auto 0;
-  padding: 16px 20px;
+/* ══ Footer ══════════════════════════════════════════════════════════════
+   Subordinate apparatus, not a second page. A hairline rule and space --
+   no card, no fill, no border box. Two tiers: the retrospective framing
+   (product commitment, kept verbatim) at the PROSE measure, and the
+   routes plus build provenance in footnote register beneath it. */
+.site-footer {
+  margin-top: var(--sp-7);
+  border-top: var(--rule-hairline) solid var(--border);
   color: var(--text-muted);
-  font-size: 0.82rem;
-  border-top: 1px solid var(--border);
+  font-size: var(--fs-200);
 }
+
+.site-footer-inner {
+  padding-block: var(--sp-4) var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.site-footer-framing {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-300);
+}
+
+.site-footer-provenance {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2) var(--sp-4);
+}
+.site-footer-provenance a {
+  color: var(--text-secondary);
+  min-height: var(--target-min);
+  display: inline-flex;
+  align-items: center;
+}
+.site-footer-build { font-variant-numeric: tabular-nums lining-nums; }
 
 /* Desktop-only presentation polish (v1.2.1): the 1440px real-browser QA
    pass found the leaderboard reading as a narrow, dense central column with
@@ -1173,7 +1584,6 @@ footer.site-footer {
 }
 
 @media (max-width: 640px) {
-  .site-nav { gap: 12px; }
   table.leaderboard { font-size: 0.84rem; }
   .interval-bar-compact { width: 108px; }
   .player-hero-figure { font-size: 1.9rem; }
@@ -1935,13 +2345,43 @@ footer.site-footer {
    second visual language. Only genuinely new elements (the filter/sort
    control row, the loading/empty states, the Contact Luck column's
    emphasis) get new classes below. */
-/* Phase 4.2: player-first search -- reuses the SAME .search-results-
-   dropdown/.search-result-item components the site header's global player
-   search already uses (see .global-search-wrap above), just scoped to
-   this page's own positioned wrapper instead of the header. Suggestion
-   items are <button> elements here (selecting a hitter triggers a fetch,
-   never a navigation), so they need the same block/full-width/no-chrome
-   reset a plain <a> gets for free. */
+/* Phase 4.2: player-first search. These two components USED to live in the
+   site header and be shared with the global player search; Phase 2 rebuilt
+   the global search as a real combobox (`.global-search-*` above) and left
+   these here, unchanged in value, as Explore's own. Explore adopts the
+   shared combobox in Phase 5 -- until then its appearance is deliberately
+   identical to its baseline. Suggestion items are <button> elements here
+   (selecting a hitter triggers a fetch, never a navigation), so they need
+   the block/full-width/no-chrome reset a plain <a> gets for free. */
+.search-results-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.search-results-dropdown[hidden] { display: none; }
+
+.search-result-item {
+  padding: 7px 12px;
+  font-size: 0.86rem;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.search-result-item:hover {
+  background: var(--page);
+  text-decoration: none;
+}
+
 .explore-player-search-wrap {
   position: relative;
   max-width: 420px;

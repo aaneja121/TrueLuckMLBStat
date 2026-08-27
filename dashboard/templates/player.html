@@ -7,12 +7,6 @@
   <div>
     <div class="player-name-row">
       <h1>{{ player.batter_name }}</h1>
-      <div class="player-header-mark" aria-hidden="true">
-        <svg viewBox="0 0 160 50" preserveAspectRatio="xMidYMid meet" focusable="false">
-          <path d="M80,48 L14,14 M80,48 L146,14 M14,14 A66,66 0 0 1 146,14"
-                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></path>
-        </svg>
-      </div>
     </div>
     <p class="player-meta">MLBAM ID {{ player.batter_id }} &middot; Data through {{ data_through_date }}</p>
     <span class="badge{% if player.qualification_status == 'qualified' %} badge-qualified{% endif %}">
