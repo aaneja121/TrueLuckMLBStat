@@ -1233,11 +1233,22 @@ class TestShowcaseSection:
             showcase_path,
         )
         html = (tmp_path / "dist" / "explore" / "index.html").read_text()
-        assert "Showcase Plays" in html
+        # Renamed in Phase 5 from "Showcase Plays" -- the heading now says
+        # what the set IS rather than naming the module.
+        assert "Biggest breaks of the season" in html
         assert 'data-role="showcase-section"' in html
-        # Showcase markup appears BEFORE the player-search markup in source order.
-        assert html.index('data-role="showcase-section"') < html.index(
-            'data-role="explore-player-search"'
+        # Phase 5 INVERTED this. The picker comes first and the showcase
+        # follows the results, because a large share of arrivals now come
+        # from a player page's `/explore/?batter=<id>` link with a hitter
+        # already chosen -- for them a twelve-play editorial set above the
+        # results is obstruction. With nothing selected the prompt is one
+        # line, so the showcase is still the first substantive content.
+        # DOM order, visual order and tab order stay the same.
+        assert html.index('data-role="explore-player-search"') < html.index(
+            'data-role="showcase-section"'
+        )
+        assert html.index('data-role="explore-selected"') < html.index(
+            'data-role="showcase-section"'
         )
 
 

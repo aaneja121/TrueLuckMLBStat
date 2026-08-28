@@ -107,3 +107,38 @@ The price is the **anti-fake-alignment guard**: any figure on a scale other than
 the shared zero while hiding its own domain is exactly the deception the guard exists to
 prevent. The component decomposition prints its ticks directly above the first bar, and
 its section lede states the domain in words.
+
+## The `run_value` scale (Explore, Phase 5)
+
+The third registered scale. One snapshot-level domain over **every published play**, read
+off the shard walk `explore_content.load_explore_catalog` already performs, then padded by
+`ZeroScale.from_values` until its zero lands on the shared `--cl-zero`. Explore draws every
+hitter's plays on it, so two hitters' plays are comparable and a one-play hitter is not
+stretched across the whole field.
+
+It pays the anti-fake-alignment guard in full: its own tick labels, its own unit on the
+figure, and its domain stated in words under the unit. The leaderboard hides `.cl-axis-unit`
+at mobile because its column head carries the unit; Explore's column heads go visually
+hidden there, so its unit is explicitly re-shown.
+
+**The domain is computed at build time and shipped as data.** `explore.js` interpolates a
+layout percentage against it and derives no domain of its own — a per-hitter autoscale
+would put two hitters on two scales and move zero off the spine, which is decision D1a
+applied to a client-rendered figure. A value outside the domain clips; the scale never
+widens.
+
+### Two figures on one page must share one coordinate space
+
+Explore's first build drew the play distribution as a standalone `<figure>` above the
+results table. Both were correct internally, and their zeros were 120 px apart, because a
+full-width figure and a table column are two different percentage bases.
+
+The fix is the leaderboard's own construction: the axis rail and the all-plays strip are
+**rows inside the results table**, in the verdict column, so the ticks, the strip and every
+row's mark are the same grid track and cannot disagree at any width. Measured at
+1440/1280/768/390/320 — all three land on one x to three decimals.
+
+The showcase list is a separate section and cannot be a table row, so it is aligned the
+other way: its grid uses the same four leading tracks as the table (`32rem`, minus the
+grid gap the table carries as cell padding) and the same reserved numeral track. One zero
+on the page, not two that happen to be close.

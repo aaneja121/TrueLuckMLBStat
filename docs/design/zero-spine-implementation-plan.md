@@ -1,7 +1,7 @@
 # Zero Spine — implementation plan
 
 **Selected direction:** Direction 2 · The Zero Spine (`docs/design/directions-2026-08-26.md`).
-**Status: Phases 1–4 implemented** (foundation, shell, leaderboard, player page). Phases 5–8 are still plan only. Gates G1, G3 and G4 are signed off; **G2 and G5 are built and self-verified, awaiting sign-off**. Where implementation diverged from this plan the divergence is recorded inline, marked with a blockquote — the plan is kept honest rather than rewritten.
+**Status: Phases 1–5 implemented** (foundation, shell, leaderboard, player page, Explore), plus a site-wide copy pass (Phase 4.5). Phases 6–8 are still plan only. Gates G1, G3 and G4 are signed off; **G2, G5 and G6 are built and self-verified, awaiting sign-off**. Where implementation diverged from this plan the divergence is recorded inline, marked with a blockquote — the plan is kept honest rather than rewritten.
 
 Governed by `DESIGN.md`, `docs/design/guardrails.md`, `PRODUCT.md`, `CONTEXT.md`.
 Companion decision surface (diagrams, gates, order): the published artifact linked from the
@@ -599,6 +599,26 @@ Common to every phase — stated once rather than repeated sixteen times:
     preserved; `make check` green; screenshots approved (**G6**).
 16. **Dependencies.** Phases 1, 2 (combobox), 4 (the inbound link).
 
+> **Implemented 2026-08-28.** Three divergences, all recorded rather than rewritten:
+>
+> 1. **The showcase moved below the results**, inverting item 2's order. Phase 4's
+>    `/explore/?batter=<id>` link means many arrivals already have a hitter chosen, and a
+>    twelve-play editorial set above their results is obstruction. With nothing selected
+>    the prompt is one line, so the showcase is still the first substantive content.
+>    Recorded in `docs/design/information-architecture.md` § Explore.
+> 2. **The distribution is two rows inside the results table**, not a standalone figure
+>    above it. Built as a figure first; its zero and the table's were 120 px apart, because
+>    a full-width figure and a table column are two percentage bases. The leaderboard's own
+>    construction fixes it by construction. See `docs/design/dataviz.md`.
+> 3. **No mobile full-screen sheet for the picker** (item 9 expected one). The sheet exists
+>    to rescue the cramped header strip; Explore's picker is full-width page content with
+>    its listbox directly beneath, so a modal adds a state without removing a problem.
+>
+> Item 13's design risk held: results are a ruled table, filters are a ruled row with
+> visible labels, and the showcase card grid is gone. Item 14's engineering risk was
+> handled as specified — the URL is the single source of truth and `applyUrl()` is the one
+> path into a selection.
+
 ---
 
 ### Phase 6 — Play page
@@ -786,7 +806,7 @@ themes:
 | **G4** | Phase 3 | The leaderboard as a whole: axis, distribution strip, spine, density |
 | **G2** ⏳ | Phase 4 | The trend's declared exception, rendered — criteria in Phase 4, item 15. **Built and self-verified; awaiting sign-off.** |
 | **G5** ⏳ | Phase 4 | The player hero, and the unqualified/near-zero/clipped states. **Built and self-verified; awaiting sign-off.** |
-| **G6** | Phase 5 | Explore as a discovery instrument rather than a filter form |
+| **G6** ⏳ | Phase 5 | Explore as a discovery instrument rather than a filter form. **Built and self-verified; awaiting sign-off.** |
 | **G7** | Phase 6 | The play page's run-value instrument and what gets no spine |
 | **G8** | Phase 7 | `/status/` replacement and the untouched demo |
 | **G9** | Phase 8 | Final anti-vibecode review across all eight routes |

@@ -1,133 +1,230 @@
 {% extends "base.html" %}
-{% block title %}Explore Plays — Contact Luck{% endblock %}
-{% block meta_description %}Search a hitter and browse their individual scored batted balls from the Contact Luck play ledger.{% endblock %}
+{% block title %}Explore plays · Contact Luck{% endblock %}
+{% block meta_description %}Choose a hitter and read their individual scored batted balls: exit velocity, launch angle, recorded result, and the Contact Luck on each one.{% endblock %}
+{% block og_title %}Explore plays · Contact Luck{% endblock %}
+{% block og_url %}{{ site_url }}/explore/{% endblock %}
+{% block twitter_title %}Explore plays · Contact Luck{% endblock %}
 {% block content %}
-<div class="page-hero">
-  <div class="page-hero-top">
-    <h1>Explore Plays</h1>
-  </div>
-  <div class="callout explainer-callout">
-    <p>
-      Search for a hitter, then browse, filter, and sort their scored batted balls — open an
-      individual play to see the frozen model's outcome probabilities alongside what actually
-      happened. Every number here is copied directly from the same canonical scoring record that
-      produces this site's published Contact Luck totals — nothing on this page is recomputed in
-      the browser.
-    </p>
-  </div>
+{#
+  Redesign Phase 5 -- Explore.
+
+  The route's job is one path: hitter -> their published batted balls ->
+  one play. So the picker is the first thing on the page and the results
+  sit directly under it. The showcase follows the results rather than
+  leading the page: with no hitter chosen it is the first substantive
+  content a visitor meets, and once a hitter IS chosen it is below their
+  plays, which is where an editorial sidebar belongs. That ordering needs
+  no JavaScript -- DOM order, visual order and tab order are the same.
+
+  Every play mark on this page is drawn on the ONE snapshot-level
+  `run_value` domain computed in `dashboard/build.py` from every published
+  play, with zero at the shared `--cl-zero`. It is not the leaderboard's
+  `league_per_100` domain and does not pretend to be: the axis prints its
+  own ticks and its own unit, which is the anti-fake-alignment guard
+  (docs/design/dataviz.md).
+#}
+<div class="explore-lede">
+  <h1 class="lede-title">Explore plays</h1>
+  <p class="lede-line prose">
+    Contact Luck is summed from single batted balls. Choose a hitter to inspect their plays
+    one at a time.
+  </p>
 </div>
 
-{#
-  Version 1.4.1 Showcase Plays: an editorial entry point ABOVE the generic
-  player search -- the biggest favorable/unfavorable Contact Luck breaks of
-  the season, real plays a new visitor can open immediately without first
-  knowing which hitter to search for. Loads showcase.json alongside
-  players.json on page load (dashboard/static/explore.js); every value
-  shown is copied verbatim from the same canonical scoring record as the
-  rest of this page -- nothing here is recomputed in the browser.
-#}
-<section class="showcase-section" data-role="showcase-section" aria-label="Showcase Plays">
-  <h2 class="showcase-heading">Showcase Plays</h2>
-  <p class="page-subtitle">
-    The biggest favorable and unfavorable Contact Luck breaks of the season — real plays, no
-    qualification filter, no search required.
-  </p>
-  <p class="explore-loading" data-role="showcase-loading">Loading showcase&hellip;</p>
-  <div data-role="showcase-body" hidden>
-    <div class="showcase-group">
-      <h3 class="showcase-group-heading showcase-group-heading-favorable">Biggest favorable breaks</h3>
-      <div class="showcase-cards" data-role="showcase-cards-favorable"></div>
-      <button type="button" class="showcase-reveal-button" data-role="showcase-reveal-favorable" hidden></button>
+{# ── The picker ────────────────────────────────────────────────────────────
+   The same combobox the header runs (`window.ContactLuck.createCombobox`).
+   The baseline shipped a second, weaker picker here: a `<div>` of buttons
+   with no combobox role, no `aria-expanded`, no arrow keys and no Escape. #}
+<div class="explore-picker" data-role="explore-picker">
+  <label class="explore-picker-label" for="explore-player-search">Hitter</label>
+  <div class="explore-picker-field">
+    <input class="explore-picker-input" id="explore-player-search" type="text"
+           role="combobox" aria-expanded="false"
+           aria-controls="explore-player-search-listbox"
+           aria-autocomplete="list" autocomplete="off"
+           placeholder="Name or MLBAM ID"
+           data-role="explore-player-search" disabled>
+    <ul class="explore-picker-listbox" id="explore-player-search-listbox"
+        role="listbox" aria-label="Hitters with published plays"
+        data-role="explore-player-search-results" hidden></ul>
+  </div>
+  <p class="explore-picker-status" data-role="explore-catalog-status">Loading hitters&hellip;</p>
+  <p class="visually-hidden" role="status" data-role="explore-player-search-status"></p>
+</div>
+
+<p class="explore-prompt" data-role="explore-prompt" hidden>
+  Type a name above, or open one of the plays below.
+</p>
+
+{# ── The selected hitter's plays ───────────────────────────────────────────
+   Results dominate once a hitter is chosen: identity is a single line, the
+   distribution is one short figure, and the table follows immediately. #}
+<section class="explore-selected" data-role="explore-selected" aria-labelledby="explore-selected-name" hidden>
+  <div class="explore-selected-head">
+    <h2 class="explore-selected-name" id="explore-selected-name" data-role="explore-selected-name"></h2>
+    <p class="explore-selected-meta">
+      <span data-role="explore-selected-meta"></span>
+      <a class="explore-selected-player-link" data-role="explore-selected-player-link" href="#">Player page &rarr;</a>
+    </p>
+  </div>
+
+  {# ── Controls ────────────────────────────────────────────────────────────
+     A ruled row of labelled selects, not a pill bar and not a toolbar. Each
+     control carries a real visible <label>, which the baseline replaced with
+     an `aria-label` on an unlabelled select. #}
+  <div class="explore-controls">
+    <div class="explore-control">
+      <label class="explore-control-label" for="explore-outcome-filter">Result</label>
+      <select class="explore-control-select" id="explore-outcome-filter" data-role="explore-outcome-filter">
+        <option value="">All</option>
+        <option value="home_run">Home run</option>
+        <option value="triple">Triple</option>
+        <option value="double">Double</option>
+        <option value="single">Single</option>
+        <option value="out">Out</option>
+      </select>
     </div>
-    <div class="showcase-group">
-      <h3 class="showcase-group-heading showcase-group-heading-unfavorable">Biggest unfavorable breaks</h3>
-      <div class="showcase-cards" data-role="showcase-cards-unfavorable"></div>
-      <button type="button" class="showcase-reveal-button" data-role="showcase-reveal-unfavorable" hidden></button>
+    <div class="explore-control">
+      <label class="explore-control-label" for="explore-luck-filter">Contact Luck</label>
+      <select class="explore-control-select" id="explore-luck-filter" data-role="explore-luck-filter">
+        <option value="all">Favorable &amp; unfavorable</option>
+        <option value="favorable">Favorable only</option>
+        <option value="unfavorable">Unfavorable only</option>
+      </select>
+    </div>
+    <div class="explore-control">
+      <label class="explore-control-label" for="explore-sort">Sort by</label>
+      <select class="explore-control-select" id="explore-sort" data-role="explore-sort">
+        <option value="most_favorable">Most favorable</option>
+        <option value="most_unfavorable">Most unfavorable</option>
+        <option value="newest">Newest</option>
+        <option value="hardest_hit">Hardest hit</option>
+      </select>
+    </div>
+    <button type="button" class="explore-reset" data-role="explore-reset" hidden>Clear filters</button>
+  </div>
+
+  <p class="explore-status" data-role="explore-loading" hidden>Loading plays&hellip;</p>
+  <p class="explore-result-count" data-role="explore-result-count" hidden></p>
+  <p class="visually-hidden" role="status" data-role="explore-results-status"></p>
+
+  <p class="explore-status explore-zero-result" data-role="explore-empty" hidden>
+    No plays match these filters. Clear them to see all of this hitter's published plays.
+  </p>
+
+  <p class="explore-status explore-zero-result" data-role="explore-no-plays" hidden></p>
+
+  <div class="explore-results" data-role="explore-results" hidden>
+    <div class="cl-axis-head">
+      <p class="cl-axis-unit">{{ run_value.unit_label }}</p>
+      <p class="cl-axis-caption">
+        <span class="num">{{ run_value.domain_min | signed }}</span> to
+        <span class="num">{{ run_value.domain_max | signed }}</span>, set by all
+        <span class="num">{{ run_value.play_count }}</span> published plays. Every hitter is
+        drawn on it.
+      </p>
+    </div>
+    <table class="explore-plays" data-role="explore-results-table">
+      <caption class="visually-hidden" data-role="explore-results-caption"></caption>
+      <colgroup>
+        <col class="col-play"><col class="col-play-result">
+        <col class="col-play-contact"><col class="col-play-expected">
+        <col class="col-play-verdict">
+      </colgroup>
+      <thead>
+        {# Registration by construction. The ticks, this hitter's whole set
+           of plays, and every row's own mark are the SAME table column laid
+           out by the same grid tracks, so they cannot disagree at any width
+           -- the argument that made the leaderboard's spine land on 124
+           rows. An axis in a sibling element would be a second coordinate
+           space and a second zero x on one page. #}
+        <tr class="cl-axis-row" aria-hidden="true">
+          <td colspan="4"></td>
+          <td class="col-play-verdict">
+            <div class="cl-axis-ticks">
+              {% for tick in run_value.ticks %}
+              <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+              {% endfor %}
+            </div>
+          </td>
+        </tr>
+        {# Every play this hitter has, filtered marks included but recessed:
+           the point of the strip is to show what the filter is removing. #}
+        <tr class="explore-distribution-row">
+          <td colspan="4" class="explore-distribution-label">All plays</td>
+          <td class="col-play-verdict">
+            <div class="cl-scale-field explore-distribution-field"
+                 data-role="explore-distribution-field" role="img" aria-label=""></div>
+          </td>
+        </tr>
+        <tr>
+          <th scope="col" class="col-play">Play</th>
+          <th scope="col" class="col-play-result">Recorded result</th>
+          <th scope="col" class="col-play-contact">Contact</th>
+          <th scope="col" class="col-play-expected">Expected RV</th>
+          <th scope="col" class="col-play-verdict">Contact Luck<span class="col-play-sub">runs</span></th>
+        </tr>
+      </thead>
+      <tbody data-role="explore-results-body"></tbody>
+    </table>
+  </div>
+</section>
+
+{# ── Showcase ──────────────────────────────────────────────────────────────
+   The editorial entry point, and the answer to "I do not know whose plays
+   to read." The baseline drew these as bordered cards with a coloured top
+   rule, which spent the sign colours on decoration (guardrails 2, 9, 13).
+   They are now a ruled list drawn on the same run-value axis as everything
+   else, so a break's size is visible rather than only stated. #}
+<section class="explore-showcase" data-role="showcase-section" aria-labelledby="showcase-heading">
+  <h2 id="showcase-heading">Biggest breaks of the season</h2>
+  <p class="explore-showcase-lede prose">
+    The plays where the gap between expected and actual run value was widest, in either
+    direction. No qualification filter. Same scale as the table above,
+    <span class="num">{{ run_value.domain_min | signed }}</span> to
+    <span class="num">{{ run_value.domain_max | signed }}</span>.
+  </p>
+  <p class="explore-status" data-role="showcase-loading">Loading&hellip;</p>
+  <div data-role="showcase-body" hidden>
+    <div class="explore-showcase-group">
+      <h3 class="explore-showcase-group-heading">Favorable</h3>
+      <div class="explore-showcase-axis" aria-hidden="true">
+        <div class="cl-axis-ticks">
+          {% for tick in run_value.ticks %}
+          <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <ol class="explore-showcase-list" data-role="showcase-cards-favorable"></ol>
+      <button type="button" class="explore-showcase-reveal" data-role="showcase-reveal-favorable" hidden></button>
+    </div>
+    <div class="explore-showcase-group">
+      <h3 class="explore-showcase-group-heading">Unfavorable</h3>
+      <div class="explore-showcase-axis" aria-hidden="true">
+        <div class="cl-axis-ticks">
+          {% for tick in run_value.ticks %}
+          <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <ol class="explore-showcase-list" data-role="showcase-cards-unfavorable"></ol>
+      <button type="button" class="explore-showcase-reveal" data-role="showcase-reveal-unfavorable" hidden></button>
     </div>
   </div>
 </section>
 
-<h2 class="explore-browse-heading">Browse by player</h2>
-
-{#
-  Phase 4.2: player-first flow. The page loads ONLY the small players.json
-  catalog up front (see dashboard/static/explore.js's module docstring) --
-  no play data of any kind is fetched until a hitter is selected below.
-#}
-<div class="explore-player-search-wrap">
-  <input type="text" class="leaderboard-search" data-role="explore-player-search"
-         placeholder="Find a batter…" autocomplete="off" aria-label="Find a batter" disabled>
-  <div class="search-results-dropdown" data-role="explore-player-search-results" hidden></div>
-</div>
-
-<p class="explore-loading" data-role="explore-catalog-loading">Loading players&hellip;</p>
-<p class="explore-empty" data-role="explore-prompt" hidden>
-  Search for a hitter above to explore their scored plays.
-</p>
-
-<div data-role="explore-selected" hidden>
-  <div class="player-header">
-    <div>
-      <h2 data-role="explore-selected-name"></h2>
-      <p class="player-meta" data-role="explore-selected-meta"></p>
-    </div>
-    <div>
-      <button type="button" class="explore-change-player" data-role="explore-change-player">Change hitter</button>
-    </div>
-  </div>
-
-  <div class="explore-controls">
-    <select class="explore-select" data-role="explore-outcome-filter" aria-label="Filter by recorded result">
-      <option value="">All recorded results</option>
-      <option value="home_run">Home run</option>
-      <option value="triple">Triple</option>
-      <option value="double">Double</option>
-      <option value="single">Single</option>
-      <option value="out">Out</option>
-    </select>
-    <select class="explore-select" data-role="explore-luck-filter" aria-label="Filter by Contact Luck">
-      <option value="all">Favorable &amp; unfavorable</option>
-      <option value="favorable">Favorable only</option>
-      <option value="unfavorable">Unfavorable only</option>
-    </select>
-    <select class="explore-select" data-role="explore-sort" aria-label="Sort plays">
-      <option value="most_favorable">Most favorable Contact Luck</option>
-      <option value="most_unfavorable">Most unfavorable Contact Luck</option>
-      <option value="newest">Newest</option>
-      <option value="hardest_hit">Hardest hit (exit velocity)</option>
-    </select>
-  </div>
-
-  <p class="explore-loading" data-role="explore-loading" hidden>Loading plays&hellip;</p>
-  <p class="explore-empty" data-role="explore-empty" hidden>No plays match these filters.</p>
-  <p class="explore-result-count" data-role="explore-result-count" hidden></p>
-
-  <div class="overflow-x">
-  <table class="leaderboard explore-results-table" data-role="explore-results-table" hidden>
-    <thead>
-      <tr>
-        <th>Date</th>
-        <th>Batter</th>
-        <th class="numeric">EV</th>
-        <th class="numeric">LA</th>
-        <th>Recorded result</th>
-        <th class="numeric">Expected RV</th>
-        <th class="numeric explore-luck-col">Contact Luck</th>
-      </tr>
-    </thead>
-    <tbody data-role="explore-results-body"></tbody>
-  </table>
-  </div>
-</div>
-
-<p class="callout">
-  Contact Luck shown per play is copied directly from the canonical scoring record
-  (<code>observed_run_value − expected_run_value</code>) — it always telescopes exactly to this
-  site's published Total Contact Luck for the batter across their season. See
+<p class="explore-provenance prose">
+  Contact Luck on a play is <code>observed_run_value &minus; expected_run_value</code>, copied
+  from the scoring record. It sums exactly to the hitter's published season total. See
   <a href="{{ root_prefix }}status/#play-data-source">Data &amp; status</a> for the play-level
-  data source.
+  source.
 </p>
 {% endblock %}
 {% block extra_scripts %}
+{# The run-value domain, computed once at build time over every published
+   play. `explore.js` maps a play's value to a layout percentage against it
+   and never derives a domain of its own -- a per-hitter autoscale would put
+   two hitters' plays on two different scales and move zero off the spine. #}
+<script type="application/json" id="explore-run-value-scale">{{ run_value_scale_json | safe }}</script>
 <script src="{{ asset_prefix }}static/explore.js"></script>
 {% endblock %}

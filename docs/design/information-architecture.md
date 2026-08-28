@@ -65,12 +65,25 @@ because of where the value came from, not how much of it there is.
 
 ## Explore
 
-Discovery, not a search form. Order: the editorial showcase (what a big break looks like) →
-a named hitter's plays. The player selector is a **combobox that changes the page's
+Discovery, not a search form. The player selector is a **combobox that changes the page's
 address**, so a hitter's plays are linkable from their player page and from a shared URL.
-Phase 4 added the inbound half — Explore reads `?batter=<id>` and preselects — but the
-selection is still not written back to the URL, so a hitter chosen *inside* Explore is
-still unaddressable. That half is Phase 5's.
+
+**Built in Phase 5.** The order this file originally specified — showcase first, then a
+named hitter's plays — was **inverted**, and the reason is Phase 4's own link. A large
+share of arrivals now come from a player page's `/explore/?batter=<id>`, with a hitter
+already chosen; for those readers a twelve-play editorial set above the results is
+obstruction, and Phase 3's lesson (the product arrives early) applies to this route too.
+The order is now **picker → the selected hitter's plays → showcase**. With nothing
+selected the prompt is one line, so the showcase is still the first substantive content a
+cold visitor meets. DOM order, visual order and tab order are the same and no JavaScript
+reorders anything.
+
+The URL contract is complete: selecting pushes `?batter=<id>`, `popstate` re-derives the
+selection from the address, and an unknown or malformed id clears to the prompt rather
+than producing a broken selected state. **The address is the single source of truth** —
+a click only changes the URL, and `applyUrl()` is the one path into a selection. That is
+what keeps Back and Forward honest and stops the URL from ever describing a hitter who is
+not on screen.
 
 ## Play page
 
@@ -155,9 +168,21 @@ stays open without holding anything up.
   play") and the baseline dead-ended: the player page's only outbound links were the
   leaderboard, methodology, and demo.
 
-  **Half-built in Phase 4.** The player page emits `/explore/?batter=<id>`, and Explore
-  reads that parameter on load and preselects the hitter. The link is emitted **only** when
-  that hitter is actually in the published Play Explorer catalog, so it can never land on
-  an empty selection; where they are absent the section still offers a route onward
-  (`/demo/`) rather than dead-ending. Writing the selection *back* into the URL — so a
-  hitter chosen inside Explore is linkable and shareable — remains Phase 5's work.
+  **Built across Phases 4 and 5.** The player page emits `/explore/?batter=<id>` **only**
+  when that hitter is actually in the published Play Explorer catalog, so it can never land
+  on an empty selection; where they are absent the section still offers a route onward
+  (`/demo/`) rather than dead-ending. Phase 5 added the outbound half, so a hitter chosen
+  inside Explore is linkable and shareable, and gave every result row a path to its play.
+  The loop closes: leaderboard row → player page → that hitter in Explore → one play →
+  back.
+
+  **One combobox implementation now ships** (`window.ContactLuck.createCombobox` in
+  `app.js`). The header and Explore differ only in what an option looks like and what
+  selecting one does: the header navigates, Explore changes the address. Everything else —
+  roles, `aria-expanded`, `aria-activedescendant`, Up/Down/Home/End, Enter, Escape, outside
+  click, the announced result count, the non-selectable empty state, diacritic-insensitive
+  matching — is the shared factory. **Explore does not use the header's mobile full-screen
+  sheet**, deliberately: the sheet exists because the header field is a cramped strip
+  competing with five routes, whereas Explore's picker is full-width page content with its
+  listbox directly beneath it, and a modal there would add a state without removing a
+  problem.

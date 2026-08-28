@@ -658,14 +658,18 @@ class TestPlayToPlayPath:
         assert "/demo/" in html.split("player-next", 1)[1]
 
     def test_explore_accepts_the_batter_parameter_the_link_emits(self) -> None:
+        """Phase 5 made the URL the single source of truth, so the inbound
+        link is no longer a special case: `applyUrl()` derives the selection
+        from the address on load, on popstate, and after every selection."""
         js = EXPLORE_JS.read_text()
         assert 'get("batter")' in js
-        assert "selectPlayer(match)" in js
+        assert "function applyUrl()" in js
+        assert "showSelection(entry)" in js
 
     def test_explore_ignores_an_unknown_batter_without_erroring(self) -> None:
         js = EXPLORE_JS.read_text()
-        block = js.split('get("batter")', 1)[1].split("})", 1)[0]
-        assert "if (match) selectPlayer(match)" in block
+        block = js.split("function applyUrl()", 1)[1].split("\n    }", 1)[0]
+        assert "clearSelection()" in block
 
 
 class TestPageStructureAndAccessibility:

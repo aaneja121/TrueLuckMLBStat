@@ -44,7 +44,7 @@ build time in Python.
 | `dashboard_config.py` | Paths, `DASHBOARD_VERSION`, `SITE_URL` (`https://contactluck.com`). |
 | `snapshot_data.py` | The **only** place snapshots are discovered, integrity-checked, classified, and ranked by precedence. Fails closed. |
 | `content.py` | Snapshot JSON → page view-models (leaderboard rows, player detail, trend, status). Recomputes nothing. |
-| `explore_content.py` | Loads/validates the sharded Play Explorer artifacts (`players.json`, `players/<batter_id>.json`, `games/<game_pk>.json`, `explore-metadata.json`, `showcase.json`, `showcase-sensitivity/<play_id>.json`). |
+| `explore_content.py` | Loads/validates the sharded Play Explorer artifacts (`players.json`, `players/<batter_id>.json`, `games/<game_pk>.json`, `explore-metadata.json`, `showcase.json`, `showcase-sensitivity/<play_id>.json`). Also reports `contact_luck_min`/`contact_luck_max` across every published play, which is the `run_value` domain Explore is drawn on. |
 | `demo_content.py`, `demo_counterfactual_content.py` | View-models for `/demo/` and its counterfactual grid. |
 | `visuals.py` | The `ZeroScale` domain object, hand-rolled inline SVG (interval bars), and `build_trend_figure`, which returns the season trend as CSS **percentages** plus a marks-only SVG — the trend's text is HTML, never inside a scaled viewBox. Emits CSS classes only — **never a hex color**. |
 | `templates/` | `base.html` (shell, header nav, global search, footer), `_macros.html` (leaderboard table), `index.html`, `player.html`, `explore.html`, `play.html`, `demo.html`, `methodology.html`, `status.html`. |
@@ -108,6 +108,22 @@ development fixture data, fine for structural work, not representative of produc
 A bare `build.py` with no flag builds the Play Explorer **disabled**.
 
 Local snapshots are present through **2026-08-14**.
+
+### Check on Explore after a production build
+
+Three things cannot be verified against the committed fixture (53 hitters, 56 plays, at
+most **two plays per hitter**) and must be looked at the first time `/explore/` is built
+from real Explorer artifacts:
+
+1. **The `run_value` domain.** It is read from the min and max per-play Contact Luck across
+   every published play, so production values set it. Confirm the axis ticks are sensible
+   and that the bulk of plays are not crushed into the middle by one extreme.
+2. **The picker at production catalog size** (hundreds of hitters, not 53): matching speed
+   and the eight-result cap.
+3. **The results table at real per-hitter play counts** (hundreds of rows, not two): row
+   density, and that the page stays responsive while filtering and sorting client-side.
+
+Nothing about this is a blocker for a fixture build; it is what the fixture cannot tell you.
 
 ## Tests & tooling
 

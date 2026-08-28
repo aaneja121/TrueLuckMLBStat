@@ -247,49 +247,43 @@
     });
   }
 
-  // ══ Global player search · ARIA 1.2 combobox with listbox popup ══════════
-  // Redesign Phase 2. The baseline was an unlabelled <input> writing <a>
-  // elements into a <div>: no combobox role, no aria-expanded, no keyboard
-  // navigation, and no Escape. This is the one implementation of the pattern;
-  // Explore's hitter picker adopts it in Phase 5.
+  // ══ Combobox · ARIA 1.2 combobox with listbox popup ══════════════════════
+  // Redesign Phase 2, generalised in Phase 5. The baseline shipped TWO player
+  // pickers: this one, and a separate `.search-results-dropdown` of <button>s
+  // on /explore/ with no combobox role, no aria-expanded, no keyboard
+  // navigation and no Escape. They differed for no reason
+  // (docs/design/information-architecture.md § Navigation and search), so the
+  // pattern now lives here once and both surfaces drive it.
+  //
+  // What varies between the two is small and passed in: what an option looks
+  // like, and what selecting one DOES (the header navigates to a player page;
+  // Explore loads that hitter's plays into the page it is already on). What
+  // does not vary is the whole accessibility contract below, which is exactly
+  // why it should not have been written twice.
   //
   // Focus never leaves the input -- that is the combobox contract. The active
   // option is pointed at with `aria-activedescendant`, not with DOM focus.
   //
-  // Options are <li role="option"> wrapping a real <a href>. `option` is a
-  // children-presentational role, so assistive technology reads the option's
-  // own accessible name and never sees a nested link; a mouse user still gets
-  // real link behaviour (middle-click, open in new tab, status-bar target).
-  // Enter is handled here because the anchor is not focusable.
-  //
-  // NOTHING is computed here. The index is a build-time JSON blob of
-  // id/name/url plus a `ranked` boolean copied from the snapshot's own
-  // qualification status (dashboard/build.py) -- no score, rank, interval or
-  // probability is derived in this file.
+  // NOTHING is computed here. Items arrive already built (a build-time JSON
+  // blob in the header's case, a fetched catalog in Explore's) -- no score,
+  // rank, interval or probability is derived in this file.
   var SEARCH_RESULT_LIMIT = 8;
 
-  function initGlobalPlayerSearch() {
-    var wrap = document.querySelector("[data-role='global-search']");
-    var input = document.querySelector("[data-role='global-player-search']");
-    var listbox = document.querySelector("[data-role='global-player-search-results']");
-    var statusEl = document.querySelector("[data-role='global-player-search-status']");
-    var closeBtn = document.querySelector("[data-role='global-search-close']");
-    var dataEl = document.getElementById("player-index-data");
-    if (!wrap || !input || !listbox || !dataEl) return;
+  function createCombobox(config) {
+    var input = config.input;
+    var listbox = config.listbox;
+    var wrap = config.wrap;
+    var statusEl = config.statusEl || null;
+    var closeBtn = config.closeBtn || null;
+    var limit = config.resultLimit || SEARCH_RESULT_LIMIT;
 
-    var players;
-    try {
-      players = JSON.parse(dataEl.textContent);
-    } catch (err) {
-      return;
-    }
-
+    var items = config.items || [];
     var options = [];
     var activeIndex = -1;
     // The mobile full-screen sheet is a structural transformation, not a
     // narrower dropdown -- it applies only below the mobile breakpoint, which
     // is the same 640px boundary the stylesheet uses.
-    var sheetQuery = window.matchMedia("(max-width: 639px)");
+    var sheetQuery = config.sheet ? window.matchMedia("(max-width: 639px)") : null;
 
     function announce(text) {
       if (statusEl) statusEl.textContent = text;
@@ -306,11 +300,11 @@
 
     function setActive(index) {
       if (activeIndex >= 0 && options[activeIndex]) {
-        options[activeIndex].setAttribute("aria-selected", "false");
+        options[activeIndex].el.setAttribute("aria-selected", "false");
       }
       activeIndex = index;
       if (activeIndex >= 0 && options[activeIndex]) {
-        var el = options[activeIndex];
+        var el = options[activeIndex].el;
         el.setAttribute("aria-selected", "true");
         input.setAttribute("aria-activedescendant", el.id);
         if (el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
@@ -320,12 +314,13 @@
     }
 
     function openSheet() {
-      if (!sheetQuery.matches) return;
+      if (!sheetQuery || !sheetQuery.matches) return;
       document.body.classList.add("search-sheet-open");
       if (closeBtn) closeBtn.removeAttribute("hidden");
     }
 
     function closeSheet() {
+      if (!sheetQuery) return;
       document.body.classList.remove("search-sheet-open");
       if (closeBtn) closeBtn.setAttribute("hidden", "");
     }
@@ -334,6 +329,11 @@
       setExpanded(false);
       setActive(-1);
       closeSheet();
+    }
+
+    function choose(item) {
+      close();
+      config.onSelect(item);
     }
 
     function render(matches, query) {
@@ -354,59 +354,38 @@
         // option set while leaving the text visible and announced by the
         // status region below.
         empty.setAttribute("role", "presentation");
-        empty.className = "global-search-empty";
-        empty.textContent = "No player matches “" + query + "”. Try a surname or an MLBAM ID.";
+        empty.className = config.emptyClassName;
+        empty.textContent = config.emptyMessage(query);
         listbox.appendChild(empty);
         setExpanded(true);
         announce("No players found.");
         return;
       }
 
-      matches.slice(0, SEARCH_RESULT_LIMIT).forEach(function (p, i) {
+      matches.slice(0, limit).forEach(function (item, i) {
         var li = document.createElement("li");
-        li.id = "global-player-search-option-" + i;
-        li.className = "global-search-option";
+        li.id = config.optionIdPrefix + i;
+        li.className = config.optionClassName;
         li.setAttribute("role", "option");
         li.setAttribute("aria-selected", "false");
-        li.dataset.url = p.url;
 
-        var name = p.batter_name || "Player " + p.batter_id;
-
-        var a = document.createElement("a");
-        a.href = p.url;
-        a.tabIndex = -1;
-        a.textContent = name;
-        li.appendChild(a);
-
-        // Unqualified players are searchable, findable and MARKED -- never
-        // suppressed, never de-emphasised (a preserved product invariant).
-        // The wording matches the player page's own "No official rank".
-        if (p.ranked === false) {
-          var note = document.createElement("span");
-          note.className = "global-search-note";
-          note.textContent = "No official rank";
-          li.appendChild(note);
-        }
-
-        // `option` is a children-presentational role, so without this the
-        // accessible name is the concatenated text content and a screen
-        // reader announces "Jose AltuveNo official rank" as one run-on word.
-        li.setAttribute(
-          "aria-label",
-          p.ranked === false ? name + ", no official rank" : name
-        );
+        // `option` is a children-presentational role, so without an explicit
+        // label the accessible name is the concatenated text content and a
+        // screen reader announces "Jose AltuveNo official rank" as one
+        // run-on word. Every caller returns the name it wants read.
+        li.setAttribute("aria-label", config.renderOption(li, item));
 
         li.addEventListener("mousedown", function (evt) {
           evt.preventDefault();
-          window.location.assign(p.url);
+          choose(item);
         });
 
         listbox.appendChild(li);
-        options.push(li);
+        options.push({ el: li, item: item });
       });
 
       setExpanded(true);
-      var shown = Math.min(matches.length, SEARCH_RESULT_LIMIT);
+      var shown = Math.min(matches.length, limit);
       announce(
         shown === 1
           ? "1 player found."
@@ -420,8 +399,11 @@
         render([], "");
         return;
       }
-      var matches = players.filter(function (p) {
-        return normalizeSearchText(p.batter_name).indexOf(q) !== -1 || String(p.batter_id) === q;
+      var matches = items.filter(function (item) {
+        return (
+          normalizeSearchText(item.batter_name).indexOf(q) !== -1 ||
+          String(item.batter_id) === q
+        );
       });
       render(matches, input.value.trim());
     }
@@ -468,7 +450,7 @@
         if (!isOpen || !options.length) return;
         evt.preventDefault();
         var target = options[activeIndex >= 0 ? activeIndex : 0];
-        if (target && target.dataset.url) window.location.assign(target.dataset.url);
+        if (target) choose(target.item);
         return;
       }
 
@@ -504,7 +486,83 @@
       if (wrap.contains(evt.target)) return;
       close();
     });
+
+    return {
+      setItems: function (next) {
+        items = next || [];
+      },
+      close: close,
+    };
   }
+
+  // ══ Global player search ═════════════════════════════════════════════════
+  // The header instance of the combobox above. Its options wrap a real
+  // <a href> so a mouse user keeps link behaviour (middle-click, open in a
+  // new tab, status-bar target); selecting one navigates to the player page.
+  //
+  // The index is a build-time JSON blob of id/name/url plus a `ranked`
+  // boolean copied from the snapshot's own qualification status
+  // (dashboard/build.py).
+  function initGlobalPlayerSearch() {
+    var wrap = document.querySelector("[data-role='global-search']");
+    var input = document.querySelector("[data-role='global-player-search']");
+    var listbox = document.querySelector("[data-role='global-player-search-results']");
+    var statusEl = document.querySelector("[data-role='global-player-search-status']");
+    var closeBtn = document.querySelector("[data-role='global-search-close']");
+    var dataEl = document.getElementById("player-index-data");
+    if (!wrap || !input || !listbox || !dataEl) return;
+
+    var players;
+    try {
+      players = JSON.parse(dataEl.textContent);
+    } catch (err) {
+      return;
+    }
+
+    createCombobox({
+      wrap: wrap,
+      input: input,
+      listbox: listbox,
+      statusEl: statusEl,
+      closeBtn: closeBtn,
+      sheet: true,
+      items: players,
+      optionIdPrefix: "global-player-search-option-",
+      optionClassName: "global-search-option",
+      emptyClassName: "global-search-empty",
+      emptyMessage: function (query) {
+        return "No player matches “" + query + "”. Try a surname or an MLBAM ID.";
+      },
+      renderOption: function (li, p) {
+        var name = p.batter_name || "Player " + p.batter_id;
+
+        var a = document.createElement("a");
+        a.href = p.url;
+        a.tabIndex = -1;
+        a.textContent = name;
+        li.appendChild(a);
+
+        // Unqualified players are searchable, findable and MARKED -- never
+        // suppressed, never de-emphasised (a preserved product invariant).
+        // The wording matches the player page's own "No official rank".
+        if (p.ranked === false) {
+          var note = document.createElement("span");
+          note.className = "global-search-note";
+          note.textContent = "No official rank";
+          li.appendChild(note);
+        }
+        return p.ranked === false ? name + ", no official rank" : name;
+      },
+      onSelect: function (p) {
+        window.location.assign(p.url);
+      },
+    });
+  }
+
+  // Explore drives the same combobox from its own script tag.
+  window.ContactLuck = window.ContactLuck || {};
+  window.ContactLuck.createCombobox = createCombobox;
+  window.ContactLuck.normalizeSearchText = normalizeSearchText;
 
   document.addEventListener("DOMContentLoaded", function () {
     initRankingTabs();

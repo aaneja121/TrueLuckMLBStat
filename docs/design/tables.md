@@ -159,3 +159,41 @@ Three rules the decomposition adds to the ones above:
 
 The **Total Contact Luck** row is drawn on the same component scale as the parts, which is
 what makes "the components sum to the headline" visible rather than asserted.
+
+## The Explore results table (Phase 5)
+
+Five columns, one tier assignment:
+
+| Tier | Columns |
+|---|---|
+| **Identity** | Play (the date, and the link to it) |
+| **Evidence** | Recorded result, Contact (EV · LA), Expected RV |
+| **Verdict** | Contact Luck — the mark and the numeral in **one cell**, on the `run_value` scale |
+
+The Batter column is gone. Every row belongs to the selected hitter, whose name is the
+`<h2>` directly above, so a column repeating it 56 times carried no information; that
+space went to the verdict.
+
+`table-layout: fixed`. The verdict column has to start at a deterministic x for the
+showcase list below to align with it, and auto layout makes that a function of whichever
+plays happen to be loaded.
+
+The baseline being replaced: seven `white-space: nowrap` columns inside a bare
+`.overflow-x` with no `min-width` contract and no scroll affordance (guardrails 6), with
+the play link attached to a Batter column that repeated one name down the page.
+
+### Mobile
+
+A different row structure, not a narrower one — three lines, one job per line:
+
+```
+ 2024-07-07                                  Out
+ 112.4 mph · 39°                           +1.21
+ ●———|                                     −1.47
+```
+
+Nothing sheds and the value never hides to make room for metadata. The column heads go
+visually hidden; **the axis rail and the all-plays strip do not**, because this figure is
+not on `league_per_100` and owes visible ticks with its unit at every width. The head's
+verdict cell reserves the same numeral track as the body's, so the rail and the marks keep
+one basis at mobile too.

@@ -952,8 +952,44 @@ def build_dashboard(
                 dirs_exist_ok=True,
             )
 
+        # Redesign Phase 5, Invariant D applied to Explore: ONE snapshot-level
+        # `run_value` domain over every published play, padded by
+        # `ZeroScale.from_values` until its zero lands on the same
+        # `--cl-zero` the leaderboard and the player hero use. Explore draws
+        # every hitter's plays on it, so two hitters' plays are comparable and
+        # a one-play hitter is not stretched across the whole field.
+        #
+        # It is NOT `league_per_100` and must never look like it: the figure
+        # prints its own ticks with its own unit (the anti-fake-alignment
+        # guard, docs/design/dataviz.md). The domain is computed here, once,
+        # and handed to the browser as data -- `explore.js` interpolates a
+        # LAYOUT PERCENTAGE against it and never derives a domain of its own.
+        run_value_scale = v.ZeroScale.from_values(
+            "run_value",
+            "Contact Luck on the play, runs",
+            [explore_data.contact_luck_min, explore_data.contact_luck_max],
+            zero_fraction=league_scale.zero_fraction,
+        )
         (explore_dir / "index.html").write_text(
-            env.get_template("explore.html").render(**base_context, active_page="explore")
+            env.get_template("explore.html").render(
+                **base_context,
+                active_page="explore",
+                run_value={
+                    "ticks": _axis_ticks(run_value_scale),
+                    "unit_label": run_value_scale.unit_label,
+                    "domain_min": run_value_scale.domain_min,
+                    "domain_max": run_value_scale.domain_max,
+                    "play_count": explore_data.total_play_count,
+                },
+                run_value_scale_json=json.dumps(
+                    {
+                        "domain_min": run_value_scale.domain_min,
+                        "domain_max": run_value_scale.domain_max,
+                        "unit_label": run_value_scale.unit_label,
+                    },
+                    sort_keys=True,
+                ),
+            )
         )
 
         plays_dir = out_dir / "plays"

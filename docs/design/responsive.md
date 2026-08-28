@@ -171,3 +171,21 @@ last snapshot survive for any label count (they range from two to five).
 
 Verified at 390 × 844 and 320 × 700, light and dark: no horizontal overflow, every axis
 label 12 px, every operable control ≥ 44 px.
+
+## Explore — the mobile transformation (Phase 5)
+
+Structural, not a shrink.
+
+- **The picker** goes full width and keeps its own visible label. It does **not** become
+  the header's full-screen sheet: that pattern exists to rescue a cramped header strip,
+  and Explore's picker is page content with its listbox directly below it.
+- **The controls** stack to one per line, each keeping its label and a 44 px target.
+- **A play row** becomes a three-area grid (identity + result / contact + expected /
+  verdict). The verdict stays one statement on its own line, field and numeral adjacent.
+- **The axis rail and the all-plays strip stay on screen**; only the column heads go
+  visually hidden. See `docs/design/tables.md` for why.
+- **A showcase item** becomes head + value / detail + value / plot, with the same reserved
+  numeral track.
+
+Measured at 390 and 320: no horizontal overflow, tick labels 12 px, and the axis zero, the
+strip spine and every row spine on one x to three decimals.

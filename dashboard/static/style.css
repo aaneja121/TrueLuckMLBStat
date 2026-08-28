@@ -908,103 +908,6 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
    survives as `.worked-*` below the table; the decoration does not. */
 
 
-/* Version 1.4.1 Showcase Plays -- editorial cards above the generic player
-   search on /explore/. Deliberately close cousins of `.homepage-proof-*`
-   (same compact-card scorebook identity) rather than another large table --
-   see the task's "should feel editorial and scannable" requirement. */
-.showcase-section { margin: 4px 0 28px; }
-.showcase-heading { margin-bottom: 4px; }
-.showcase-group { margin: 18px 0; }
-.showcase-group-heading { font-size: 1.05rem; margin: 0 0 10px; }
-.showcase-group-heading-favorable { color: var(--fav-text); }
-.showcase-group-heading-unfavorable { color: var(--unfav-text); }
-
-.showcase-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-}
-.showcase-card {
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  background: var(--surface);
-  display: flex;
-  flex-direction: column;
-}
-.showcase-card-favorable { border-top-color: var(--diverging-positive); }
-.showcase-card-unfavorable { border-top-color: var(--diverging-negative); }
-.showcase-card-name { font-weight: 700; margin: 0 0 2px; }
-.showcase-card-date {
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-  margin: 0 0 10px;
-}
-.showcase-card-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0 0 8px;
-}
-.showcase-card-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 0.88rem;
-}
-.showcase-card-row-label { color: var(--text-secondary); }
-/* Compound selector so this reliably overrides `.demo-luck-figure`'s
-   larger base size regardless of stylesheet order -- a showcase card's
-   figure must read as clearly smaller than a full play page's own payoff
-   number, matching `.homepage-proof-figure`'s exact precedent. */
-.demo-luck-figure.showcase-card-figure {
-  font-size: 1.05rem;
-  margin: 6px 0;
-}
-.showcase-card-footer {
-  margin-top: auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.showcase-card-whatif-badge {
-  font-size: 0.74rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--accent-amber-text);
-  border: 1px solid var(--accent-amber-mark);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-.showcase-card-link { font-weight: 600; white-space: nowrap; text-decoration: none; }
-.showcase-card-link:hover { text-decoration: underline; }
-
-.showcase-reveal-button {
-  margin-top: 12px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: 8px;
-  padding: 8px 14px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.showcase-reveal-button:hover { border-color: var(--accent-amber); }
-
-.explore-browse-heading { margin-top: 28px; }
-
-@media (max-width: 900px) {
-  .showcase-cards { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 640px) {
-  .showcase-cards { grid-template-columns: 1fr; }
-}
-
 /* Version 1.4.1 "What if?" sensitivity module on the play page -- reuses
    the "Try It Yourself" simulator's control/slider/prob-bar/rv-compare
    classes verbatim (see dashboard/static/demo_simulator.js), only this
@@ -3713,133 +3616,554 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   .simulator-field-ball { transition: none; }
 }
 
-/* "/explore/" + "/plays/<id>/" -- Version 1.4.0 Phase 4 Play Explorer.
-   Reuses existing components wherever possible (table.leaderboard,
-   .demo-prob-bars, .demo-luck-badge/.demo-luck-figure, .demo-field*,
-   .stat-grid/.stat-card, .callout) so this page fits the established
-   "modern baseball scorebook at night" identity without introducing a
-   second visual language. Only genuinely new elements (the filter/sort
-   control row, the loading/empty states, the Contact Luck column's
-   emphasis) get new classes below. */
-/* Phase 4.2: player-first search. These two components USED to live in the
-   site header and be shared with the global player search; Phase 2 rebuilt
-   the global search as a real combobox (`.global-search-*` above) and left
-   these here, unchanged in value, as Explore's own. Explore adopts the
-   shared combobox in Phase 5 -- until then its appearance is deliberately
-   identical to its baseline. Suggestion items are <button> elements here
-   (selecting a hitter triggers a fetch, never a navigation), so they need
-   the block/full-width/no-chrome reset a plain <a> gets for free. */
-.search-results-dropdown {
+/* ══ Explore (redesign Phase 5) ══════════════════════════════════════════
+   The route's job is a path: hitter -> their published batted balls -> one
+   play. So the picker is the first control on the page, the results sit
+   directly under it, and the showcase follows rather than leads.
+
+   Every play mark is drawn through the `.cl-scale` primitive on the ONE
+   snapshot-level `run_value` domain (dashboard/build.py), with zero at the
+   shared `--cl-zero`. Because that is NOT `league_per_100`, the figure owes
+   visible tick labels carrying its unit and prints them -- the
+   anti-fake-alignment guard (docs/design/dataviz.md).
+
+   The baseline this replaces: a second, weaker player picker
+   (`.search-results-dropdown` of buttons, no combobox semantics), three
+   unlabelled selects, a seven-column nowrap table inside a bare
+   `.overflow-x`, and a nine-card showcase grid whose only use of the sign
+   colours was a 3px decorative top border. */
+
+.explore-lede { margin-bottom: var(--sp-5); }
+.explore-lede .lede-line { max-width: var(--measure-prose); }
+
+/* ── The picker ──────────────────────────────────────────────────────── */
+.explore-picker {
+  position: relative;
+  max-width: 30rem;
+  margin-bottom: var(--sp-4);
+}
+.explore-picker-label {
+  display: block;
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.explore-picker-field { position: relative; }
+.explore-picker-input {
+  width: 100%;
+  min-height: var(--target-min);
+  padding: var(--sp-2) var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-400);
+}
+.explore-picker-input::placeholder { color: var(--text-muted); }
+.explore-picker-input:disabled { color: var(--text-muted); }
+
+/* Same ruled register as the header's listbox: a set of eight names is
+   read DOWN, so it gets rules, not boxes. */
+.explore-picker-listbox {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + var(--sp-1));
   left: 0;
   right: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
   z-index: 20;
+  background: var(--surface);
+  border: var(--rule-hairline) solid var(--baseline);
+  border-radius: var(--radius-control);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.explore-picker-listbox[hidden] { display: none; }
+.explore-picker-option {
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.search-results-dropdown[hidden] { display: none; }
-
-.search-result-item {
-  padding: 7px 12px;
-  font-size: 0.86rem;
-  color: var(--text-primary);
-  text-decoration: none;
-}
-
-.search-result-item:hover {
-  background: var(--page);
-  text-decoration: none;
-}
-
-.explore-player-search-wrap {
-  position: relative;
-  max-width: 420px;
-  margin-bottom: 14px;
-}
-
-.explore-player-search-wrap .leaderboard-search {
-  width: 100%;
-}
-
-button.search-result-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  font: inherit;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  min-height: var(--target-min);
+  border-top: var(--rule-hairline) solid var(--border);
   cursor: pointer;
 }
-
-.explore-change-player {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.explore-picker-option:first-child { border-top: 0; }
+.explore-picker-option-name {
+  color: var(--text-primary);
+  font-size: var(--fs-300);
+}
+.explore-picker-option-count {
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.explore-picker-option:hover,
+.explore-picker-option[aria-selected="true"] {
   background: var(--surface-recessed);
-  color: var(--text-primary);
-  font-size: 0.86rem;
-  cursor: pointer;
+  box-shadow: inset var(--rule-emphasis) 0 0 var(--baseline);
+}
+.explore-picker-empty {
+  padding: var(--sp-3);
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
+}
+.explore-picker-status {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
 }
 
-.explore-change-player:hover {
-  background: var(--page);
+.explore-prompt {
+  margin: 0 0 var(--sp-6);
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
 }
 
-.explore-controls {
+/* ── The selected hitter ─────────────────────────────────────────────── */
+.explore-selected { margin-bottom: var(--sp-7); }
+.explore-selected-head {
+  padding-bottom: var(--sp-2);
+  border-bottom: var(--rule-emphasis) solid var(--baseline);
+  margin-bottom: var(--sp-3);
+}
+/* Name-first, and the same face and weight relationship the leaderboard
+   row and the player hero give a name. Not a profile hero: one line. */
+.explore-selected-name {
+  margin: 0;
+  font-size: var(--fs-600);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.explore-selected-meta {
   display: flex;
-  gap: 12px;
+  align-items: baseline;
+  gap: var(--sp-3);
   flex-wrap: wrap;
-  align-items: center;
-  margin: 4px 0 14px;
-}
-
-.explore-select {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-recessed);
-  color: var(--text-primary);
-  font-size: 0.92rem;
-}
-
-.explore-loading,
-.explore-empty {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-200);
   color: var(--text-muted);
-  font-size: 0.92rem;
 }
-
-.explore-result-count {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  margin: 0 0 6px;
-}
-
-table.explore-results-table td,
-table.explore-results-table th {
+.explore-selected-player-link {
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
-/* Contact Luck is the visually primary column on the results table --
-   bolder weight and larger than the other numeric columns, colored via
-   the SAME .interval-positive/.interval-negative sign classes used
-   everywhere else on the site (never a new color pair). */
-.explore-luck-col {
-  font-weight: 700;
-  font-size: 1.02em;
+/* ── The play distribution ───────────────────────────────────────────── */
+/* Two rows inside the results table's own verdict column: the axis rail,
+   then every one of this hitter's plays. Same column, same grid tracks,
+   same percentage basis as the marks in the body -- so the spine is one
+   rule down the whole table, not two coordinate spaces on one page. */
+.explore-plays .cl-axis-row td,
+.explore-plays .explore-distribution-row td {
+  border-bottom: 0;
+  padding-bottom: 0;
+  vertical-align: bottom;
+}
+.explore-distribution-label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.explore-distribution-field { min-height: 26px; }
+/* The spine, drawn on the plot only -- the same amber rule at the same
+   `--cl-zero` the leaderboard and the player hero register against. */
+.explore-distribution-field::before,
+.explore-play-field::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.explore-distribution-mark {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: var(--radius-pill);
+  transform: translateY(-50%);
+  background: currentColor;
+  box-shadow: 0 0 0 2px var(--page);
+}
+/* A filtered-out play stays on the field and stays legible: the figure's
+   job is to show what the filter is removing. Recessed, never hidden. */
+.explore-distribution-mark.is-filtered-out {
+  background: var(--baseline);
+  box-shadow: none;
+  width: 5px;
+  height: 5px;
+  margin-left: -2.5px;
+}
+/* ── Controls ────────────────────────────────────────────────────────── */
+/* A ruled row of labelled fields. No card per filter, no pills, no icons,
+   no toolbar chrome: rules, alignment and spacing carry the hierarchy. */
+.explore-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3) var(--sp-5);
+  padding: var(--sp-3) 0;
+  border-top: var(--rule-hairline) solid var(--border);
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.explore-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.explore-control-label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.explore-control-select {
+  min-height: var(--target-min);
+  padding: var(--sp-2) var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+}
+.explore-reset {
+  min-height: var(--target-min);
+  padding-inline: var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+  cursor: pointer;
+}
+.explore-reset:hover { background: var(--surface-recessed); }
+
+.explore-status {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+.explore-zero-result { max-width: var(--measure-prose); }
+.explore-result-count {
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
 }
 
-@media (max-width: 640px) {
-  table.explore-results-table { font-size: 0.84rem; }
-  .explore-controls { gap: 8px; }
-  .explore-select,
-  .explore-controls .leaderboard-search { flex: 1 1 100%; }
+/* ── Results ─────────────────────────────────────────────────────────── */
+.explore-results { max-width: var(--measure-data); }
+/* Fixed layout so the verdict column STARTS at a deterministic x. The
+   showcase list below uses the same four leading tracks, which is what
+   lets both figures put zero at the same place on the page instead of at
+   two places that happen to be close. */
+.explore-plays {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.explore-plays th,
+.explore-plays td {
+  text-align: left;
+  vertical-align: middle;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.explore-plays thead th {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom-color: var(--baseline);
+}
+.explore-plays tbody tr:hover { background: var(--surface-recessed); }
+
+.col-play { width: 7rem; }
+.col-play-result { width: 8rem; }
+.col-play-contact { width: 10rem; }
+.col-play-expected { width: 7rem; text-align: right; }
+.col-play-sub {
+  display: block;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-100);
+}
+/* `display: block` so the target is the whole cell width, matching the
+   leaderboard's `.player-link` precedent for a link inside a data row. */
+.explore-play-link {
+  display: block;
+  font-size: var(--fs-300);
+  color: var(--text-primary);
+}
+.explore-plays .col-play-result,
+.explore-plays .col-play-contact,
+.explore-plays .col-play-expected {
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
+}
+.explore-plays td.col-play-expected { text-align: right; }
+
+/* The verdict is ONE cell (docs/design/tables.md rule 1): the mark and the
+   numeral are grid siblings sharing a percentage basis, and the numeral
+   sits at a constant x for every row (value placement V1). The FIELD is
+   the first track, so nothing is reserved to its left and no row's field
+   can start further right than another's -- which is the failure mode that
+   would silently destroy the basis the spine registers against. */
+.explore-plays .col-play-verdict { padding-right: 0; }
+.explore-plays .cl-axis-row .col-play-verdict,
+.explore-plays .explore-distribution-row .col-play-verdict {
+  /* The numeral track is reserved here too, so the axis and the strip end
+     where the body's plot fields end rather than running under the values. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) calc(6ch + var(--sp-3));
+  column-gap: var(--sp-3);
+}
+.explore-plays thead .col-play-verdict { text-align: left; }
+.explore-plays tbody .col-play-verdict {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) calc(6ch + var(--sp-3));
+  align-items: center;
+  column-gap: var(--sp-3);
+}
+.explore-play-field { min-height: 24px; }
+.explore-play-value {
+  text-align: right;
+  font-size: var(--fs-400);
+  font-weight: 600;
+}
+.explore-plays tbody .col-play-verdict.cl-scale-favorable .explore-play-value { color: var(--fav-text); }
+.explore-plays tbody .col-play-verdict.cl-scale-unfavorable .explore-play-value { color: var(--unfav-text); }
+
+/* ── Showcase ────────────────────────────────────────────────────────── */
+/* A ruled list on the same run-value axis as everything above, not a card
+   grid: the sign colours are on the mark and the numeral, where they
+   encode the sign, instead of on a decorative card border. */
+.explore-showcase {
+  padding-top: var(--sp-5);
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.explore-showcase-lede {
+  margin-bottom: var(--sp-4);
+  max-width: var(--measure-prose);
+  color: var(--text-secondary);
+}
+.explore-showcase-group { margin-bottom: var(--sp-6); }
+.explore-showcase-group-heading {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-300);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.explore-showcase-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: var(--measure-data);
+}
+/* 32rem == the four leading table columns (7 + 8 + 10 + 7), and the value
+   track matches the results row's, so the showcase's axis and marks land on
+   exactly the x the table's do. One zero on the page, not two. */
+.explore-showcase-axis,
+.explore-showcase-item {
+  display: grid;
+  /* The table puts its inter-column space INSIDE the preceding cell as
+     padding, so the grid's own gap has to come out of track one for the
+     two plot columns to start at the same x. Measured: both at 656 at
+     1440. */
+  grid-template-columns: calc(32rem - var(--sp-3)) minmax(0, 1fr) calc(6ch + var(--sp-3));
+  column-gap: var(--sp-3);
+  max-width: var(--measure-data);
+}
+.explore-showcase-axis > .cl-axis-ticks {
+  grid-column: 2;
+  margin-bottom: var(--sp-3);
+}
+.explore-showcase-item {
+  grid-template-areas:
+    "head   plot value"
+    "detail plot value";
+  align-items: center;
+  padding: var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.explore-showcase-item-head {
+  grid-area: head;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.explore-showcase-item-link {
+  color: var(--text-primary);
+  font-size: var(--fs-300);
+}
+.explore-showcase-item-date {
+  font-size: var(--fs-100);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.explore-showcase-item-detail {
+  grid-area: detail;
+  margin: 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.explore-showcase-item .explore-play-field {
+  grid-area: plot;
+  min-height: 34px;
+}
+.explore-showcase-item-value {
+  grid-area: value;
+  margin: 0;
+  text-align: right;
+  font-size: var(--fs-400);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.explore-showcase-item-value.cl-scale-favorable { color: var(--fav-text); }
+.explore-showcase-item-value.cl-scale-unfavorable { color: var(--unfav-text); }
+.explore-showcase-item-note {
+  grid-area: detail;
+  justify-self: end;
+  margin: 0;
+  font-size: var(--fs-100);
+  color: var(--accent-amber-text);
+}
+.explore-showcase-reveal {
+  margin-top: var(--sp-3);
+  min-height: var(--target-min);
+  padding-inline: var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+  cursor: pointer;
+}
+.explore-showcase-reveal:hover { background: var(--surface-recessed); }
+
+.explore-provenance {
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-4);
+  border-top: var(--rule-hairline) solid var(--border);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+/* Retained for `/plays/`, which still uses it and belongs to Phase 6. */
+.explore-loading {
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────── */
+/* A different row structure, not a narrower one. The results table would
+   need ~500px to keep four columns honest, so below 768 each play becomes
+   a three-area block: identity, then the mark and the value side by side.
+   Nothing sheds -- the value never hides to make room for metadata. */
+@media (max-width: 767px) {
+  .explore-picker { max-width: none; }
+
+  .explore-plays,
+  .explore-plays thead,
+  .explore-plays tbody,
+  .explore-plays tr { display: block; }
+  /* The COLUMN HEADS go visually hidden, not the whole head. The axis rail
+     and the all-plays strip stay: a figure on a scale other than
+     `league_per_100` owes visible ticks carrying its unit at every width,
+     and at mobile the row's verdict field spans the row, so the rail spans
+     it too and the two still register. */
+  .explore-plays thead tr:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .explore-plays thead .cl-axis-row td:not(.col-play-verdict),
+  .explore-plays thead .explore-distribution-row td.explore-distribution-label { display: none; }
+  /* Same reserved numeral track as the body row, so the rail and the marks
+     keep one basis at mobile too. */
+  .explore-plays thead .col-play-verdict { padding: 0; }
+  .explore-plays thead .explore-distribution-row .col-play-verdict { padding-bottom: var(--sp-2); }
+  /* A different row structure: identity and result on line one, the
+     contact measurements on line two, and the verdict -- field plus
+     numeral, still one statement -- on line three. Nothing sheds. */
+  .explore-plays tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "play     result"
+      "contact  expected"
+      "verdict  verdict";
+    align-items: baseline;
+    column-gap: var(--sp-3);
+    row-gap: var(--sp-1);
+    padding: var(--sp-3) 0;
+    border-bottom: var(--rule-hairline) solid var(--border);
+  }
+  .explore-plays tbody th,
+  .explore-plays tbody td {
+    display: block;
+    width: auto;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .explore-plays tbody .col-play { grid-area: play; }
+  .explore-plays tbody .col-play-result { grid-area: result; text-align: right; }
+  .explore-plays tbody .col-play-contact { grid-area: contact; }
+  .explore-plays tbody .col-play-expected { grid-area: expected; }
+  .explore-plays tbody .col-play-verdict {
+    grid-area: verdict;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) calc(6ch + var(--sp-3));
+    margin-top: var(--sp-1);
+  }
+
+  .explore-showcase-axis,
+  .explore-showcase-item {
+    grid-template-columns: minmax(0, 1fr) calc(7ch + var(--sp-2));
+  }
+  .explore-showcase-axis > .cl-axis-ticks { grid-column: 1 / -1; }
+  .explore-showcase-item {
+    grid-template-areas:
+      "head   value"
+      "detail value"
+      "plot   plot";
+    align-items: baseline;
+    row-gap: var(--sp-1);
+  }
+  .explore-showcase-item-note { grid-area: auto; justify-self: start; }
+  .explore-showcase-item .explore-play-field { min-height: 26px; margin-top: var(--sp-1); }
+
+  /* The leaderboard hides the unit at mobile because its column head
+     already carries it. Explore's column heads go visually hidden here, and
+     this figure is not on `league_per_100`, so its unit has to stay on
+     screen -- that is the whole anti-fake-alignment guard. */
+  .explore-results .cl-axis-unit { display: block; }
+
+  .explore-control { flex: 1 1 100%; }
+  .explore-control-select { width: 100%; }
+  .explore-reset { flex: 1 1 100%; }
 }
 
 /* Individual play page -- the field ball's favorable/unfavorable sign is
