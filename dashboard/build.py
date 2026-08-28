@@ -283,29 +283,28 @@ _COMPONENT_VALUE_SOURCES: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: in that module changes, this map changes with it.
 _QUALIFICATION_EXPLANATIONS: dict[str, str] = {
     "small_sample": (
-        "This hitter is below the minimum number of eligible batted balls and scored games "
-        "the official leaderboard requires — not enough plays to rank, however clean the "
-        "plays there are."
+        "This player is below the minimum number of eligible batted balls and scored games "
+        "the official leaderboard requires. Not enough plays to rank, however clean the ones "
+        "there are."
     ),
     "insufficient_component_coverage": (
-        "This hitter clears the volume bar, but too much of their batted-ball profile falls "
-        "outside both the defense and advancement models to place them on the official "
-        "leaderboard. That is a different problem from having too few plays."
+        "There are enough plays here. Too much of this player's batted-ball profile falls "
+        "outside both the defense and advancement models for the official leaderboard, which "
+        "is a different problem from a small sample."
     ),
     # Position-neutral on purpose: this paragraph moved below the sample line
     # so it would stop delaying the score, and "the share printed below" was
     # then pointing upward. It names the figure instead of its location, the
     # same correction the leaderboard's axis caption already carries.
     "provisionally_qualified": (
-        "This hitter clears both the volume and the coverage bars, but too much of the value "
-        "comes through provisional or limited-evidence model pathways — the "
-        "“From provisional components” figure — or too many plays needed a fallback for a "
-        "missing input. It is the provenance of the value that holds them off the official "
-        "leaderboard, not the size of the sample."
+        "This player clears the volume and coverage requirements. Too much of the value "
+        "comes through provisional or limited-evidence model pathways (the “From provisional "
+        "components” figure), or too many plays needed a fallback for a missing input. Where "
+        "the value comes from is what holds this player off the official leaderboard, not "
+        "how large the sample is."
     ),
     "not_reportable": (
-        "This hitter has no eligible batted balls in this snapshot, so there is no rate to "
-        "compute or rank."
+        "No eligible batted balls in this snapshot, so there is no rate to compute or rank."
     ),
 }
 
@@ -313,7 +312,7 @@ _QUALIFICATION_EXPLANATIONS: dict[str, str] = {
 #: has none, and inventing one would misrepresent it: the residual is what
 #: the three modelled components do not account for, so "no model status"
 #: is the honest statement, not a gap to be filled.
-_RESIDUAL_STATUS_NOTE = "Not modelled — the remainder after the three components above"
+_RESIDUAL_STATUS_NOTE = "Not modelled. What the three components above leave over."
 
 
 def _component_view(
@@ -445,8 +444,8 @@ def _player_view(
     return {
         "qualification_explanation": _QUALIFICATION_EXPLANATIONS.get(
             detail.qualification_status,
-            "This hitter does not currently meet the official leaderboard's requirements, "
-            "so no rank is assigned.",
+            "This player does not meet the official leaderboard's requirements, so no rank "
+            "is assigned.",
         ),
         "player": {
             "batter_id": detail.batter_id,

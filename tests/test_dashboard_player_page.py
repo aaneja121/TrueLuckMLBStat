@@ -504,8 +504,8 @@ class TestSeasonTrend:
     def test_the_player_specific_domain_is_retained(self, site: Path) -> None:
         html = _page(site, POINT_OFF_SCALE_HIGH)
         summary = _flat(html.split('class="trend-caption"', 1)[1])
-        assert "The vertical scale is this player's own" in summary
-        assert "it is not the leaderboard's scale" in summary
+        assert "a vertical scale set by this player" in summary
+        assert "not the leaderboard's range" in summary
 
     def test_the_league_domain_is_never_forced_onto_the_trend(self, site: Path) -> None:
         """A trend drawn on the league domain would put every player's line
@@ -571,10 +571,12 @@ class TestSeasonTrend:
             note = html.split("trend-band-note", 1)[1].split("</p>", 1)[0]
             if drawn == 0:
                 assert "Neither edge falls on the chart" in note
+                assert "Dashed" not in note
             elif drawn == 1:
+                assert "Dashed line shows" in note
                 assert "Its other edge lies beyond this view" in note
             else:
-                assert "rules mark" in note
+                assert "Dashed lines show" in note
 
     def test_nothing_in_the_trend_borrows_the_zero_spine(self, site: Path) -> None:
         """A figure on a different scale must not look like it shares the
@@ -628,7 +630,7 @@ class TestSeasonTrend:
         )
         html = _page(dist, QUALIFIED_FAVORABLE)
         assert "trend-plot" not in html
-        assert "a trend needs at least two" in html
+        assert "A season line appears here once there is a second" in html
 
     def test_build_trend_figure_refuses_fewer_than_two_points(self) -> None:
         scale = v.ZeroScale.from_intervals("league_per_100", "Runs / 100", [(-1.0, 1.0)])
@@ -646,7 +648,7 @@ class TestPlayToPlayPath:
         link that predictably 404s is worse than no link."""
         html = _page(site, QUALIFIED_FAVORABLE)
         assert "/explore/?batter=" not in html
-        assert "not part of the currently published Play Explorer data" in _flat(html)
+        assert "aren't currently available in Play Explorer" in _flat(html)
 
     def test_the_player_page_is_not_a_dead_end(self, site: Path) -> None:
         """Even with no plays published it offers a route onward, which the
@@ -746,9 +748,13 @@ class TestBannedLanguage:
                 assert phrase not in html
 
     def test_the_retrospective_limitation_is_on_every_player_page(self, site: Path) -> None:
+        """It reaches the page once, through the footer. The player page used
+        to repeat the same frozen sentence in its own limitation paragraph;
+        the copy pass consolidated that, so what this guards is that the
+        sentence is still ON the page, not that it appears twice."""
         for batter_id in (QUALIFIED_FAVORABLE, SMALL_SAMPLE):
             html = _flat(_page(site, batter_id))
-            assert "retrospective description of realized outcomes" in html
+            assert html.count("retrospective description of realized outcomes") == 1
             assert "not a projection of future performance" in html
 
     def test_the_interval_is_never_framed_as_significance(self, site: Path) -> None:

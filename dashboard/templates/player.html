@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}{{ player.batter_name }} — Contact Luck{% endblock %}
+{% block title %}{{ player.batter_name }} · Contact Luck{% endblock %}
 {% block meta_description %}Contact Luck for {{ player.batter_name }}: {{ player.score | signed }} runs per 100 eligible batted balls, with its 95% interval, component decomposition and season trend.{% endblock %}
-{% block og_title %}{{ player.batter_name }} — Contact Luck{% endblock %}
+{% block og_title %}{{ player.batter_name }} · Contact Luck{% endblock %}
 {% block og_url %}{{ site_url }}/players/{{ player.batter_id }}/{% endblock %}
-{% block twitter_title %}{{ player.batter_name }} — Contact Luck{% endblock %}
+{% block twitter_title %}{{ player.batter_name }} · Contact Luck{% endblock %}
 {% block content %}
 {#
   Redesign Phase 4 -- the player page.
@@ -129,9 +129,9 @@
     </div>
 
     <p class="player-hero-unit">
-      {{ league.unit_label }} · <strong>{{ "Favorable" if player.favorable else "Unfavorable" }}</strong> —
+      {{ league.unit_label }} · <strong>{{ "Favorable" if player.favorable else "Unfavorable" }}</strong>:
       {{ "more" if player.favorable else "less" }} favorable realized outcomes than expected.
-      The same scale as the leaderboard, covering <span class="num">{{ league.domain_min | signed }}</span>
+      Same scale as the leaderboard, <span class="num">{{ league.domain_min | signed }}</span>
       to <span class="num">{{ league.domain_max | signed }}</span>.
     </p>
   </div>
@@ -148,18 +148,17 @@
      explanation. #}
   <p class="player-offscale-note">
     {% if player.point_state != "in" %}
-      This hitter's Contact Luck of <span class="num">{{ player.score | signed }}</span> lies
+      A Contact Luck of <span class="num">{{ player.score | signed }}</span> sits
       {{ player.point_state }} the scale drawn above. The solid marker at the
-      {{ "left" if player.point_state == "below" else "right" }} edge shows the direction it
-      lies in — it is not the value. Small samples produce values and intervals far outside
-      the range of qualified hitters, and the scale is the same one every hitter is drawn on,
-      so it is not widened to fit one page.
+      {{ "left" if player.point_state == "below" else "right" }} edge gives the direction,
+      not the value. Small samples can land far outside the range of qualified hitters,
+      and every hitter is drawn on the same scale, so it never widens for one page.
     {% else %}
-      The interval above is cut off at the edge of the scale{% if player.clip_state == "both" %} on both sides{% endif %}:
-      it is wider than the range covered by qualified hitters, so it continues beyond what is
-      drawn. The point estimate itself is on the scale.
+      The interval runs off the edge of the scale{% if player.clip_state == "both" %} on both sides{% endif %}:
+      it is wider than the range qualified hitters cover, so it continues past the drawing.
+      The point estimate itself is on the scale.
     {% endif %}
-    The figures printed above are the actual point estimate and interval.
+    The values printed above are the actual point estimate and interval.
   </p>
   {% endif %}
 
@@ -173,7 +172,7 @@
       <dd class="num">{{ player.bbe }}</dd>
     </div>
     <div class="player-sample-item">
-      <dt><abbr title="Games with at least one outcome-resolved eligible batted ball — not official MLB games played.">Scored games</abbr></dt>
+      <dt><abbr title="Games with at least one outcome-resolved eligible batted ball, not official MLB games played.">Scored games</abbr></dt>
       <dd class="num">{{ player.games }}</dd>
     </div>
     <div class="player-sample-item">
@@ -189,18 +188,19 @@
   {% if not player.qualified %}
   <p class="player-unranked-detail prose">
     {{ qualification_explanation }}
-    The score and interval above are computed exactly as they are for every ranked hitter,
-    on the same scale.
+    The score and interval above are computed the same way as for every ranked hitter, on the
+    same scale.
     <a href="{{ root_prefix }}methodology/#technical-details">How qualification works</a>.
   </p>
   {% endif %}
 
+  {# The retrospective limitation is the frozen `public_labels` sentence and
+     runs in the footer of this same page, so it is not repeated here. What
+     stays is the interval reading, which no other route explains. #}
   <p class="player-limitation prose">
-    Contact Luck is a retrospective description of realized outcomes, not a measure of stable
-    batting talent and not a projection of future performance. The 95% interval reflects
-    sampling uncertainty in the estimate itself — it does not indicate whether the underlying
-    effect is “real” or “significant,” and overlapping zero does not mean the observation is
-    unreliable or should be discounted.
+    The 95% interval reflects sampling uncertainty in the estimate. It does not indicate
+    whether the underlying effect is “real” or “significant,” and an interval overlapping zero
+    is no reason to discount the number.
   </p>
 </article>
 
@@ -214,10 +214,10 @@
 <section class="player-section" aria-labelledby="components-heading">
   <h2 id="components-heading">Where it came from</h2>
   <p class="player-section-lede prose">
-    The same total, split by the stage of the play it arose in. Bars run from zero, on this
-    hitter's own scale — <span class="num">{{ components.domain_min | signed }}</span> to
-    <span class="num">{{ components.domain_max | signed }}</span> {{ components.unit_label }} — which
-    is wider or narrower than the leaderboard's; only the zero is shared.
+    The same total, split by the stage of the play it arose in. Bars run from zero on a scale
+    built for this player (<span class="num">{{ components.domain_min | signed }}</span> to
+    <span class="num">{{ components.domain_max | signed }}</span> {{ components.unit_label }}),
+    wider or narrower than the leaderboard's. Only the zero is shared.
   </p>
 
   <div class="component-figure">
@@ -293,9 +293,9 @@
     <summary>Technical reason codes</summary>
     <div class="player-disclosure-body">
       <p class="prose">
-        The raw model status values and reason codes recorded for this hitter's plays, per
-        model. “Defensive execution” above combines the outfield and infield models, so it
-        appears here as two entries.
+        Raw model status values and reason codes from this player's plays. “Defensive
+        execution” above combines the outfield and infield models, so it appears here as two
+        rows.
       </p>
       <table class="component-reasons">
         <thead>
@@ -331,9 +331,9 @@
   <h2 id="trend-heading">Through the season</h2>
   {% if trend %}
   <p class="player-section-lede prose">
-    Every stored snapshot for this hitter, at its true date — a gap between points is a
-    missing snapshot, never an estimate. <strong>The vertical scale is this hitter's own</strong>,
-    not the leaderboard's, because the question here is whether their own number moved.
+    Every stored snapshot at its true date. A gap between points is a missing snapshot, never
+    an estimate. <strong>The vertical scale adjusts to this player</strong>, so movement through
+    the season is easier to read.
   </p>
 
   <figure class="trend-figure">
@@ -370,7 +370,7 @@
     </div>
 
     <figcaption class="trend-caption">
-      <p class="trend-unit">{{ trend.unit_label }}, this hitter's own vertical scale</p>
+      <p class="trend-unit">{{ trend.unit_label }}, on a vertical scale set by this player</p>
       <p class="prose">{{ trend.summary }}</p>
       {% if trend.league_band %}
       {# The clause tracks how many rules were actually DRAWN, not a rounded
@@ -378,18 +378,22 @@
          rule is still on the chart, and a caption that contradicts the
          drawing is worse than no caption. #}
       <p class="prose trend-band-note">
+        {% if trend.league_band.rules_drawn %}
         <span class="trend-band-key" aria-hidden="true"></span>
-        The dashed {{ "rule marks" if trend.league_band.rules_drawn == 1 else "rules mark" }}
-        the range the leaderboard's scale covers
-        (<span class="num">{{ trend.league_band.domain_min | signed }}</span> to
-        <span class="num">{{ trend.league_band.domain_max | signed }}</span>) —
+        Dashed {{ "line shows" if trend.league_band.rules_drawn == 1 else "lines show" }} the
+        leaderboard's range (<span class="num">{{ trend.league_band.domain_min | signed }}</span>
+        to <span class="num">{{ trend.league_band.domain_max | signed }}</span>),
         {{ trend.league_band.coverage_pct }} of this view.
-        {% if trend.league_band.rules_drawn == 0 %}
-          Neither edge falls on the chart: this hitter's whole season sits inside that range.
-        {% elif trend.league_band.rules_drawn == 1 %}
+        {% if trend.league_band.rules_drawn == 1 %}
           Its other edge lies beyond this view.
         {% endif %}
-        The grey band is this hitter's 95% interval at each snapshot.
+        {% else %}
+        The leaderboard's range (<span class="num">{{ trend.league_band.domain_min | signed }}</span>
+        to <span class="num">{{ trend.league_band.domain_max | signed }}</span>) covers
+        {{ trend.league_band.coverage_pct }} of this view. Neither edge falls on the chart, so
+        the whole season here sits inside it.
+        {% endif %}
+        The grey band is the 95% interval at each snapshot.
       </p>
       {% endif %}
     </figcaption>
@@ -425,10 +429,9 @@
   {% else %}
   <p class="player-section-lede prose">
     {% if trend_point_count == 1 %}
-      Only one stored snapshot covers this hitter so far, and a trend needs at least two.
-      Their season line will appear here once a second snapshot is stored.
+      Only one stored snapshot so far. A season line appears here once there is a second.
     {% else %}
-      No stored snapshot history covers this hitter yet.
+      No stored snapshot history for this player yet.
     {% endif %}
   </p>
   {% endif %}
@@ -444,19 +447,19 @@
   <h2 id="plays-heading">The plays behind it</h2>
   {% if plays %}
   <p class="player-section-lede prose">
-    Every number on this page is summed from single batted balls. Open this hitter's
+    Every number on this page is summed from single batted balls. Open the
     <span class="num">{{ plays.count }}</span> scored {{ "play" if plays.count == 1 else "plays" }}
-    and read them one at a time — what the contact was expected to be worth, and what it
-    actually produced.
+    and read them one at a time: what the contact was expected to be worth, and what it
+    produced.
   </p>
   <p class="player-next-link">
     <a href="{{ plays.url }}">{{ player.batter_name }}'s scored plays &rarr;</a>
   </p>
   {% else %}
   <p class="player-section-lede prose">
-    Individual plays for this hitter are not part of the currently published Play Explorer
-    data. <a href="{{ root_prefix }}demo/">See two batted balls worked through end to end</a>
-    for how a single play becomes a Contact Luck value.
+    This player's individual plays aren't currently available in Play Explorer.
+    <a href="{{ root_prefix }}demo/">See two batted balls worked through end to end</a> for how
+    a single play becomes a Contact Luck value.
   </p>
   {% endif %}
 </section>

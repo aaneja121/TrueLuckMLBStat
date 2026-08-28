@@ -80,3 +80,28 @@ and above, `+0.06em` on uppercase micro-labels, `0` everywhere else.
 - Precision is fixed per quantity, never per context: per-100 → 2 dp; total runs → 1 dp;
   counts → integer; probabilities → 1 dp percent.
 - Intervals render one scale step below their point estimate, in brackets, on the same unit.
+
+---
+
+## Product voice
+
+User-facing copy should read like a concise baseball analyst or editor wrote it, for a
+baseball-literate reader.
+
+- **Short, direct sentences.** Two plain sentences beat one sentence with three
+  qualifications hung off it.
+- **No em dashes in user-facing copy.** Use a period, comma, colon, or parentheses.
+  Semicolons only where genuinely natural. (Code comments and internal docs are exempt.)
+- **No AI-assistant register and no interface narration.** Avoid "the question here is…",
+  "in other words", "note that", "importantly". Explain the baseball or statistical idea,
+  not why the interface was built the way it was; design rationale belongs in these docs,
+  not on the page.
+- **Avoid reflexive "X, not Y."** Use it only where the contrast is the point. When a plain
+  statement carries the same fact, write the plain statement.
+- **Explain a concept once per page.** Later sections reference it briefly. The global
+  footer disclaimer is exempt: it always appears in full.
+- **Never shorten away methodological precision.** Frozen `public_labels` strings, metric
+  names, defined model terminology, the retrospective limitation, 95%-interval wording,
+  qualified vs. unqualified, provisional components, and the trend's declared
+  player-specific scale all survive an edit for brevity intact. Clearer language, not less
+  accurate language.

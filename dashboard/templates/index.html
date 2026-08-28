@@ -15,27 +15,27 @@
 <div class="lede">
   <h1 class="lede-title">Contact Luck</h1>
   <p class="lede-line prose">
-    How much more or less favorable a hitter's batted-ball outcomes actually were than
-    what those batted balls were expected to produce — in runs per 100 eligible batted
-    balls, {{ data_through_date[:4] }} season through {{ data_through_date_display }}.
+    How much more or less favorable a hitter's batted-ball outcomes were than what that
+    contact was expected to produce. Runs per 100 eligible batted balls,
+    {{ data_through_date[:4] }} season through {{ data_through_date_display }}.
   </p>
 
   <details class="lede-detail">
-    <summary>What the number means, and what it does not</summary>
+    <summary>What the number means</summary>
     <div class="lede-detail-body prose">
       <p>
         Contact Luck compares what a batted ball was expected to be worth with the run value of
         what actually happened. Summed across a player's eligible batted balls and normalized to
         <strong>Runs / 100</strong>, <strong>+3.0</strong> means a hitter's realized outcomes were
         worth roughly three more runs per 100 eligible batted balls than expected. The interval
-        shows the uncertainty around that estimate — Contact Luck describes what happened,
-        retrospectively; it is not a projection of future performance.
+        shows the uncertainty around that estimate. Contact Luck describes what already happened.
+        It is not a projection of future performance.
       </p>
       <p>
         Ranked players only: {{ qualified_count }} of {{ player_count }} scored players qualify.
-        See the <a href="{{ root_prefix }}methodology/">methodology page</a> for the qualification
-        rule, and <a href="{{ root_prefix }}demo/">how it works</a> for two real batted balls
-        worked through end to end.
+        The <a href="{{ root_prefix }}methodology/">methodology page</a> has the qualification
+        rule, and <a href="{{ root_prefix }}demo/">how it works</a> walks two real batted balls
+        through end to end.
       </p>
     </div>
   </details>
@@ -83,9 +83,9 @@
 </div>
 
 <p class="leaderboard-note prose">
-  Columns can be re-sorted for exploration, but a re-sorted table is always labeled
-  <em>Sorted view</em> and is never presented as an alternative official ranking. The Rank
-  column always shows the stored, frozen official rank — use it to return to that order.
+  Sort any column to explore. A sorted table is labeled <em>Sorted view</em> and is never an
+  alternative official ranking. The Rank column always holds the stored, frozen official rank,
+  so sorting by it returns the official order.
 </p>
 </div>
 
@@ -100,8 +100,8 @@
 <section class="worked" aria-labelledby="worked-heading">
   <h2 id="worked-heading">Two batted balls</h2>
   <p class="worked-lede prose">
-    Every value above is built from single batted balls like these — the gap between what the
-    contact was expected to be worth and what it actually produced.
+    Every value above is built from single batted balls like these: the gap between what the
+    contact was expected to be worth and what it produced.
   </p>
 
   <ol class="worked-list">

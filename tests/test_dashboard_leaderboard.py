@@ -375,7 +375,7 @@ class TestSorting:
         # 1. aria-sort on the header
         assert 'setAttribute("aria-sort"' in sort
         # 2. the visible label, verbatim
-        assert "Sorted view — not the official Contact Luck ranking. " in js
+        assert "Sorted view. The official Contact Luck ranking is preserved" in js
         # 3. the official accent leaving the rank column
         assert 'setAttribute("data-sorted", "")' in sort
         assert 'removeAttribute("data-sorted")' in sort
@@ -539,7 +539,7 @@ class TestMobileHomepageHierarchy:
         """It sits ABOVE the rows on desktop and BELOW them at mobile, so it
         cannot say "every row below" any more."""
         caption = home.split('class="cl-axis-caption"', 1)[1].split("</p>", 1)[0]
-        assert "every row in this table is drawn on it" in caption
+        assert "Every row in this table is drawn on it" in caption
         assert "below" not in caption
 
     def test_nothing_operable_above_the_first_row_is_under_the_target_floor(

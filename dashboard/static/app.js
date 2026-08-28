@@ -64,8 +64,7 @@
   // Sorting is presentational: it reorders rows already rendered from the
   // snapshot and never recomputes a score, a rank or an interval.
   var SORTED_VIEW_LABEL =
-    "Sorted view — not the official Contact Luck ranking. " +
-    "The official rank is preserved in its own column.";
+    "Sorted view. The official Contact Luck ranking is preserved in the Rank column.";
 
   function initLeaderboardSort() {
     var tables = document.querySelectorAll("table.leaderboard[data-sortable]");
@@ -356,7 +355,7 @@
         // status region below.
         empty.setAttribute("role", "presentation");
         empty.className = "global-search-empty";
-        empty.textContent = "No player matches “" + query + "”. Try a surname, or an MLBAM ID.";
+        empty.textContent = "No player matches “" + query + "”. Try a surname or an MLBAM ID.";
         listbox.appendChild(empty);
         setExpanded(true);
         announce("No players found.");

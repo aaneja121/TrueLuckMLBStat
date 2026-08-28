@@ -681,13 +681,15 @@ def build_trend_figure(
         return f"{value:+.2f}".replace("-", "−")
 
     summary = (
-        f"Contact Luck across {len(points)} stored snapshots, "
-        f"{dates[0].strftime('%B %-d')} to {dates[-1].strftime('%B %-d, %Y')}: "
-        f"{signed(values[0])} at the first snapshot and {signed(values[-1])} at the last, "
-        f"ranging from {signed(min(values))} to {signed(max(values))} "
-        f"{league_scale.unit_label.lower()}. "
-        f"The vertical scale is this player's own, {signed(y_min)} to {signed(y_max)}; "
-        "it is not the leaderboard's scale."
+        f"Contact Luck at {len(points)} stored snapshots, "
+        f"{dates[0].strftime('%B %-d')} to {dates[-1].strftime('%B %-d, %Y')}. "
+        f"It starts at {signed(values[0])}, ends at {signed(values[-1])}, and ranges from "
+        f"{signed(min(values))} to {signed(max(values))} {league_scale.unit_label}. "
+        # The scale is a declared exception to Invariant D (gate G2), so the
+        # text equivalent has to say whose scale it is; a reader who cannot
+        # see the axis would otherwise assume the leaderboard's.
+        f"The vertical scale runs {signed(y_min)} to {signed(y_max)}, set by this player's "
+        "own values and not the leaderboard's range."
     )
 
     return TrendFigure(
