@@ -252,11 +252,158 @@ _COMPONENT_LABELS = {
     "advancement": "Advancement",
 }
 
+#: Which model status entries belong to which DISPLAYED component value.
+#: The snapshot records status per MODEL (`contact`, `outfield_defense`,
+#: `infield_defense`, `advancement`); the decomposition a reader sees is per
+#: VALUE, and defensive execution is one value produced by two models. Phase
+#: 4 requires every displayed component value to carry its status
+#: programmatically, so the two are joined here rather than shown as the
+#: baseline's two disconnected tables -- one listing values, one listing
+#: statuses, with nothing tying a row in either to a row in the other.
+_COMPONENT_VALUE_SOURCES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Contact", ("contact",)),
+    ("Defensive execution", ("outfield_defense", "infield_defense")),
+    ("Advancement", ("advancement",)),
+    ("Unexplained residual", ()),
+)
+
+#: Why a hitter holds no official rank, per status. NOT one sentence for all
+#: of them: the baseline said "hasn't yet reached the minimum eligible
+#: batted-ball threshold" for every unqualified hitter, which is simply false
+#: for three of the four statuses -- Bobby Witt Jr. is
+#: `provisionally_qualified` with 325 eligible BBE, MORE than the #1 ranked
+#: hitter's 321. Saying "too few batted balls" there misdescribes the data.
+#:
+#: These restate `mlb_luck_score.scoring.qualification`'s own documented
+#: precedence in plain language and introduce no new rule, threshold or
+#: claim. They are duplicated here rather than imported because no module
+#: under `dashboard/` may import scoring code (`CLAUDE.md` rule 6, enforced
+#: by `tests/test_dashboard_isolation.py`) -- the same convention
+#: `content.py`'s component-status labels already follow. If the precedence
+#: in that module changes, this map changes with it.
+_QUALIFICATION_EXPLANATIONS: dict[str, str] = {
+    "small_sample": (
+        "This hitter is below the minimum number of eligible batted balls and scored games "
+        "the official leaderboard requires — not enough plays to rank, however clean the "
+        "plays there are."
+    ),
+    "insufficient_component_coverage": (
+        "This hitter clears the volume bar, but too much of their batted-ball profile falls "
+        "outside both the defense and advancement models to place them on the official "
+        "leaderboard. That is a different problem from having too few plays."
+    ),
+    # Position-neutral on purpose: this paragraph moved below the sample line
+    # so it would stop delaying the score, and "the share printed below" was
+    # then pointing upward. It names the figure instead of its location, the
+    # same correction the leaderboard's axis caption already carries.
+    "provisionally_qualified": (
+        "This hitter clears both the volume and the coverage bars, but too much of the value "
+        "comes through provisional or limited-evidence model pathways — the "
+        "“From provisional components” figure — or too many plays needed a fallback for a "
+        "missing input. It is the provenance of the value that holds them off the official "
+        "leaderboard, not the size of the sample."
+    ),
+    "not_reportable": (
+        "This hitter has no eligible batted balls in this snapshot, so there is no rate to "
+        "compute or rank."
+    ),
+}
+
+#: What the residual row says where the other rows carry a model status. It
+#: has none, and inventing one would misrepresent it: the residual is what
+#: the three modelled components do not account for, so "no model status"
+#: is the honest statement, not a gap to be filled.
+_RESIDUAL_STATUS_NOTE = "Not modelled — the remainder after the three components above"
+
+
+def _component_view(
+    detail: c.PlayerDetail, zero_fraction: float
+) -> dict[str, Any]:
+    """The component decomposition, on the `component_per_100` scale.
+
+    A per-player domain (Invariant D does not reach a component breakdown --
+    see `ZeroScale.from_values`), padded so its zero lands on the SAME
+    `--cl-zero` the hero figure and the leaderboard use. Because the scale is
+    this player's own, the figure owes visible tick labels carrying its unit,
+    and the template renders them.
+    """
+    values_by_label: dict[str, float | None] = {
+        "Contact": detail.components.contact_per_100,
+        "Defensive execution": detail.components.defensive_execution_per_100,
+        "Advancement": detail.components.advancement_per_100,
+        "Unexplained residual": detail.components.unexplained_residual_per_100,
+    }
+    statuses = detail.components.component_status_reason_codes
+
+    known = [v for v in values_by_label.values() if v is not None]
+    scale = v.ZeroScale.from_values(
+        "component_per_100",
+        "Runs / 100 eligible BBE",
+        known + [detail.contact_luck_runs_per_100],
+        zero_fraction=zero_fraction,
+    )
+
+    def bar(value: float) -> dict[str, Any]:
+        """A bar runs FROM zero TO the value -- it is not an interval, and
+        it must not be drawn with the interval's vocabulary."""
+        low, high = sorted((scale.zero_fraction, scale.clamped_fraction_of(value)))
+        return {"lo_pct": _pct(low), "hi_pct": _pct(high)}
+
+    rows: list[dict[str, Any]] = []
+    for label, source_keys in _COMPONENT_VALUE_SOURCES:
+        value = values_by_label[label]
+        model_status_values: list[str] = []
+        reason_codes: list[str] = []
+        for key in source_keys:
+            entry = statuses.get(key, {})
+            model_status_values += entry.get("model_status_values", [])
+            reason_codes += entry.get("reason_codes", [])
+        rows.append(
+            {
+                "label": label,
+                "value": value,
+                "favorable": value is not None and value >= 0,
+                "status_summary": (
+                    _RESIDUAL_STATUS_NOTE
+                    if not source_keys
+                    else c.summarize_component_status(sorted(set(model_status_values)))
+                ),
+                "has_model_status": bool(source_keys),
+                "model_status_values": sorted(set(model_status_values)),
+                "reason_codes": sorted(set(reason_codes)),
+                "source_labels": [_COMPONENT_LABELS.get(k, k) for k in source_keys],
+                **(bar(value) if value is not None else {"lo_pct": None, "hi_pct": None}),
+            }
+        )
+
+    # The components sum to the headline by construction; drawing the total
+    # on the SAME scale is what makes that visible rather than asserted.
+    # `sum_of_parts` is carried so a test can hold the claim to account, and
+    # so the template never has to add anything up itself.
+    return {
+        "rows": rows,
+        "total": {
+            "label": "Total Contact Luck",
+            "value": detail.contact_luck_runs_per_100,
+            "favorable": detail.contact_luck_runs_per_100 >= 0,
+            **bar(detail.contact_luck_runs_per_100),
+        },
+        "sum_of_parts": sum(known),
+        "unit_label": scale.unit_label,
+        "ticks": _axis_ticks(scale),
+        "domain_min": scale.domain_min,
+        "domain_max": scale.domain_max,
+    }
+
 
 def _player_view(
     detail: c.PlayerDetail,
     trend_points: list[c.TrendPoint],
     scale: v.ZeroScale,
+    *,
+    league: dict[str, Any],
+    play_count: int | None,
+    root_prefix: str,
 ) -> dict[str, Any]:
     # Redesign Phase 1, decision D1a: this page uses the ONE canonical
     # `league_per_100` scale, built from the qualified comparison
@@ -271,29 +418,40 @@ def _player_view(
     # and under the Zero Spine direction it is the one place the site would
     # draw two different zeros. A value outside the canonical domain now
     # CLIPS, with an explicit continuation caret and the true numbers intact
-    # in text (see `render_interval_bar_svg`); the scale never moves to
-    # accommodate it. Qualified players are unaffected: their interval was
-    # already inside this domain, so their bar is unchanged.
-    component_value_rows = [
-        {"label": "Contact", "value": detail.components.contact_per_100},
-        {"label": "Defensive execution", "value": detail.components.defensive_execution_per_100},
-        {"label": "Advancement", "value": detail.components.advancement_per_100},
-        {"label": "Unexplained residual", "value": detail.components.unexplained_residual_per_100},
-    ]
-    component_status_rows = [
-        {
-            "label": _COMPONENT_LABELS.get(key, key),
-            "status_summary": c.summarize_component_status(value.get("model_status_values", [])),
-            "model_status_values": value.get("model_status_values", []),
-            "reason_codes": value.get("reason_codes", []),
-        }
-        for key, value in detail.components.component_status_reason_codes.items()
-    ]
+    # in text; the scale never moves to accommodate it. Qualified players are
+    # unaffected: their interval was already inside this domain.
+    #
+    # Redesign Phase 4: the hero draws through the `.cl-scale` CSS primitive
+    # (renderer A), not an inline SVG, for the same reason the leaderboard
+    # does -- the axis rail, the league distribution and this hitter's own
+    # mark then share one containing block and one percentage basis, so the
+    # amber rule descending the figure registers against all three by
+    # construction rather than by arithmetic.
+    point = detail.contact_luck_runs_per_100
+    point_fraction = scale.clamped_fraction_of(point)
+
+    # Where the headline numeral sits. The plan's guard against this hero
+    # becoming a KPI panel is that the number sits AT the mark rather than in
+    # a tile of its own; near either edge, anchoring it centred would push it
+    # off the field, so the anchor -- not the position -- changes.
+    if point_fraction < 0.14:
+        value_anchor = "start"
+    elif point_fraction > 0.86:
+        value_anchor = "end"
+    else:
+        value_anchor = "center"
+
+    qualified = detail.qualification_status == "qualified"
     return {
+        "qualification_explanation": _QUALIFICATION_EXPLANATIONS.get(
+            detail.qualification_status,
+            "This hitter does not currently meet the official leaderboard's requirements, "
+            "so no rank is assigned.",
+        ),
         "player": {
             "batter_id": detail.batter_id,
             "batter_name": detail.batter_name or f"Player {detail.batter_id}",
-            "score": detail.contact_luck_runs_per_100,
+            "score": point,
             "lower": detail.lower_95_interval,
             "upper": detail.upper_95_interval,
             "interval_interpretation": detail.interval_interpretation,
@@ -301,28 +459,37 @@ def _player_view(
             "bbe": detail.eligible_batted_balls,
             "games": detail.games,
             "qualification_status": detail.qualification_status,
+            "qualified": qualified,
             "official_rank_favorable": detail.official_rank_favorable,
             "official_rank_unfavorable": detail.official_rank_unfavorable,
             "provisional_share": detail.components.share_of_value_from_provisional_components,
-            "interval_svg": v.render_interval_bar_svg(
-                point=detail.contact_luck_runs_per_100,
+            # Sign follows the POINT ESTIMATE only, identically whether or not
+            # the interval crosses zero (preserved product invariant).
+            "favorable": point >= 0,
+            "pt_pct": _pct(point_fraction),
+            "lo_pct": _pct(scale.clamped_fraction_of(detail.lower_95_interval)),
+            "hi_pct": _pct(scale.clamped_fraction_of(detail.upper_95_interval)),
+            "clip_state": scale.clip_state(
+                point=point,
                 lower=detail.lower_95_interval,
                 upper=detail.upper_95_interval,
-                domain=scale.domain,
-                compact=False,
             ),
-            "interval_clip_state": scale.clip_state(
-                point=detail.contact_luck_runs_per_100,
-                lower=detail.lower_95_interval,
-                upper=detail.upper_95_interval,
-            ),
-            "interval_point_state": scale.point_state(detail.contact_luck_runs_per_100),
-            "scale_domain_min": scale.domain_min,
-            "scale_domain_max": scale.domain_max,
+            "point_state": scale.point_state(point),
+            "value_anchor": value_anchor,
         },
-        "component_value_rows": component_value_rows,
-        "component_status_rows": component_status_rows,
-        "trend_svg": v.render_trend_chart_svg(trend_points) if len(trend_points) >= 2 else None,
+        "league": league,
+        "components": _component_view(detail, scale.zero_fraction),
+        "trend": v.build_trend_figure(trend_points, league_scale=scale),
+        "trend_point_count": len(trend_points),
+        # The play-level path (`docs/design/information-architecture.md`
+        # question 6). A link is emitted ONLY when this hitter actually has
+        # an entry in the Play Explorer catalog, so the page never offers a
+        # route that lands on an empty selection.
+        "plays": (
+            {"url": f"{root_prefix}explore/?batter={detail.batter_id}", "count": play_count}
+            if play_count
+            else None
+        ),
     }
 
 
@@ -637,13 +804,20 @@ def build_dashboard(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     index_template = env.get_template("index.html")
+    # Built ONCE and reused verbatim by the homepage and by every player
+    # page. The player hero draws the whole league as its ground (Phase 4),
+    # so this geometry would otherwise be recomputed ~600 times, and -- worse
+    # -- two independently computed copies of "the league" could drift.
+    league_axis_ticks = _axis_ticks(league_scale)
+    league_distribution_marks = _distribution_marks(favorable_rows, league_scale)
+
     (out_dir / "index.html").write_text(
         index_template.render(
             **base_context,
             active_page="leaderboard",
-            axis_ticks=_axis_ticks(league_scale),
+            axis_ticks=league_axis_ticks,
             axis_unit_label=league_scale.unit_label,
-            distribution_marks=_distribution_marks(favorable_rows, league_scale),
+            distribution_marks=league_distribution_marks,
             favorable_rows=_leaderboard_view_rows(favorable_rows, league_scale, root_prefix),
             unfavorable_rows=_leaderboard_view_rows(
                 unfavorable_rows, league_scale, root_prefix
@@ -697,6 +871,23 @@ def build_dashboard(
 
     payload_cache: dict[str, c.SnapshotPayloads] = {latest.directory_name: payloads}
     player_template = env.get_template("player.html")
+    league_context = {
+        "axis_ticks": league_axis_ticks,
+        "distribution_marks": league_distribution_marks,
+        "unit_label": league_scale.unit_label,
+        "domain_min": league_scale.domain_min,
+        "domain_max": league_scale.domain_max,
+        "qualified_count": status_data.qualified_count,
+    }
+    # `play_count` per hitter, from the already-validated Explore catalog.
+    # Empty when the Play Explorer is disabled for this build, which is the
+    # fail-closed default -- the player page then emits no plays link at all
+    # rather than one that 404s.
+    play_counts: dict[int, int] = (
+        {p.batter_id: p.play_count for p in explore_data.players}
+        if explore_available and explore_data is not None
+        else {}
+    )
     for entry in player_index:
         record = c.find_player_record(payloads, entry.batter_id)
         assert record is not None
@@ -704,7 +895,14 @@ def build_dashboard(
         trend_points = c.build_player_trend(history, entry.batter_id, payload_cache=payload_cache)
         player_dir = out_dir / "players" / str(entry.batter_id)
         player_dir.mkdir(parents=True, exist_ok=True)
-        view = _player_view(detail, trend_points, league_scale)
+        view = _player_view(
+            detail,
+            trend_points,
+            league_scale,
+            league=league_context,
+            play_count=play_counts.get(entry.batter_id),
+            root_prefix=root_prefix,
+        )
         (player_dir / "index.html").write_text(
             player_template.render(**base_context, active_page=None, **view)
         )

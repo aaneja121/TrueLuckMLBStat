@@ -40,9 +40,26 @@ without headings for the first four:
    Baseline defect: the interval strip is orphaned in a full-width band below the header
    card, disconnected from the score.
 5. **Why did they get that score?** — component decomposition with status labels.
-6. **Which plays contributed?** — **currently missing.** The player page's only outbound
-   links are the leaderboard, methodology and demo. See *Navigation and search* below.
+6. **Which plays contributed?** — a link to that hitter's plays.
 7. **What next?** — that player's plays, the two rankings, the methodology.
+
+**Built in Phase 4.** The hero is one figure carrying all of questions 2–4 at once: the
+number printed *at* its own mark, this hitter's interval and dot at double weight, the
+whole qualified league beneath it in gridline ink, and the shared axis under both — one
+amber rule descending all three, because they are three siblings in one containing block
+and therefore share one percentage basis. Measured: the hero and the leaderboard row for
+the same hitter carry byte-identical `--cl-lo` / `--cl-pt` / `--cl-hi`.
+
+The guard against the hero becoming a KPI panel is that there is **no box, no border and
+no fill** anywhere in it. Rank is written out as an answer rather than set in a pill, and
+sits at `--fs-500` against the score's `--fs-800`, so it never overpowers the estimate it
+describes. The four sample figures are a ruled stat line, not four tiles.
+
+**The reason a hitter holds no official rank is specific to their status.** The baseline
+told every unqualified hitter they had "not yet reached the minimum eligible-batted-ball
+threshold", which is false for three of the four statuses — a `provisionally_qualified`
+hitter can hold *more* eligible batted balls than the #1 ranked one, and is unranked
+because of where the value came from, not how much of it there is.
 
 ---
 
@@ -51,8 +68,9 @@ without headings for the first four:
 Discovery, not a search form. Order: the editorial showcase (what a big break looks like) →
 a named hitter's plays. The player selector is a **combobox that changes the page's
 address**, so a hitter's plays are linkable from their player page and from a shared URL.
-The current selection is client-only and unaddressable, which is why question 6 above has
-no answer.
+Phase 4 added the inbound half — Explore reads `?batter=<id>` and preselects — but the
+selection is still not written back to the URL, so a hitter chosen *inside* Explore is
+still unaddressable. That half is Phase 5's.
 
 ## Play page
 
@@ -134,5 +152,12 @@ stays open without holding anything up.
 - **The play-level path must be navigable in both directions.** A player page links to that
   player's plays; Explore's selection is reflected in the URL so that link can exist and be
   shared. This is the product's stated value proposition ("it goes all the way down to the
-  play") and it currently dead-ends: the player page's only outbound links are the
+  play") and the baseline dead-ended: the player page's only outbound links were the
   leaderboard, methodology, and demo.
+
+  **Half-built in Phase 4.** The player page emits `/explore/?batter=<id>`, and Explore
+  reads that parameter on load and preselects the hitter. The link is emitted **only** when
+  that hitter is actually in the published Play Explorer catalog, so it can never land on
+  an empty selection; where they are absent the section still offers a route onward
+  (`/demo/`) rather than dead-ending. Writing the selection *back* into the URL — so a
+  hitter chosen inside Explore is linkable and shareable — remains Phase 5's work.

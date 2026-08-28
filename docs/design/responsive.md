@@ -128,3 +128,46 @@ and should not be leaned on** — anything that renders the header a pixel talle
 three, which is the correct trade under the priority order (target size first, density last)
 and not a regression. A fifth row needs the row itself to shrink, which is out of bounds. At
 320×700 the first row moved 597 px → 448 px, and 0 whole rows became 2.
+
+---
+
+## Player page — the mobile transformation
+
+Structural, not a shrink. Three things change shape rather than size at ≤ 767 px.
+
+**1. The headline numeral stops being anchored at `--cl-pt`.** On desktop the score is
+printed *at* its own mark: the numeral band and the plot are siblings in one block, so both
+resolve `--cl-pt` against the same width, and the block's anchor — not its position —
+changes near an edge (`start` below 0.18, `end` above 0.82, `center` between), which is
+what keeps a 44 px numeral on the field for an off-scale hitter. At 390 the field is ~340 px
+and the numeral block ~200 px, so no anchor survives near an edge; the number goes
+left-aligned instead. Nothing is lost — at this width the dot is a couple of centimetres
+away regardless.
+
+**2. The hero keeps the full axis and the whole league.** It does not simplify, because it
+is the product. Measured at 390: the mark row, the 124-hitter distribution and the labelled
+tick rail all render, and the amber rule descends all three.
+
+**3. The component table sheds its status column into a line under each row.** A four-column
+table cannot hold a usable coordinate space at 390. The row becomes a three-area grid —
+`label value` / `plot` / `status` — using grid areas rather than floats or inline-blocks,
+because the whitespace between table cells is real text and it is what breaks an
+inline-block row. **The status is never dropped**: Phase 4 requires every displayed
+component value to carry one.
+
+Because the bar then spans the whole row, the row box *is* the coordinate space (measured:
+field and row both 16 → 374 at 390). That lets the spine move from the field to the
+`tbody`, which is what keeps it one continuous rule — per-field segments would be five
+22 px ticks separated by the label and status lines between them, which is precisely the
+"stray ticks instead of a rule" failure `docs/design/tables.md` rule 2 is drawing.
+
+**The sample line becomes a 2 × 2 grid.** Four items on one ruled line needs ~520 px; at
+390 it wrapped into three ragged rows with dividers landing mid-air.
+
+**Trend labels.** The plot drops to 200 px tall. Below 360 px the interior date labels are
+dropped and the endpoints kept — five labels collide in the 235 px plot a 320 px viewport
+leaves. `:first-child`/`:last-child` rather than an `:nth-child` rhythm, so the first and
+last snapshot survive for any label count (they range from two to five).
+
+Verified at 390 × 844 and 320 × 700, light and dark: no horizontal overflow, every axis
+label 12 px, every operable control ≥ 44 px.

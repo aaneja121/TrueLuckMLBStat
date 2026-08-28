@@ -154,12 +154,19 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        # Redesign Phase 1: Contact Luck values now carry an explicit sign
+        # Redesign Phase 1: Contact Luck values carry an explicit sign
         # wherever they are stated, including in the accessible text -- the
         # sign glyph is the non-colour channel for the favorable/unfavorable
-        # pair, and a screen reader never receives the colour. This is a
-        # deliberate presentation change, not a formatting drift.
-        assert "<title>+5.25 runs/100 (95% interval: +1.10 to +9.40)</title>" in html
+        # pair, and a screen reader never receives the colour.
+        #
+        # Redesign Phase 4: the hero is no longer an SVG, so the guarantee no
+        # longer lives in a `<title>`. It is stronger now -- the point
+        # estimate and its interval are ordinary text beside the mark, which
+        # is `aria-hidden` -- and it is asserted in that form.
+        flat = re.sub(r"\s+", " ", html)
+        assert '<p class="player-score num">+5.25' in flat
+        assert '95% interval <span class="num">+1.10</span> to' in flat
+        assert '<span class="num">+9.40</span>' in flat
 
     def test_component_status_reason_codes_propagate_to_player_page(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -171,11 +178,12 @@ class TestBuildContent:
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
         # Raw codes still exist -- inside the technical disclosure, not the
-        # primary table.
+        # decomposition itself. Phase 4 renamed the disclosure class and
+        # merged the two baseline tables into one; the guarantee is the same.
         assert "near_wall_provisional" in html
         assert "calibrated_with_limited_subgroup_evidence" in html
-        assert '<details class="technical-disclosure">' in html
-        assert "View technical reason codes" in html
+        assert '<details class="player-disclosure">' in html
+        assert "Technical reason codes" in html
 
     def test_component_status_shows_plain_language_summary_first(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -186,7 +194,7 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        primary_table_html = html.split('<details class="technical-disclosure">', 1)[0]
+        primary_table_html = html.split('<details class="player-disclosure">', 1)[0]
         assert "Provisional" in primary_table_html
         assert "Limited subgroup evidence" in primary_table_html
         # The raw status token must not leak into the primary (non-disclosure)
@@ -204,8 +212,11 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        assert "Share from provisional components" in html
+        # Phase 4 shortened the stat line's label to fit a ruled line rather
+        # than a tile; it stays plain language, never the schema field name.
+        assert "From provisional components" in html
         assert "Provisional-component share" not in html
+        assert "share_of_value_from_provisional_components" not in html
 
     def test_trend_chart_present_across_two_stored_snapshots(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -577,34 +588,36 @@ class TestIntervalDomainConsistency:
         index_html = (tmp_path / "dist" / "index.html").read_text()
         player_html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
 
-        # Redesign Phase 3: the leaderboard row is now the CSS Zero Spine
-        # primitive (percentages) while the player page is still build-time
-        # SVG until Phase 4. That makes this test STRONGER than before, not
-        # weaker: it is now a cross-RENDERER check, which is exactly the
-        # property the plan requires ("a test asserts A and B place zero
-        # identically for the same scale"). A drift between the two would be
-        # invisible to any test that only looked at one of them.
+        # Redesign Phase 4: the player hero is now the same CSS Zero Spine
+        # primitive the leaderboard row is, so this stops being a
+        # cross-renderer tolerance check and becomes an EXACT one -- the two
+        # percentages come from one `ZeroScale` and must be byte-identical.
+        # The cross-renderer check the plan also asks for did not disappear;
+        # it moved to `tests/test_dashboard_player_page.py`
+        # (`TestRendererAgreement`), where it compares renderer A's fractions
+        # against renderer B's SVG directly.
         row = _row_field(index_html, "favorable", "Alice Alpha")
-        player_svg = re.search(
-            r'<svg class="interval-bar interval-bar-full".*?</svg>', player_html
-        ).group(0)
-        player_pos = _bar_positions(player_svg)
-        full_width = 480
+        hero_style = re.search(
+            r'class="cl-scale-field[^"]*"[^>]*style="([^"]+)"',
+            player_html.split('class="player-mark-row"', 1)[1],
+            re.DOTALL,
+        ).group(1)
+        hero = {
+            prop: float(re.search(rf"--cl-{prop}:\s*([\d.]+)%", hero_style).group(1))
+            for prop in ("lo", "pt", "hi")
+        }
 
-        # Invariant Z: one zero locus for the page, and the SVG renderer puts
-        # zero at the same fraction of its own field.
-        page_zero = float(re.search(r"--cl-zero:\s*([\d.]+)%", index_html).group(1))
-        assert page_zero / 100 == pytest.approx(player_pos["zero"] / full_width, abs=5e-4)
+        # Invariant Z: one zero locus for the whole site, written once onto
+        # <html> and never recomputed per page.
+        page_zero = re.search(r"--cl-zero:\s*([\d.]+%)", index_html).group(1)
+        assert page_zero == re.search(r"--cl-zero:\s*([\d.]+%)", player_html).group(1)
 
-        # Invariant D: the same player's same numbers land at the same
-        # fraction in both renderers.
-        for key, prop in (("lower", "lo"), ("point", "pt"), ("upper", "hi")):
-            svg_fraction = player_pos[key] / full_width
-            css_fraction = row[prop] / 100
-            assert css_fraction == pytest.approx(svg_fraction, abs=5e-4), (
-                f"{key} differs between the leaderboard's CSS field "
-                f"({css_fraction:.4f}) and the player page's SVG "
-                f"({svg_fraction:.4f}) -- they must share one scale"
+        # Invariant D: the same player's same numbers, at the same fraction.
+        for prop in ("lo", "pt", "hi"):
+            assert hero[prop] == row[prop], (
+                f"--cl-{prop} differs between the leaderboard row "
+                f"({row[prop]}%) and the player hero ({hero[prop]}%) -- "
+                "they must be one measurement, not two"
             )
 
 
@@ -649,7 +662,12 @@ class TestScoredGamesLabelClarification:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        assert ">Scored Games<" in html
+        # Phase 4 moved this from a bordered tile to the ruled stat line and
+        # set the label in sentence case, with the disambiguation attached to
+        # the label itself rather than a `title` on a div. The product
+        # commitment -- never bare "Games" -- is unchanged.
+        assert "Scored games</abbr>" in html
+        assert "not official MLB games played" in html
         assert ">Games<" not in html
 
     def test_methodology_page_defines_scored_games(self, tmp_path: Path) -> None:
@@ -687,9 +705,8 @@ class TestScoredGamesLabelClarification:
 
         player_html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
         stat_value = re.search(
-            r'<div class="stat-label"[^>]*>Scored Games</div>\s*'
-            r'<div class="stat-value">(\d+)</div>',
+            r"Scored games</abbr></dt>\s*<dd class=\"num\">(\d+)</dd>",
             player_html,
         )
-        assert stat_value is not None, "could not find the Scored Games stat card"
+        assert stat_value is not None, "could not find the Scored games stat"
         assert stat_value.group(1) == "101"

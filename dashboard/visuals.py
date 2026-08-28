@@ -23,18 +23,19 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from content import TrendPoint
 
 __all__ = [
+    "TrendFigure",
     "ZeroScale",
+    "build_trend_figure",
     "compute_interval_domain",
     "render_demo_field_svg",
     "render_interval_bar_svg",
     "render_simulator_field_svg",
-    "render_trend_chart_svg",
 ]
 
 #: Redesign Phase 1 (Zero Spine): every zero-centred instrument in the
@@ -119,6 +120,65 @@ class ZeroScale:
             domain_max=hi,
             true_min=min(lows),
             true_max=max(highs),
+        )
+
+    @classmethod
+    def from_values(
+        cls,
+        name: str,
+        unit_label: str,
+        values: Sequence[float],
+        *,
+        zero_fraction: float,
+        pad_fraction: float = 0.12,
+    ) -> ZeroScale:
+        """A scale over plain scalar values whose zero lands at a GIVEN
+        fraction of the field.
+
+        This is the Invariant Z machinery for the product's non-league
+        scales (Phase 4 introduces the first one, `component_per_100`).
+        Invariant D does not apply to them -- a component decomposition is
+        a per-player quantity and must be allowed its own domain, or every
+        player's components would be four marks huddled against one edge.
+        Invariant Z still does: the component bars have to sit under the
+        SAME amber rule the hero figure sits under, or the rule stops
+        meaning "zero" halfway down the page.
+
+        So the domain is built from the values, padded, and then ONE side is
+        extended until `(0 - domain_min) / span` equals `zero_fraction`
+        exactly. Extending is always safe -- it only ever adds empty scale
+        beyond the data, never crops a value out of the field.
+
+        The price of the exception is paid in the template, not here: a
+        figure on any scale other than `league_per_100` MUST render visible
+        tick labels carrying its unit (`docs/design/zero-spine-implementation
+        -plan.md` § 1.2, the anti-fake-alignment guard). A figure that
+        borrows the shared zero while hiding its own domain is precisely the
+        deception the guard exists to prevent.
+        """
+        if not 0.0 < zero_fraction < 1.0:
+            raise ValueError(f"zero_fraction must be strictly between 0 and 1, got {zero_fraction}")
+        finite = [float(v) for v in values]
+        lo = min(finite + [0.0])
+        hi = max(finite + [0.0])
+        span = (hi - lo) or 1.0
+        pad = span * pad_fraction
+        lo -= pad
+        hi += pad
+        # Both sides are now strictly signed (lo < 0 < hi) because 0.0 was
+        # injected before padding, so neither ratio below can divide by zero.
+        needed_hi = -lo * (1.0 - zero_fraction) / zero_fraction
+        if needed_hi >= hi:
+            hi = needed_hi
+        else:
+            lo = -hi * zero_fraction / (1.0 - zero_fraction)
+        return cls(
+            name=name,
+            unit_label=unit_label,
+            domain_min=lo,
+            domain_max=hi,
+            true_min=min(finite + [0.0]),
+            true_max=max(finite + [0.0]),
         )
 
     @property
@@ -372,52 +432,127 @@ def render_interval_bar_svg(
     return "".join(parts)
 
 
-def render_trend_chart_svg(
-    points: Sequence[TrendPoint], *, width: int = 640, height: int = 220
-) -> str:
-    """A line (point estimates) plus a shaded band (95% interval) across
-    stored historical snapshots only. X positions are TRUE calendar
-    positions (not evenly-spaced ordinal slots) -- a gap like the missing
-    2026-08-07 snapshot shows up as a longer segment between 08-06 and
-    08-08, never as a fabricated point. Each marker's `<title>` and the
-    date label under it show the real snapshot date, and a
-    `retrospective_backfill` point gets a distinct marker class
-    (`trend-point-backfill`) so it can never be mistaken for a genuine
-    contemporaneous observation.
+#: Candidate y-axis steps for the season trend, ascending. A player whose
+#: whole season sits inside a half-run band still has to get three real
+#: tick VALUES (gate G2), which is why the list starts below 0.1 -- an
+#: axis labelled only with its endpoints is the "two ticks" failure G2
+#: exists to catch.
+_TREND_Y_STEPS: tuple[float, ...] = (
+    0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 2.5, 5.0, 10.0, 20.0, 25.0, 50.0,
+)
 
-    **DECLARED EXCEPTION to Invariant D (decision D2, approved 2026-08-26).**
-    The y-domain here is PER PLAYER, not the canonical `league_per_100`
-    scale, and that is deliberate: this figure answers "has this player's
-    own number moved over the season?", a different analytical question from
-    "where does this player sit in the league?". Forcing the league domain
-    onto it would render almost every player's trend as a flat line in the
+#: The most x-axis date labels the figure ever prints. Every point keeps its
+#: exact date in its own accessible name and in the figure's data table --
+#: this caps only how many are drawn UNDER the axis, so the labels stay
+#: legible at 320px without a second, mobile-only label set to maintain.
+_TREND_MAX_X_LABELS = 5
+
+
+@dataclass(frozen=True)
+class TrendFigure:
+    """Geometry for the season-to-date trend, as percentages of a plot box.
+
+    **Why this is not one SVG.** The baseline drew the whole figure --
+    marks, axis labels and dates -- inside a 640x220 viewBox that rendered
+    at 350x120 on a phone, a 0.55 scale factor that put its 10px labels at
+    ~5.5 CSS px. `docs/design/guardrails.md` anti-pattern 11 bans SVG text
+    below 12 CSS px after viewBox scaling, and no amount of re-sizing that
+    viewBox fixes the class of bug: any text inside a scaled coordinate
+    space is one narrow breakpoint away from being unreadable again.
+
+    So the text leaves the coordinate space. This object carries plain CSS
+    percentages; the template lays the axis labels, the date labels and the
+    point markers out as ordinary HTML positioned against a `position:
+    relative` plot box, at real, unscaled font sizes. `marks_svg` holds the
+    only two things that genuinely need a coordinate space -- the interval
+    band polygon and the point-estimate polyline -- and nothing else, so it
+    contains no text at all and can be `aria-hidden`.
+
+    **The declared exception is still declared.** `y_min`/`y_max` are this
+    player's own, not `league_per_100` (decision D2), and `league_band`
+    exists to pay for that: it shades the part of this player's vertical
+    range that the leaderboard's canonical domain covers, so the reader can
+    see how much of the league range is in view.
+    """
+
+    marks_svg: str
+    y_ticks: list[dict[str, Any]]
+    x_labels: list[dict[str, Any]]
+    points: list[dict[str, Any]]
+    zero_top: str
+    league_band: dict[str, Any] | None
+    unit_label: str
+    y_min: float
+    y_max: float
+    summary: str
+
+
+def _trend_pct(fraction: float) -> str:
+    return f"{fraction * 100:.4f}%"
+
+
+def _trend_y_ticks(y_min: float, y_max: float) -> list[float]:
+    """At least three real tick VALUES spanning the player's own range.
+
+    Picks the step that yields the most ticks without exceeding six, and
+    falls back to the densest available step if even the finest cannot
+    reach three -- zero is always among them, because every step divides it.
+    """
+    best: list[float] = []
+    for step in _TREND_Y_STEPS:
+        start = math.ceil(y_min / step) * step
+        values: list[float] = []
+        value = start
+        while value <= y_max + 1e-9:
+            values.append(0.0 if abs(value) < 1e-9 else value)
+            value += step
+        if 3 <= len(values) <= 6:
+            return values
+        if len(values) <= 6 and len(values) > len(best):
+            best = values
+        if len(values) > 6 and not best:
+            best = values[:6]
+    return best
+
+
+def build_trend_figure(
+    points: Sequence[TrendPoint],
+    *,
+    league_scale: ZeroScale,
+) -> TrendFigure | None:
+    """The season-to-date trend, re-authored for Phase 4 / gate G2.
+
+    Returns `None` when there is nothing to draw (no snapshots, or the one
+    snapshot case -- a trend needs two points, and the page prints a
+    sentence saying so rather than an empty axis).
+
+    X positions are TRUE calendar positions, not evenly-spaced ordinal
+    slots, so the missing 2026-08-07 snapshot shows up as a longer segment
+    between 08-06 and 08-08 and never as a fabricated point. That behaviour
+    predates this rewrite and is preserved deliberately.
+
+    **DECLARED EXCEPTION to Invariant D (decision D2, approved 2026-08-26;
+    rendered sign-off is gate G2).** The y-domain is PER PLAYER, not the
+    canonical `league_per_100` scale. This figure answers "has this
+    player's own number moved?", which is a different question from "where
+    does this player sit in the league?", and forcing the league domain
+    onto it would render almost every player's season as a flat line in the
     middle of an empty chart -- consistent, and useless.
 
-    Because the exception is real, it has to be paid for honestly. A reader
-    must never be able to cross-read this figure against a leaderboard bar
-    as though they shared a scale. The compensations this figure owes, per
-    the approved decision:
+    The exception is paid for here rather than asserted:
 
-      * zero always drawn and explicitly identified            (done today)
-      * at least three meaningful y-axis ticks                  (Phase 4)
-      * the unit displayed on the axis                          (Phase 4)
-      * a faint band showing the canonical league range         (Phase 4)
-      * y-axis labels >= 12 CSS px after mobile scaling         (Phase 4)
-      * an accessible textual description of the shape          (Phase 4)
-      * no styling implying it shares the leaderboard's scale   (Phase 4)
-
-    Phase 1 records the exception; Phase 4 rebuilds the figure and discharges
-    the rest. Do NOT "fix" this to the league domain in the meantime -- that
-    is not a bug. See docs/design/zero-spine-implementation-plan.md § 1.12.
+      * zero is always drawn, always labelled, and always inside the range
+        (0.0 is injected into the extremes before padding);
+      * `y_ticks` carries at least three real values, not just endpoints;
+      * `unit_label` is rendered ON the figure, not only in prose;
+      * `league_band` shades the portion of this view that the leaderboard's
+        canonical domain covers, so the two scales are visibly different
+        rather than silently different;
+      * every label is HTML at an unscaled size (see `TrendFigure`);
+      * `summary` and the per-point entries state value, date and unit.
     """
-    if not points:
-        return '<p class="trend-empty">No historical snapshots available yet.</p>'
-    if len(points) == 1:
-        only = points[0]
-        return (
-            '<p class="trend-empty">Only one snapshot available so far '
-            f"({only.data_through_date}) -- a trend needs at least two.</p>"
-        )
+    if len(points) < 2:
+        return None
 
     dates = [date.fromisoformat(p.data_through_date) for p in points]
     x_min, x_max = min(dates), max(dates)
@@ -428,64 +563,145 @@ def render_trend_chart_svg(
     uppers = [p.upper_95_interval for p in points]
     y_min = min(lowers + [0.0])
     y_max = max(uppers + [0.0])
-    y_span = (y_max - y_min) or 1.0
-    y_pad = y_span * 0.12
+    y_pad = ((y_max - y_min) or 1.0) * 0.12
     y_min -= y_pad
     y_max += y_pad
-    y_span = y_max - y_min
+    y_span = (y_max - y_min) or 1.0
 
-    margin_left, margin_right, margin_top, margin_bottom = 44, 16, 16, 28
-    inner_w = width - margin_left - margin_right
-    inner_h = height - margin_top - margin_bottom
+    def xf(d: date) -> float:
+        return (d - x_min).days / x_span
 
-    def xpix(d: date) -> float:
-        return margin_left + (d - x_min).days / x_span * inner_w
+    def yf(value: float) -> float:
+        """Top-down fraction: 0 is the top of the plot box, 1 the bottom."""
+        return 1.0 - (value - y_min) / y_span
 
-    def ypix(value: float) -> float:
-        return margin_top + (1 - (value - y_min) / y_span) * inner_h
-
-    zero_y = ypix(0.0)
     band_upper = " ".join(
-        f"{xpix(d):.1f},{ypix(u):.1f}" for d, u in zip(dates, uppers, strict=True)
+        f"{xf(d) * 100:.4f},{yf(u) * 100:.4f}" for d, u in zip(dates, uppers, strict=True)
     )
     band_lower = " ".join(
-        f"{xpix(d):.1f},{ypix(low):.1f}"
+        f"{xf(d) * 100:.4f},{yf(low) * 100:.4f}"
         for d, low in zip(reversed(dates), reversed(lowers), strict=True)
     )
-    line_pts = " ".join(f"{xpix(d):.1f},{ypix(v):.1f}" for d, v in zip(dates, values, strict=True))
+    line_pts = " ".join(
+        f"{xf(d) * 100:.4f},{yf(v) * 100:.4f}" for d, v in zip(dates, values, strict=True)
+    )
+    # A 0-100 box stretched to the plot's real aspect by
+    # `preserveAspectRatio="none"`: the band is a fill (distortion is
+    # meaningless on it) and the line carries `vector-effect` so its 2px
+    # weight survives the stretch. Nothing that must keep its shape -- no
+    # dot, and above all no glyph -- is inside this coordinate space.
+    marks_svg = (
+        '<svg class="trend-marks" viewBox="0 0 100 100" preserveAspectRatio="none" '
+        'aria-hidden="true" focusable="false">'
+        f'<polygon class="trend-band" points="{band_upper} {band_lower}"></polygon>'
+        f'<polyline class="trend-line" points="{line_pts}" '
+        'vector-effect="non-scaling-stroke"></polyline>'
+        "</svg>"
+    )
 
-    parts = [
-        f'<svg class="trend-chart" viewBox="0 0 {width} {height}" '
-        f'preserveAspectRatio="xMidYMid meet" role="img" aria-label="Contact Luck Runs '
-        f'per 100 trend across {len(points)} stored snapshots">',
-        f'<line class="trend-zero-line" x1="{margin_left}" y1="{zero_y:.1f}" '
-        f'x2="{width - margin_right}" y2="{zero_y:.1f}"></line>',
-        f'<text class="interval-axis-label" x="{margin_left - 6}" y="{zero_y:.1f}" '
-        f'text-anchor="end" dominant-baseline="middle">0</text>',
-        f'<polygon class="trend-band" points="{band_upper} {band_lower}"></polygon>',
-        f'<polyline class="trend-line" points="{line_pts}"></polyline>',
+    tick_values = _trend_y_ticks(y_min, y_max)
+    # One precision for the whole axis, chosen from the smallest gap in it.
+    # A column mixing "+12.5" and "+0.00" is exactly the misalignment tabular
+    # figures exist to prevent, and it reads as two different quantities.
+    gaps = [abs(b - a) for a, b in zip(tick_values, tick_values[1:], strict=False)]
+    digits = 2 if (gaps and min(gaps) < 1.0) else 1
+    y_ticks = [
+        {
+            "value": tick,
+            "label": f"{tick:+.{digits}f}".replace("-", "−"),
+            "top": _trend_pct(yf(tick)),
+            "is_zero": abs(tick) < 1e-9,
+        }
+        for tick in tick_values
     ]
-    for d, v, point in zip(dates, values, points, strict=True):
-        sign_class = "interval-positive" if v >= 0 else "interval-negative"
-        marker_class = (
-            "trend-point-backfill"
-            if point.snapshot_type == "retrospective_backfill"
-            else "trend-point"
+
+    step = max(1, math.ceil((len(points) - 1) / (_TREND_MAX_X_LABELS - 1)))
+    label_indexes = set(range(0, len(points), step)) | {0, len(points) - 1}
+    x_labels = [
+        {
+            "label": dates[i].strftime("%b %-d"),
+            "left": _trend_pct(xf(dates[i])),
+        }
+        for i in sorted(label_indexes)
+    ]
+
+    view_points = []
+    for d, value, point in zip(dates, values, points, strict=True):
+        view_points.append(
+            {
+                "date": point.data_through_date,
+                "date_label": d.strftime("%B %-d, %Y"),
+                "value": value,
+                "lower": point.lower_95_interval,
+                "upper": point.upper_95_interval,
+                "eligible_batted_balls": point.eligible_batted_balls,
+                "qualification_status": point.qualification_status,
+                "is_backfill": point.snapshot_type == "retrospective_backfill",
+                "left": _trend_pct(xf(d)),
+                "top": _trend_pct(yf(value)),
+                "favorable": value >= 0,
+            }
         )
-        cx, cy = xpix(d), ypix(v)
-        parts.append(
-            f'<circle class="{marker_class} {sign_class}" cx="{cx:.1f}" cy="{cy:.1f}" r="5">'
-            f"<title>{point.data_through_date}: {v:.2f} runs/100 (95% interval: "
-            f"{point.lower_95_interval:.2f} to {point.upper_95_interval:.2f}); "
-            f"{point.eligible_batted_balls} eligible BBE, {point.qualification_status}</title>"
-            f"</circle>"
-        )
-        parts.append(
-            f'<text class="trend-date-label" x="{cx:.1f}" y="{height - margin_bottom + 16}" '
-            f'text-anchor="middle">{d.strftime("%b %-d")}</text>'
-        )
-    parts.append("</svg>")
-    return "".join(parts)
+
+    # The leaderboard's canonical range, as up to two reference rules.
+    #
+    # Only a boundary that genuinely falls INSIDE this player's view gets a
+    # rule. Clamping them to the plot edges instead -- the obvious
+    # implementation -- draws a rule at the bottom of a chart whose lowest
+    # value is nowhere near the league minimum, which asserts something
+    # false about where that boundary is. Two rules, one, or none is the
+    # honest set, and `rules_drawn` lets the caption say which case it is,
+    # because "no rule because the whole view is inside the range" and "no
+    # rule because there is no range" look identical on the chart.
+    band_lo = max(league_scale.domain_min, y_min)
+    band_hi = min(league_scale.domain_max, y_max)
+    league_band: dict[str, Any] | None = None
+    if band_hi > band_lo:
+        rules = [
+            {"value": value, "top": _trend_pct(yf(value))}
+            for value in (league_scale.domain_max, league_scale.domain_min)
+            if y_min < value < y_max
+        ]
+        coverage = (band_hi - band_lo) / y_span
+        league_band = {
+            "rules": rules,
+            "rules_drawn": len(rules),
+            # A measured share, not a boolean. The boolean this replaced was
+            # false for a range covering 99.9% of the view -- true by 0.02
+            # runs, and read as "most of this chart is off the league scale".
+            "coverage_pct": f"{coverage * 100:.0f}%",
+            "domain_min": league_scale.domain_min,
+            "domain_max": league_scale.domain_max,
+        }
+
+    def signed(value: float) -> str:
+        # A true U+2212 minus, applied per NUMBER. Never over a whole
+        # sentence: `.replace("-", ...)` across prose would also rewrite
+        # every hyphen in it.
+        return f"{value:+.2f}".replace("-", "−")
+
+    summary = (
+        f"Contact Luck across {len(points)} stored snapshots, "
+        f"{dates[0].strftime('%B %-d')} to {dates[-1].strftime('%B %-d, %Y')}: "
+        f"{signed(values[0])} at the first snapshot and {signed(values[-1])} at the last, "
+        f"ranging from {signed(min(values))} to {signed(max(values))} "
+        f"{league_scale.unit_label.lower()}. "
+        f"The vertical scale is this player's own, {signed(y_min)} to {signed(y_max)}; "
+        "it is not the leaderboard's scale."
+    )
+
+    return TrendFigure(
+        marks_svg=marks_svg,
+        y_ticks=y_ticks,
+        x_labels=x_labels,
+        points=view_points,
+        zero_top=_trend_pct(yf(0.0)),
+        league_band=league_band,
+        unit_label=league_scale.unit_label,
+        y_min=y_min,
+        y_max=y_max,
+        summary=summary,
+    )
 
 
 #: Version 1.3 demo field diagram: a deliberately schematic, illustrative

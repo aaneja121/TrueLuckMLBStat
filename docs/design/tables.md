@@ -129,3 +129,33 @@ at 16 px/600.
 Baseline defect being replaced: a 79 px Player column plus a site-wide
 `overflow-wrap: anywhere` on `body` yields "Pete Crow-Armstro / ng" and
 "Kyle Schwarb / er".
+
+---
+
+## The component decomposition (player page, Phase 4)
+
+A table, not a card set: it carries four facts per row — label, bar, value, model status —
+and a table is the structure that ties them together for assistive technology without any
+extra wiring. `<th scope="row">` on the component name does the association.
+
+The baseline shipped these as **two disconnected tables**, one listing values and one
+listing statuses, with nothing tying a row in either to a row in the other. Phase 4 merged
+them, which required joining the snapshot's per-MODEL status (`contact`,
+`outfield_defense`, `infield_defense`, `advancement`) to the per-VALUE decomposition a
+reader sees: defensive execution is one value produced by two models, and appears in the
+technical disclosure as two entries.
+
+Three rules the decomposition adds to the ones above:
+
+1. **The plot cell carries no padding of its own.** It *is* the coordinate space; the
+   `padding-right` every other cell uses would move zero off the spine. The three text
+   columns are fixed (`--pl-component-*`) precisely so the plot column is stable across
+   rows.
+2. **The axis rail sits between the column heads and the first bar**, not above the heads.
+   An axis separated from its marks by a row of text stops reading as their axis.
+3. **A bar is not an interval.** It runs from zero to the value and carries no point
+   marker, because a component value has no interval in the snapshot — drawing it with the
+   interval's vocabulary would claim one.
+
+The **Total Contact Luck** row is drawn on the same component scale as the parts, which is
+what makes "the components sum to the headline" visible rather than asserted.

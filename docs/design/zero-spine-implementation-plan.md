@@ -1,7 +1,7 @@
 # Zero Spine — implementation plan
 
 **Selected direction:** Direction 2 · The Zero Spine (`docs/design/directions-2026-08-26.md`).
-**Status: plan only. No frontend code has been modified.**
+**Status: Phases 1–4 implemented** (foundation, shell, leaderboard, player page). Phases 5–8 are still plan only. Gates G1, G3 and G4 are signed off; **G2 and G5 are built and self-verified, awaiting sign-off**. Where implementation diverged from this plan the divergence is recorded inline, marked with a blockquote — the plan is kept honest rather than rewritten.
 
 Governed by `DESIGN.md`, `docs/design/guardrails.md`, `PRODUCT.md`, `CONTEXT.md`.
 Companion decision surface (diagrams, gates, order): the published artifact linked from the
@@ -288,6 +288,21 @@ frozen official record," and the zero locus. That comment must be rewritten in P
 the promotion recorded, so a future reader does not treat the spine as ornament.
 
 ### 1.12 The trend chart — a declared exception
+
+> **Discharged in Phase 4.** `render_trend_chart_svg` is gone; `build_trend_figure`
+> replaces it, and every compensation below is built and measured. Two things the plan did
+> not anticipate, recorded here because they change how the figure is built rather than
+> what it promises:
+>
+> - **The labels left the SVG entirely.** Choosing a viewBox per breakpoint (§ the original
+>   plan) fixes one breakpoint, not the class of bug. Text is now HTML positioned by CSS
+>   percentage against a plain plot box, so no viewBox can scale it at any width. The SVG
+>   holds the band polygon and the point line and nothing else. See `docs/design/dataviz.md`
+>   § Text never lives inside a scaled coordinate space.
+> - **The "faint league range band" is two dashed rules, not a band.** As a fill it is
+>   invisible under the 95% interval band on a small-sample hitter and washes it out when
+>   drawn over it. It is also drawn *only* where a boundary genuinely falls inside the view:
+>   clamping it to the plot edge asserts a boundary is somewhere it is not.
 
 `render_trend_chart_svg` computes `y_min`/`y_max` from that player's own snapshots. That is
 per-player autoscale, which Invariant D forbids for per-100 quantities.
@@ -769,8 +784,8 @@ themes:
 | **G1** | Phase 1 | The `overflow-wrap` test reversal, and the two-grade token set |
 | **G3** ✅ | Phase 3 | **V1 vs V2 value placement** — the single most consequential visual choice. **Decided: V1** (`docs/design/tables.md` § Value placement) |
 | **G4** | Phase 3 | The leaderboard as a whole: axis, distribution strip, spine, density |
-| **G2** | Phase 4 | The trend's declared exception, rendered — criteria in Phase 4, item 15 |
-| **G5** | Phase 4 | The player hero, and the unqualified/near-zero/clipped states |
+| **G2** ⏳ | Phase 4 | The trend's declared exception, rendered — criteria in Phase 4, item 15. **Built and self-verified; awaiting sign-off.** |
+| **G5** ⏳ | Phase 4 | The player hero, and the unqualified/near-zero/clipped states. **Built and self-verified; awaiting sign-off.** |
 | **G6** | Phase 5 | Explore as a discovery instrument rather than a filter form |
 | **G7** | Phase 6 | The play page's run-value instrument and what gets no spine |
 | **G8** | Phase 7 | `/status/` replacement and the untouched demo |

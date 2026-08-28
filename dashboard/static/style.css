@@ -149,6 +149,15 @@
   --lb-interval: 13ch;
   --lb-value-col: calc(var(--lb-value) + var(--sp-3));
   --lb-interval-col: calc(var(--lb-interval) + var(--sp-3));
+
+  /* ══ Player-page component geometry · Phase 4 ═══════════════════════════
+     The component decomposition's plot column is a coordinate space in
+     exactly the sense the leaderboard's verdict column is one: every bar in
+     it must resolve to the same box or the spine registers against nothing.
+     Fixing the three text columns is what fixes the plot column. */
+  --pl-component-label: 13rem;
+  --pl-component-value: calc(10ch + var(--sp-3));
+  --pl-component-status: 17rem;
 }
 
 @media (max-width: 639px) {
@@ -1946,7 +1955,7 @@ td.evidence {
    is suppressed because the destination is a region, not a control, and a
    2px amber box around the whole page reads as an error state. */
 main:focus { outline: none; }
-main:focus-visible { outline: none; box-shadow: none; }
+main[tabindex]:focus-visible { outline: none; box-shadow: none; }
 
 /* ══ Reduced motion ══════════════════════════════════════════════════════
    docs/design/accessibility.md #12. The shell's only transitions are
@@ -1979,25 +1988,765 @@ main:focus-visible { outline: none; box-shadow: none; }
   border: 0;
 }
 
-/* Trend chart */
-.trend-chart { width: 100%; max-width: 640px; height: auto; }
-.trend-band { fill: var(--diverging-mid); opacity: var(--band-opacity); stroke: none; }
-/* The connecting line and confidence band are non-semantic (the SIGN
-   lives on each `.trend-point`'s `interval-positive`/`interval-negative`
-   fill, set in visuals.py and untouched here) -- the line takes the
-   atmospheric field-green accent instead of flat gray; the band stays on
-   the neutral `--diverging-mid` above so the chart's actual data (point
-   position, point color) remains the clearest signal, not the styling. */
-.trend-line { fill: none; stroke: var(--accent-field); stroke-width: 2; stroke-linejoin: round; }
-.trend-point { stroke: var(--surface); stroke-width: 2; }
-.trend-point-backfill {
-  stroke: var(--surface);
-  stroke-width: 2;
-  stroke-dasharray: 2 2;
-  fill-opacity: 0.55;
+/* ══ Player page · Redesign Phase 4 ═══════════════════════════════════════
+   The leaderboard row expanded into evidence. Every geometry token here is
+   the leaderboard's, so a reader arriving from a row recognises the scale
+   instantly; nothing on this page invents a second design system.
+
+   RETAINED BUT NO LONGER USED HERE: `.player-header`, `.player-name-row`,
+   `.player-hero-figure`, `.player-orientation`, `.stat-grid`/`.stat-card`
+   and `.badge` still ship because `/plays/` and `/explore/` render them and
+   those routes are Phases 5 and 6. They are dead on this route only.
+
+   COLUMN GEOMETRY. The component table's plot column is a coordinate space
+   in exactly the sense `--lb-*` makes the leaderboard's verdict column one:
+   every bar in it must resolve to the same box, or the spine registers
+   against nothing. The `--pl-*` tokens live in `:root` with the rest. */
+/* A standalone navigation link, so it carries the app's tap target rather
+   than a bare inline link's line box (accessibility.md #9). */
+.player-breadcrumb { margin: 0 0 var(--sp-2); }
+.player-breadcrumb a,
+.player-next-link a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  font-size: var(--fs-300);
 }
-.trend-date-label { fill: var(--text-muted); font-size: 10px; text-anchor: middle; }
-.trend-empty { color: var(--text-muted); font-size: 0.9rem; }
+
+.player-verdict { margin-bottom: var(--sp-7); }
+
+/* Identity is name-first: the name is the largest type on the page and the
+   only identity primitive the layout depends on. No team, no position, no
+   headshot slot -- and nothing here would move if one were added. */
+.player-name {
+  margin: 0;
+  font-size: var(--fs-700);
+  line-height: 1.15;
+}
+
+.player-apparatus {
+  margin: var(--sp-1) 0 var(--sp-5);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ── Standing ────────────────────────────────────────────────────────────
+   Two rankings, both real answers, neither called "worst". Amber spends its
+   one promoted meaning -- the frozen official record -- on the rank numeral
+   and nothing else on this page. The rank is set at --fs-500 against the
+   score's --fs-800 so it cannot overpower the estimate it describes. */
+.player-standing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-6);
+  margin: 0 0 var(--sp-5);
+  padding-top: var(--sp-3);
+  border-top: var(--rule-hairline) solid var(--gridline);
+}
+.player-standing-item { min-width: 0; }
+.player-standing dt {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.player-standing dd {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.player-rank {
+  font-size: var(--fs-500);
+  font-weight: 600;
+  color: var(--accent-amber-text);
+}
+.player-standing-of {
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+.player-status-code {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+/* Deliberately --text-primary throughout, not muted: an unqualified hitter
+   is never visually de-emphasised (preserved product invariant). These read
+   as facts about the sample, not warnings about the player. */
+.player-standing-unranked {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-5);
+  padding-top: var(--sp-3);
+  border-top: var(--rule-hairline) solid var(--gridline);
+  font-size: var(--fs-300);
+  color: var(--text-primary);
+}
+.player-unranked-detail {
+  margin: var(--sp-4) 0 0;
+  max-width: var(--measure-prose);
+  font-size: var(--fs-300);
+  color: var(--text-primary);
+}
+
+/* ── The verdict figure ──────────────────────────────────────────────────
+   No box, no border, no fill. The figure is a mark on an axis and the number
+   sits at the mark -- that is the whole guard against a KPI panel. */
+.player-hero { margin-bottom: var(--sp-4); }
+
+/* The numeral band and the plot are siblings in one block, so both resolve
+   `--cl-pt` against the same width and the number lands over its own dot.
+   `position: relative` + `left` keeps the block in flow, so the band still
+   has height; `width: max-content` is what makes the transform anchor the
+   CONTENT rather than a full-width box. */
+.player-hero-value {
+  position: relative;
+  width: max-content;
+  max-width: 100%;
+  left: var(--cl-pt);
+  margin-bottom: var(--sp-3);
+}
+.player-hero-value[data-anchor="center"] { transform: translateX(-50%); text-align: center; }
+.player-hero-value[data-anchor="end"] { transform: translateX(-100%); text-align: right; }
+
+.player-score {
+  margin: 0;
+  font-size: var(--fs-800);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.player-hero.is-favorable .player-score { color: var(--fav-text); }
+.player-hero.is-unfavorable .player-score { color: var(--unfav-text); }
+
+.player-score-interval {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* THE PLOT FIELD. No horizontal padding anywhere in this subtree: the box is
+   the coordinate space `--cl-zero` is a fraction of, and anything inset here
+   moves zero off the spine. Breathing room is the section's job. */
+.player-hero-plot {
+  position: relative;
+  padding: 0;
+}
+/* One rule, full height, descending the hitter's mark, the league
+   distribution and the axis rail alike -- three components that share this
+   containing block and therefore cannot disagree about where zero is. */
+.player-hero-plot::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: var(--sp-5);
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.player-plot-label {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.player-plot-label + .player-mark-row { margin-bottom: var(--sp-5); }
+
+.player-mark-row .cl-scale-field {
+  min-height: 28px;
+}
+/* Double the leaderboard's weight: this is the one hitter the page is
+   about, drawn over the league in gridline ink. */
+.player-mark-row .cl-scale-interval { height: 4px; }
+.player-mark-row .cl-scale-point {
+  width: 15px;
+  height: 15px;
+  box-shadow: 0 0 0 3px var(--page);
+}
+.player-mark-row .cl-scale-interval,
+.player-mark-row .cl-scale-point,
+.player-mark-row .cl-scale-edge { z-index: 1; }
+
+/* ── Off-scale vocabulary ────────────────────────────────────────────────
+   Two shapes, deliberately different in both fill and scale, matching the
+   SVG renderer exactly (`visuals.render_interval_bar_svg`'s `edge_mark`):
+
+     OPEN chevron   -- the 95% interval continues past this edge; the point
+                       estimate is still on the scale.
+     SOLID triangle -- the POINT ESTIMATE itself lies beyond this edge. It
+                       carries the dot's surface ring because it stands in
+                       for the dot, and it is the only mark drawn on its
+                       edge: an off-scale point already implies an off-scale
+                       interval there, so drawing both would be mud.
+
+   The template emits only the marks that apply, so neither is ever a
+   hidden element waiting to be un-hidden by a stylesheet. */
+.cl-scale-edge {
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+.cl-scale-edge.is-low { left: 0; }
+.cl-scale-edge.is-high { right: 0; }
+
+.cl-scale-edge.is-interval {
+  /* Drawn at the weight of the interval line it terminates -- a 2px chevron
+     on the hero's 4px line reads as a different, thinner mark rather than
+     as that line continuing. */
+  border-top: 4px solid currentColor;
+  border-left: 4px solid currentColor;
+  width: 12px;
+  height: 12px;
+  background: none;
+}
+.cl-scale-edge.is-interval.is-low { transform: translateY(-50%) rotate(-45deg); }
+.cl-scale-edge.is-interval.is-high { transform: translateY(-50%) rotate(135deg); }
+
+.cl-scale-edge.is-point {
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  transform: translateY(-50%);
+}
+.cl-scale-edge.is-point.is-low { border-right: 13px solid currentColor; }
+.cl-scale-edge.is-point.is-high { border-left: 13px solid currentColor; }
+
+.player-league-row { margin-bottom: var(--sp-2); }
+.player-league-row .cl-distribution { height: 26px; }
+/* The strip draws its own spine segment on the leaderboard, where the spine
+   is assembled per component. Here one rule already descends the whole
+   figure, so a second segment at the same x would only double its ink. */
+.player-league-row .cl-distribution::before { content: none; }
+
+.player-axis-row { position: relative; }
+
+.player-hero-unit {
+  margin: var(--sp-3) 0 0;
+  max-width: var(--measure-prose);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.player-hero.is-favorable .player-hero-unit strong { color: var(--fav-text); }
+.player-hero.is-unfavorable .player-hero-unit strong { color: var(--unfav-text); }
+
+.player-offscale-note {
+  margin: var(--sp-4) 0 0;
+  padding-left: var(--sp-3);
+  border-left: var(--rule-emphasis) solid var(--baseline);
+  max-width: var(--measure-prose);
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+
+/* ── Supporting sample context ───────────────────────────────────────────
+   Evidence for the verdict, not four bordered tiles competing with it
+   (guardrails anti-pattern 14). One ruled line; the hierarchy between
+   PRIMARY VERDICT and SUPPORTING CONTEXT is carried by size and rule
+   weight, never by a box. */
+.player-sample {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: var(--sp-5) 0 0;
+  padding-top: var(--sp-3);
+  border-top: var(--rule-hairline) solid var(--baseline);
+}
+.player-sample-item {
+  padding-right: var(--sp-5);
+  margin-right: var(--sp-5);
+  border-right: var(--rule-hairline) solid var(--gridline);
+}
+.player-sample-item:last-child {
+  padding-right: 0;
+  margin-right: 0;
+  border-right: 0;
+}
+.player-sample dt {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.player-sample dd {
+  margin: 0;
+  font-size: var(--fs-500);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.player-sample abbr {
+  text-decoration: none;
+  border-bottom: var(--rule-hairline) dotted var(--baseline);
+  cursor: help;
+}
+
+.player-limitation {
+  margin: var(--sp-5) 0 0;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+
+/* ── Sections ────────────────────────────────────────────────────────────*/
+.player-section { margin-bottom: var(--sp-7); }
+.player-section > h2 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-600);
+}
+.player-section-lede {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+
+/* ── Component decomposition ─────────────────────────────────────────────
+   Signed bars from zero on `component_per_100` -- this hitter's own domain,
+   padded so its zero lands on the shared `--cl-zero`. Because the scale is
+   not `league_per_100`, the axis rail above the rows prints real tick values
+   with the unit: a figure that borrows the shared zero while hiding its own
+   domain is exactly the fake alignment the Zero Spine guard forbids. */
+.component-decomposition {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.component-decomposition .col-component { width: var(--pl-component-label); }
+.component-decomposition .col-component-value { width: var(--pl-component-value); }
+.component-decomposition .col-component-status { width: var(--pl-component-status); }
+
+.component-decomposition th,
+.component-decomposition td {
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: var(--rule-hairline) solid var(--gridline);
+}
+.component-decomposition thead th {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+  border-bottom: var(--rule-hairline) solid var(--baseline);
+}
+.component-decomposition tbody th {
+  font-weight: 400;
+  font-size: var(--fs-300);
+}
+.component-decomposition td { font-size: var(--fs-300); }
+
+.component-decomposition .col-component-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.component-decomposition .col-component-status { color: var(--text-secondary); }
+
+/* The plot cell carries no padding of its own -- it IS the coordinate
+   space. The `padding-right` other cells use would move zero. */
+.component-decomposition .col-component-plot { padding-right: 0; }
+
+.component-axis-row td { padding: 0 0 var(--sp-2); border-bottom: 0; }
+.component-axis-row .cl-axis-ticks { position: relative; height: var(--sp-5); }
+
+.component-total th,
+.component-total td {
+  border-bottom: 0;
+  border-top: var(--rule-emphasis) solid var(--baseline);
+  padding-top: var(--sp-3);
+}
+.component-total tbody th,
+.component-total .col-component-value { font-weight: 600; }
+
+/* A BAR, not an interval: it runs from zero to the value and carries no
+   point marker, because a component value has no interval of its own in the
+   snapshot. Drawing it with the interval's vocabulary would claim one. */
+.cl-bar-field { min-height: 22px; }
+.cl-scale-bar {
+  position: absolute;
+  top: 50%;
+  left: var(--cl-lo);
+  width: calc(var(--cl-hi) - var(--cl-lo));
+  height: 12px;
+  transform: translateY(-50%);
+  background: currentColor;
+  z-index: 1;
+}
+/* Same per-field spine as the leaderboard, and for the same reason: every
+   bar sits in one table column, so the segments land on one x and abut into
+   a single rule down the decomposition. */
+.cl-bar-field::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--sp-2));
+  bottom: calc(-1 * var(--sp-2));
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ── Disclosures ─────────────────────────────────────────────────────────*/
+.player-disclosure {
+  margin: var(--sp-4) 0 0;
+  border-top: var(--rule-hairline) solid var(--gridline);
+}
+.player-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--target-min);
+  cursor: pointer;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+  list-style: none;
+}
+.player-disclosure > summary::-webkit-details-marker { display: none; }
+/* `display: flex` on a <summary> suppresses the UA's own triangle, so the
+   affordance is drawn back explicitly -- a disclosure with no marker is
+   just a paragraph that mysteriously does something when clicked. */
+.player-disclosure > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid currentColor;
+  transition: transform 120ms ease;
+}
+.player-disclosure[open] > summary::before { transform: rotate(90deg); }
+.player-disclosure[open] > summary { color: var(--text-primary); }
+.player-disclosure-body { padding-bottom: var(--sp-4); }
+.player-disclosure-body > .prose { font-size: var(--fs-300); margin-top: 0; }
+
+.component-reasons {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-200);
+}
+.component-reasons th,
+.component-reasons td {
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: var(--rule-hairline) solid var(--gridline);
+}
+.component-reasons thead th {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.component-reasons tbody th { font-weight: 600; }
+.component-reasons .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* Anti-pattern 5: `overflow-wrap: anywhere` is scoped to the elements that
+   actually hold unbreakable identifiers, never to prose or player names. */
+.component-reasons .reason-codes { overflow-wrap: anywhere; }
+.trend-backfill-tag {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── Season trend · declared exception (D2 / gate G2) ────────────────────
+   The y-domain is this player's own. That exception is paid for on the
+   figure: zero is always drawn and labelled, at least three real tick
+   values are printed with the unit, and a shaded band shows how much of the
+   leaderboard's canonical range is in view.
+
+   NOTHING here borrows the Zero Spine's vocabulary -- no amber rule, no
+   `--cl-zero`, no shared axis chrome -- because the two scales are not the
+   same and must not look as though they are. */
+.trend-figure { margin: 0; }
+.trend-grid {
+  --trend-plot-height: 240px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 var(--sp-2);
+  max-width: 760px;
+}
+
+.trend-axis {
+  position: relative;
+  width: 5ch;
+  height: var(--trend-plot-height);
+}
+.trend-y-tick {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  /* --fs-200 is the design system's FLOOR for any text, and these labels
+     are HTML, so no viewBox can ever scale them below it. This is the
+     structural fix for the baseline's ~5.5px SVG axis text. */
+  font-size: var(--fs-200);
+  line-height: 1;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+.trend-y-tick.is-zero { color: var(--text-primary); font-weight: 600; }
+
+
+.trend-plot {
+  position: relative;
+  height: var(--trend-plot-height);
+  /* The last snapshot sits at left: 100%, so half its 11px marker falls
+     outside the box. Six pixels of room keeps the most recent point -- the
+     one a reader looks for first -- from being sliced in half at the edge.
+     The first point bleeds over the y-axis rule instead, which reads as a
+     dot sitting ON the axis and is the normal convention. */
+  margin-right: 6px;
+  border-left: var(--rule-hairline) solid var(--baseline);
+  border-bottom: var(--rule-hairline) solid var(--baseline);
+}
+/* The canonical league range, drawn as two RULES rather than a fill.
+   A fill loses this argument twice: as ground it disappears under the 95%
+   interval band (measured on a small-sample hitter whose interval covers
+   most of the plot), and over the top it washes the interval band out --
+   and the interval is the data, so it wins. Dashed rules read as reference
+   boundaries, sit above every fill, and stay legible either way.
+
+   Dashed is safe here precisely because this is NOT an interval: guardrail
+   17 forbids dashing an interval that crosses zero, and nothing about this
+   annotation is an interval or a point estimate.
+
+   Where the whole view is inside the league range the rules fall off the
+   chart and nothing is drawn -- which is why the caption always states the
+   share in words, so "the edges are off-chart" and "there is no range" can
+   never be confused. No hue: a semantic colour spent on chart context is a
+   colour that stops meaning anything. */
+.trend-league-rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  border-top: var(--rule-hairline) dashed var(--text-muted);
+  pointer-events: none;
+}
+.trend-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--rule-hairline);
+  background: var(--gridline);
+}
+.trend-gridline.is-zero {
+  height: var(--rule-emphasis);
+  background: var(--baseline);
+}
+
+/* Marks only -- no text lives in this coordinate space, so `preserveAspect
+   Ratio="none"` can stretch it to the plot's real shape without putting a
+   single glyph at a scaled size. The line keeps its 2px weight through
+   `vector-effect`; the dots are HTML, outside the SVG, so they stay round. */
+.trend-marks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Sign-neutral on purpose (the SIGN lives on each dot), but it must be
+   VISIBLE: this band is the 95% interval, it is what sets the vertical
+   domain, and at `--diverging-mid` over the recessed league band it could
+   not be seen at all. `--baseline` is the ruled-ink token, so the band reads
+   as chart chrome rather than as a fifth colour. */
+.trend-band { fill: var(--baseline); opacity: 0.5; stroke: none; }
+.trend-line {
+  fill: none;
+  stroke: var(--accent-field);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.trend-dot {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: var(--radius-pill);
+  transform: translate(-50%, -50%);
+  background: currentColor;
+  box-shadow: 0 0 0 2px var(--page);
+}
+/* A backfilled snapshot is not a contemporaneous observation and must never
+   be mistakable for one. Hollow, so the difference survives greyscale. */
+.trend-dot.is-backfill {
+  background: var(--page);
+  box-shadow: 0 0 0 2px var(--page), inset 0 0 0 3px currentColor;
+}
+
+.trend-dates {
+  position: relative;
+  height: var(--sp-5);
+  margin-top: var(--sp-1);
+}
+.trend-x-tick {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--fs-200);
+  line-height: 1;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.trend-x-tick:first-child { transform: translateX(0); }
+.trend-x-tick:last-child { transform: translateX(-100%); }
+
+.trend-caption { margin: var(--sp-3) 0 0; max-width: var(--measure-prose); }
+.trend-caption .prose { font-size: var(--fs-300); color: var(--text-secondary); margin: var(--sp-2) 0 0; }
+.trend-unit {
+  margin: 0;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.trend-band-key {
+  display: inline-block;
+  width: 1.8em;
+  height: 0;
+  vertical-align: 0.25em;
+  margin-right: var(--sp-1);
+  border-top: var(--rule-hairline) dashed var(--text-muted);
+}
+
+/* ── Down to the plays ───────────────────────────────────────────────────*/
+.player-next-link { margin: 0; }
+.player-next-link a { font-size: var(--fs-400); }
+
+/* ══ Player page · mobile ═════════════════════════════════════════════════
+   Structural, not a shrink. Two things change shape rather than size:
+
+   1. The headline numeral stops being anchored at `--cl-pt`. At 390 the plot
+      field is ~340px and the numeral block ~200px, so any anchoring near an
+      edge would push it off the field; a left-aligned number loses nothing,
+      because at this width the dot is only a few centimetres away anyway.
+   2. The component table sheds its status column into a line under each
+      row, so the plot column keeps a usable coordinate space instead of
+      being squeezed to nothing. The status is never dropped -- Phase 4
+      requires every displayed component value to carry one. */
+@media (max-width: 767px) {
+  .player-name { font-size: var(--fs-600); }
+
+  .player-hero-value[data-anchor],
+  .player-hero-value {
+    left: 0;
+    transform: none;
+    text-align: left;
+    width: auto;
+  }
+
+  .player-standing { gap: var(--sp-3) var(--sp-5); }
+
+  .player-sample dd { font-size: var(--fs-400); }
+
+  .component-decomposition,
+  .component-decomposition thead,
+  .component-decomposition tbody,
+  .component-decomposition tr {
+    display: block;
+  }
+  /* The column heads go, because at this width the row IS its own head:
+     label and value on one line, the bar under them, the status under that.
+     Grid areas rather than floats or inline-blocks -- whitespace between
+     table cells is real text, and it is what breaks an inline-block row. */
+  .component-decomposition thead tr:not(.component-axis-row) { display: none; }
+  .component-decomposition .component-axis-row td:not(.col-component-plot) { display: none; }
+  .component-decomposition th,
+  .component-decomposition td {
+    display: block;
+    width: auto;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .component-decomposition tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--pl-component-value);
+    grid-template-areas:
+      "label value"
+      "plot  plot"
+      "status status";
+    align-items: baseline;
+    padding-bottom: var(--sp-2);
+    border-bottom: var(--rule-hairline) solid var(--gridline);
+  }
+  .component-decomposition tbody .col-component { grid-area: label; font-size: var(--fs-300); }
+  .component-decomposition tbody .col-component-value { grid-area: value; font-size: var(--fs-300); }
+  .component-decomposition tbody .col-component-plot { grid-area: plot; }
+  .component-decomposition tbody .col-component-status {
+    grid-area: status;
+    font-size: var(--fs-200);
+    color: var(--text-muted);
+    margin-top: var(--sp-1);
+  }
+  .component-total th,
+  .component-total td { border-top: 0; padding-top: 0; }
+  .component-decomposition tbody tr.component-total {
+    border-top: var(--rule-emphasis) solid var(--baseline);
+    padding-top: var(--sp-2);
+    border-bottom: 0;
+  }
+  /* The bar spans the whole row here, so the row box IS the coordinate
+     space -- measured: field and row are both 16..374 at 390. That lets the
+     spine move from the field to the TBODY, which is what keeps it one
+     continuous rule: per-field segments would be five 22px ticks separated
+     by the label and status lines between them, which is precisely the
+     "stray ticks instead of a rule" failure `docs/design/tables.md` rule 2
+     is drawing. */
+  .cl-bar-field::before { content: none; }
+  .component-decomposition tbody { position: relative; }
+  .component-decomposition tbody::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--cl-zero);
+    width: var(--rule-emphasis);
+    margin-left: calc(var(--rule-emphasis) / -2);
+    background: var(--accent-amber-mark);
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  /* Four items on one ruled line needs ~520px. At 390 it wrapped into three
+     ragged rows with dividers landing mid-air; a 2x2 grid keeps the ruling
+     meaningful. */
+  .player-sample {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-3) var(--sp-4);
+  }
+  .player-sample-item {
+    padding-right: 0;
+    margin-right: 0;
+    margin-bottom: 0;
+    border-right: 0;
+  }
+
+  .trend-grid { --trend-plot-height: 200px; }
+  .trend-axis { width: 4.5ch; }
+}
+
+/* Measured: five date labels collide in the 235px plot a 320px viewport
+   leaves. Thinning to the endpoints is the right trade -- an axis is
+   orientation, and every point's exact date is still carried by its own
+   marker and by the Snapshot values table, so nothing is lost. Keeping
+   `:first-child`/`:last-child` rather than an nth-child rhythm means the
+   first and last snapshot survive for ANY number of labels (they range from
+   two to five), which an `:nth-child(even)` rule would not guarantee. */
+@media (max-width: 359px) {
+  .trend-x-tick:not(:first-child):not(:last-child) { display: none; }
+}
 
 /* Stat cards on player page */
 /* Same "major section/background region" banded treatment as the

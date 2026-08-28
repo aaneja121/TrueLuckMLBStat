@@ -462,6 +462,27 @@
         catalogLoadingEl.hidden = true;
         promptEl.hidden = false;
         searchInput.disabled = false;
+
+        // Redesign Phase 4: a player page links here with `?batter=<id>`,
+        // so the product's stated path -- league, hitter, play -- actually
+        // connects instead of dead-ending at an empty picker. This reads
+        // the parameter and nothing else; the selection is still not
+        // written BACK to the URL, which is Phase 5's job (Explore).
+        //
+        // An unknown or malformed id is ignored silently and the normal
+        // prompt stands: a hitter absent from the published catalog is not
+        // an error state, and no extra request is made either way.
+        var requested = new URLSearchParams(window.location.search).get("batter");
+        if (requested) {
+          var match = null;
+          for (var i = 0; i < playersCatalog.length; i += 1) {
+            if (String(playersCatalog[i].batter_id) === requested) {
+              match = playersCatalog[i];
+              break;
+            }
+          }
+          if (match) selectPlayer(match);
+        }
       })
       .catch(function (err) {
         catalogLoadingEl.textContent = "Players could not load right now. The rest of the site is unaffected.";

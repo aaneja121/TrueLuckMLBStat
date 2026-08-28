@@ -367,9 +367,17 @@ class TestChevronCollisionResolved:
         assert ".player-header-mark" not in css
 
     def test_no_decorative_chevron_renders_on_a_player_page(self, built_site: Path) -> None:
+        """Phase 4 replaced `.player-header` with the verdict article. The
+        rule is unchanged and now reaches further: the chevron has a MEANING
+        in the scale vocabulary ("the interval continues past this edge"),
+        so no decorative one may appear anywhere above the figure that uses
+        it as a legend."""
         html = (built_site / "players" / "1" / "index.html").read_text()
-        header = html.split('<div class="player-header">', 1)[1].split("</h1>", 1)[0]
+        header = html.split('<article class="player-verdict">', 1)[1].split(
+            'class="player-hero ', 1
+        )[0]
         assert "<svg" not in header
+        assert "cl-scale-edge" not in header
 
     def test_the_open_chevron_still_means_a_clipped_interval(self) -> None:
         css = _strip_css_comments(STYLE_CSS.read_text())

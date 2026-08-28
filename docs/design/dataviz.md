@@ -12,8 +12,8 @@ colour), a 2 px surface ring where marks overlap.
 | Figure | Question | Form |
 |---|---|---|
 | **Interval strip** | Where does this player sit, and how sure are we? | Zero-anchored strip on the **league-wide fixed domain**; 2 px interval line + ≥ 8 px point dot; sign colours the mark |
-| **Season trend** | Has it changed over the season? | Line + dots at true snapshot dates; **gaps never interpolated** (already correct — preserve); add a zero reference line and ≥ 3 y-axis labels |
-| **Component decomposition** | Why this score? | Signed stacked bar on the **same zero axis**, with the exact-value table retained beneath |
+| **Season trend** | Has it changed over the season? | Line + dots at true snapshot dates; **gaps never interpolated**; zero always drawn and labelled, ≥ 3 real y tick values, and the league range as dashed reference rules. **Declared exception to shared scale** — see below |
+| **Component decomposition** | Why this score? | Signed bars from zero on `component_per_100`, one table row per component carrying label, bar, value and model status together |
 | **Outcome probabilities** | What did the model expect? | Horizontal bars with the **recorded result marked in place**, so expected and actual are one figure |
 | **Expected → observed** | How big was the gap? | A single zero-anchored gap figure, not three stacked text blocks |
 
@@ -47,3 +47,63 @@ colour), a 2 px surface ring where marks overlap.
 Implementation note: SVG is generated at build time in `dashboard/visuals.py`, which emits
 CSS classes only and **never a hex colour** (`ARCHITECTURE.md`). Keep it that way — the
 tokens in `docs/design/color.md` are the single source of every mark colour.
+
+---
+
+## The season trend — how the exception is paid for (decision D2, gate G2)
+
+The trend's y-domain is **per player**, not `league_per_100`. It answers "has this hitter's
+own number moved?", which is a different question from "where do they sit in the league?",
+and forcing the league domain onto it renders almost every season as a flat line in the
+middle of an empty chart. The exception is declared, not silent, and the figure pays for it:
+
+- zero is always drawn, always labelled, and always inside the range;
+- at least **three real tick values**, not just the endpoints, at one precision for the
+  whole axis (an axis mixing `+12.5` with `+0.00` reads as two quantities);
+- the **unit is on the figure**, not only in surrounding prose;
+- the **league range is drawn as two dashed reference rules**, and only where a boundary
+  genuinely falls inside the view. Clamping a rule to the plot edge instead — the obvious
+  implementation — draws a boundary somewhere it is not. The caption states the share of
+  the view the range covers, and how many rules were drawn, so "no rule because the whole
+  view is inside the range" cannot be confused with "no rule because there is no range";
+- **nothing borrows the Zero Spine's vocabulary** — no `--cl-zero`, no amber rule, no
+  shared axis chrome. The two scales are different and must not look alike.
+
+**A fill loses this argument twice.** As ground, the league band disappears under the 95%
+interval band (measured on a small-sample hitter whose interval covers most of the plot);
+over the top, it washes the interval band out — and the interval is the data, so it wins.
+Dashed rules sit above every fill and stay legible either way. Dashing is safe here
+*because this is not an interval*: guardrail 17 forbids dashing an interval that crosses
+zero, and a reference boundary is neither an interval nor a point estimate.
+
+## Text never lives inside a scaled coordinate space
+
+The baseline drew the whole trend — marks, axis labels and dates — inside a 640 × 220
+viewBox that rendered at 350 × 120 on a phone, a 0.55 scale factor that put its 10 px
+labels at ~5.5 CSS px. Re-sizing that viewBox does not fix the *class* of bug: any text
+inside a scaled coordinate space is one narrow breakpoint away from being unreadable again.
+
+So the text left the coordinate space. `visuals.build_trend_figure` returns plain CSS
+percentages; the template lays axis labels, date labels and point markers out as ordinary
+HTML against a `position: relative` plot box at real, unscaled sizes. The SVG holds only
+the two things that genuinely need a coordinate space — the interval band polygon and the
+point-estimate polyline — and therefore contains no text at all and is `aria-hidden`. The
+line keeps its 2 px weight through `vector-effect="non-scaling-stroke"`; the dots are HTML,
+outside the SVG, so they stay round under `preserveAspectRatio="none"`.
+
+Measured after the rewrite: every label is 12 px at 1440 / 1180 / 768 / 390 / 320. Below
+360 px the interior date labels are dropped and the endpoints kept — an axis is
+orientation, and every point's exact date is still carried by its own marker and by the
+Snapshot values table.
+
+## A second scale must declare its own domain
+
+`component_per_100` is a per-player domain, padded by `ZeroScale.from_values` until its
+zero lands on the shared `--cl-zero`. Padding only ever *extends* a scale beyond the data;
+it never crops a value out of the field.
+
+The price is the **anti-fake-alignment guard**: any figure on a scale other than
+`league_per_100` must render visible tick labels carrying its unit. A figure that borrows
+the shared zero while hiding its own domain is exactly the deception the guard exists to
+prevent. The component decomposition prints its ticks directly above the first bar, and
+its section lede states the domain in words.
