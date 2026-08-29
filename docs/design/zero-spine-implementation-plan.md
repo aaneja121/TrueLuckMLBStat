@@ -707,6 +707,33 @@ Common to every phase — stated once rather than repeated sixteen times:
     (**G8**).
 16. **Dependencies.** Phases 1, 2, 6 (`run_value` scale).
 
+**Built.** Three deviations from the plan above, each with its reason:
+
+- **No freshness timeline.** Item 5 proposed a date axis for `/status/`. Against real data
+  it draws ten near-uniform ticks one day apart and says nothing the printed dates do not.
+  What the timeline was actually for — the intentional 2026-08-07 gap rendering as a gap,
+  never interpolated — is delivered by an explicit row instead: *"No valid snapshot for
+  Aug. 7, 2026."* See `docs/design/dataviz.md` § Where a figure was deliberately not drawn.
+- **No shared run-value axis on `/demo/`.** Item 2 asked for the demo's two plays to
+  resolve onto one shared run-value axis. They are 2024 fixture plays and are not in the
+  published `run_value` domain, so that axis would assert a comparability that is not true.
+  The gap is stated as two labelled values and a signed difference.
+- **The history is a record list at every width, not a table above 1024.** One dom that is
+  correct everywhere beat two copies of the content; the `<dl>` pairing is also better
+  semantics on the desktop layout than a table was. `docs/design/responsive.md` § The
+  supporting routes.
+
+Item 6's "must survive" list survived in full: `demo.js` was not touched, the
+`requestAnimationFrame` ownership and the `demo-reality-revealed` gate are unchanged, the
+simulator's state model is unchanged, and reset/select/slider behaviour was re-verified in
+a real browser. `demo_simulator.js` changed only where the brief asked: it now reads the
+shared `window.ContactLuck.formatSigned` instead of duplicating it, and its class/ARIA
+hooks follow the new markup.
+
+Item 13's risk (over-designing the demo) was live throughout. The guard that held was
+refusing the play page's gap figure and keeping the demo's own instrument simpler than the
+evidence route's.
+
 ---
 
 ### Phase 8 — Cross-product polish
@@ -808,7 +835,7 @@ themes:
 | **G5** ⏳ | Phase 4 | The player hero, and the unqualified/near-zero/clipped states. **Built and self-verified; awaiting sign-off.** |
 | **G6** ✅ | Phase 5 | Explore as a discovery instrument rather than a filter form |
 | **G7** ⏳ | Phase 6 | The play page's run-value instrument and what gets no spine. **Built and self-verified; awaiting sign-off.** |
-| **G8** | Phase 7 | `/status/` replacement and the untouched demo |
+| **G8** ⏳ | Phase 7 | `/status/` replacement and the untouched demo. **Built and self-verified; awaiting sign-off.** |
 | **G9** | Phase 8 | Final anti-vibecode review across all eight routes |
 
 The table is ordered by phase, not by gate number: **G2 was relocated from Phase 1 to Phase 4**

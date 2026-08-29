@@ -240,12 +240,10 @@ body {
    Regression coverage: tests/test_dashboard_responsive_overflow.py, which
    now asserts (1) and (2) directly instead of asserting the mechanism. */
 code,
-.component-table td,
-.component-table th,
+.status-code,
+.status-snapshot-name,
 .status-table td,
-.status-table th,
-[class*="snapshot-type-"],
-.badge {
+.status-table th {
   overflow-wrap: anywhere;
 }
 
@@ -363,51 +361,6 @@ summary:focus-visible,
   min-height: var(--target-min);
 }
 .site-wordmark:hover { text-decoration: none; }
-
-/* Tiny abstract baseball-seam mark -- the site's one small recurring
-   ornament (see `.seam-divider` below for its other use, on /demo/).
-   Deliberately not an emoji or a literal baseball icon: a plain ring plus
-   two short "stitch" ticks, in the amber accent, `aria-hidden` since it
-   carries no information. At 14px this reads as a mark, not a picture. */
-.seam-mark {
-  display: inline-block;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  border: 1.5px solid var(--accent-amber);
-  position: relative;
-  flex: none;
-  opacity: 0.9;
-}
-.seam-mark::before,
-.seam-mark::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 6px;
-  height: 1.5px;
-  background: var(--accent-amber);
-  border-radius: 1px;
-}
-.seam-mark::before { left: -1px; transform: translateY(-50%) rotate(35deg); }
-.seam-mark::after { right: -1px; transform: translateY(-50%) rotate(-35deg); }
-
-/* A section divider that reuses `.seam-mark` as its centered ornament --
-   used sparingly (currently just once, on /demo/, between the walkthrough
-   and the simulator) rather than on every section boundary site-wide. */
-.seam-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 32px 0;
-}
-.seam-divider::before,
-.seam-divider::after {
-  content: "";
-  flex: 1 1 auto;
-  height: 1px;
-  background: var(--border);
-}
 
 /* ══ Navigation ══════════════════════════════════════════════════════════
    Routes read as a ruled register of destinations, not as pills. No
@@ -852,6 +805,19 @@ main {
 
 h1 { font-size: 1.6rem; margin: 0 0 6px; }
 
+/* Phase 7: the supporting routes take the scale's own page-title step. The
+   base rule above is 1.6rem, which is not a step in the nine-step scale
+   (docs/design/typography.md § Scale); it is left in place because the
+   leaderboard, Explore and the player page set their own sizes and are not
+   in this phase's scope. */
+.route-title {
+  font-size: var(--fs-700);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--sp-2);
+}
+@media (max-width: 639px) { .route-title { font-size: 24px; } }
+
 /* Small amber tick before every major section heading, site-wide --
    deliberately the ONE recurring brand mark that reaches sober pages
    (methodology/status/player) too, per the visual-identity pass: shared
@@ -868,37 +834,6 @@ h2 {
   margin: 32px 0 10px;
 }
 h3 { font-size: 1rem; margin: 20px 0 8px; }
-
-.page-subtitle {
-  color: var(--text-secondary);
-  margin: 0 0 20px;
-}
-
-.hero-question {
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  margin-bottom: 24px;
-}
-
-.explainer-callout { margin: 12px 0 14px; }
-.explainer-callout p { margin: 0; }
-
-.explainer-stats {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 18px;
-}
-
-.explainer-stat {
-  font-weight: 600;
-  font-size: 0.92rem;
-  color: var(--text-primary);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 12px;
-}
 
 /* REMOVED in Phase 3: the `.homepage-proof-*` card set. Two bordered,
    rounded boxes with `border-top: 3px solid var(--accent-field)`, sitting
@@ -2721,100 +2656,481 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
 .player-hero-figure.interval-positive { color: var(--fav-text); }
 .player-hero-figure.interval-negative { color: var(--unfav-text); }
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 14px;
-  margin: 18px 0;
+/* ══ /methodology/ (redesign Phase 7) ═════════════════════════════════════
+   A document, and it gets a document's apparatus: a section index, the
+   prose measure, section rules instead of boxes, and one warning treatment
+   used once. What it does not get is a card grid, a run of boxed notes, or
+   the baseline's amber-ruled aside repeating the retrospective limitation
+   two paragraphs before the footer says it again. */
+.methodology-lede {
+  margin: 0 0 var(--sp-6);
+  font-size: var(--fs-500);
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
-.stat-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  background: var(--surface);
+.methodology-index {
+  margin-bottom: var(--sp-5);
+  font-size: var(--fs-300);
 }
-
-.stat-card .stat-label {
-  font-size: 0.74rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  margin-bottom: 4px;
-}
-
-.stat-card .stat-value {
-  font-size: 1.15rem;
+.methodology-index-detail > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+  font-size: var(--fs-100);
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.badge {
-  display: inline-block;
-  font-size: 0.78rem;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.badge-qualified { border-color: var(--accent-amber-mark); color: var(--accent-amber-text); }
-
-.component-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 8px; }
-.component-table td, .component-table th {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--gridline);
-  text-align: left;
-}
-.component-table td.numeric, .component-table th.numeric {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.technical-disclosure {
-  margin: 14px 0 24px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 14px;
-  background: var(--surface);
-}
-
-.technical-disclosure summary {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom: var(--rule-hairline) solid var(--border);
   cursor: pointer;
-  padding: 8px 0;
-  font-size: 0.88rem;
+}
+.methodology-index ol {
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: methodology-section;
+}
+.methodology-index li {
+  counter-increment: methodology-section;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.methodology-index li::before {
+  content: counter(methodology-section) ".";
+  flex: none;
+  min-width: 2ch;
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.methodology-index a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
   color: var(--text-secondary);
 }
+.methodology-index a:hover { color: var(--text-primary); }
 
-.technical-disclosure[open] summary {
+.methodology-body { max-width: var(--measure-prose); }
+.methodology-body p,
+.methodology-body li { line-height: 1.6; }
+
+.methodology-section {
+  padding-top: var(--sp-5);
+  border-top: var(--rule-hairline) solid var(--border);
+  margin-bottom: var(--sp-6);
+}
+.methodology-section h2 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-600);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.methodology-section p { margin: 0 0 var(--sp-3); }
+
+.methodology-list {
+  margin: 0 0 var(--sp-3);
+  padding-left: var(--sp-5);
+}
+.methodology-list li { margin-bottom: var(--sp-2); }
+
+/* Definition pairs read as a ruled register, never as a card set. */
+.methodology-defs {
+  margin: 0 0 var(--sp-4);
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.methodology-defs > div {
+  padding: var(--sp-3) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+/* A register that ends its section closes on the section rule below it, not
+   on a second rule 24px above it. */
+.methodology-defs:last-child > div:last-child { border-bottom: 0; }
+.methodology-defs dt {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.methodology-defs dd {
+  margin: var(--sp-1) 0 0;
+  line-height: 1.6;
+}
+
+/* The one equation on the site. It is a ruled three-line register, not a
+   formula in a box: term on the left, what the term means on the right, the
+   operator carried in the term itself so the reading order is the reading. */
+.methodology-equation {
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-top: var(--rule-emphasis) solid var(--baseline);
+  border-bottom: var(--rule-emphasis) solid var(--baseline);
+}
+.methodology-equation dl { margin: 0; }
+.methodology-equation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) 0;
+}
+.methodology-equation-row dt {
+  font-size: var(--fs-500);
+  font-weight: 600;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--gridline);
-  margin-bottom: 4px;
+}
+.methodology-equation-row dd {
+  margin: 0;
+  font-size: var(--fs-300);
+  color: var(--text-muted);
+}
+.methodology-equation-row.is-result {
+  border-top: var(--rule-hairline) solid var(--baseline);
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-3);
+}
+/* Below the prose measure the gloss always sits under its term, so three
+   rows do not read as two stacked and one inline. */
+@media (max-width: 639px) {
+  .methodology-equation-row { display: block; }
+  .methodology-equation-row dd { margin-top: var(--sp-1); }
 }
 
-.technical-disclosure table.component-table { margin-top: 0; }
-
-.callout {
-  border-left: 3px solid var(--accent-amber);
-  padding: 10px 16px;
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 0.92rem;
-  margin: 16px 0;
+/* One warning, used once: the single reading error this metric invites. A
+   left rule and space, not a filled box. */
+.methodology-warning {
+  margin: 0 0 var(--sp-3);
+  padding-left: var(--sp-4);
+  border-left: var(--rule-emphasis) solid var(--accent-amber-mark);
 }
 
-.status-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-.status-table th, .status-table td {
+.methodology-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-300);
+}
+.methodology-table caption {
   text-align: left;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--gridline);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  padding-bottom: var(--sp-2);
 }
-.status-table th { color: var(--text-secondary); width: 40%; }
+.methodology-table th,
+.methodology-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+  line-height: 1.5;
+}
+.methodology-table thead th {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom-color: var(--baseline);
+}
+/* No `white-space: nowrap` on the status names: "Insufficient component
+   coverage" is 30 characters and set nowrap it pushed the table's
+   min-content width to 359px against a 320px viewport. The phrase wraps. */
+.methodology-table tbody th { font-weight: 600; }
+.methodology-col-order {
+  width: 2.5rem;
+  color: var(--text-muted);
+  padding-right: var(--sp-2);
+}
+@media (max-width: 639px) {
+  .methodology-col-order { width: 1.75rem; padding-right: var(--sp-1); }
+  .methodology-table th,
+  .methodology-table td { padding-right: var(--sp-2); }
+}
 
-.snapshot-type-genuine_prospective_snapshot { color: var(--text-secondary); }
-.snapshot-type-corrected_prospective_snapshot { color: var(--fav-text); }
-.snapshot-type-retrospective_backfill { color: var(--text-muted); font-style: italic; }
-.snapshot-type-invalid_incomplete_snapshot { color: var(--unfav-text); }
+/* The index is sticky beside the body at >=1024 and a collapsed table of
+   contents below that (docs/design/responsive.md § Methodology). */
+@media (min-width: 1024px) {
+  .methodology-layout {
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr);
+    gap: var(--sp-8);
+    align-items: start;
+  }
+  .methodology-index {
+    position: sticky;
+    top: var(--sp-5);
+    margin-bottom: 0;
+  }
+  .methodology-index-detail > summary { list-style: none; cursor: default; }
+  .methodology-index-detail > summary::-webkit-details-marker { display: none; }
+  .methodology-index-detail > summary::marker { content: ""; }
+}
+
+@media (max-width: 1023px) {
+  .methodology-index { border-bottom: var(--rule-hairline) solid var(--border); }
+  .methodology-index ol { margin-bottom: var(--sp-3); }
+}
+
+/* ══ /status/ (redesign Phase 7) ══════════════════════════════════════════
+   Provenance and operations. Terse by design: the lead answers "how current
+   is this and can I trust it" in one line, and everything under it is a
+   ruled record.
+
+   Amber is spent on exactly two things: the snapshot this build was
+   rendered from, and its data-through date. Not on every section, and not
+   on every published row in the history. */
+.status-lede {
+  margin: 0 0 var(--sp-6);
+  font-size: var(--fs-500);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.status-accent {
+  color: var(--accent-amber-text);
+  font-weight: 600;
+}
+.status-snapshot-name { font-variant-numeric: tabular-nums lining-nums; }
+
+.status-section {
+  padding-top: var(--sp-5);
+  border-top: var(--rule-hairline) solid var(--border);
+  margin-bottom: var(--sp-6);
+}
+.status-section h2 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-600);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.status-note {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-200);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* A label/value record. Two columns where there is room, one where there is
+   not, ruled between rows rather than boxed. */
+.status-record {
+  margin: 0;
+  max-width: 58rem;
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.status-field {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-4);
+  padding: var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.status-field dt {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  align-self: center;
+}
+.status-field dd {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--fs-300);
+  line-height: 1.5;
+}
+.status-record-current .status-field dd { font-size: var(--fs-400); }
+
+/* Schema tokens and version strings are identifiers, so they get the mono
+   register and are allowed to break anywhere. Statistics never do. */
+.status-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  color: var(--text-secondary);
+}
+
+/* Four counts on one ruled line, not four bordered tiles. */
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 var(--sp-5);
+  padding: var(--sp-3) 0;
+  border-top: var(--rule-hairline) solid var(--border);
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.status-line-item {
+  flex: 1 1 0;
+  min-width: 9rem;
+  padding-right: var(--sp-4);
+}
+.status-line-item + .status-line-item {
+  padding-left: var(--sp-4);
+  border-left: var(--rule-hairline) solid var(--border);
+}
+.status-line dt {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.status-line dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-500);
+  color: var(--text-primary);
+}
+
+.status-table {
+  width: 100%;
+  max-width: 58rem;
+  border-collapse: collapse;
+  font-size: var(--fs-300);
+  margin-bottom: var(--sp-3);
+}
+.status-table caption {
+  text-align: left;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  padding-bottom: var(--sp-2);
+}
+.status-table th,
+.status-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+  font-weight: 400;
+}
+.status-table thead th {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom-color: var(--baseline);
+}
+.status-num-col { width: 6rem; text-align: right; padding-right: 0; }
+
+.status-table td.status-num-col,
+.status-table th.status-num-col { text-align: right; }
+
+/* ── The record list ─────────────────────────────────────────────────────
+   THE BASELINE DEFECT this component exists to fix: the snapshot history
+   was five columns, the last two carrying a 32-character unbreakable ISO
+   timestamp, collapsing to ~31px and standing rows several lines tall at
+   narrow widths.
+
+   Two changes, in this order. Timestamps are reformatted at the SOURCE
+   (`build.py`'s `_display_timestamp`, with the ISO value kept in
+   `<time datetime>`), which removes the unbreakable token rather than
+   engineering a layout that survives it -- design principle 8. And the
+   list is ONE dom that is correct at every width: each record is a `<dl>`
+   of label/value pairs, so the pairing is programmatic for a screen reader
+   whatever the layout is doing. At >=1024 the records become aligned grid
+   rows under one column head and their labels go visually hidden; below
+   that the labels come back and each record reads on its own. No second
+   copy of the content, and nothing squeezed.
+
+   Two instances use it: the snapshot history and the model table, which
+   carry long identifiers for exactly the same reason. Each declares its own
+   `--record-columns`; everything else is shared. */
+.record-list { margin-top: var(--sp-4); }
+.record-head { display: none; }
+.record-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: var(--rule-hairline) solid var(--baseline);
+}
+.record-row {
+  padding: var(--sp-3) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.record-row dl {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+}
+.record-cell { display: contents; }
+.record-cell dt {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.record-cell dd {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--fs-300);
+}
+
+.snapshot-history { --record-columns: minmax(7rem, 0.8fr) minmax(9rem, 1.1fr) minmax(8rem, 1fr) minmax(10rem, 1.1fr) minmax(7rem, 0.8fr); }
+.status-models { --record-columns: minmax(8rem, 0.9fr) minmax(11rem, 1.1fr) minmax(9rem, 1fr) minmax(12rem, 1.4fr); }
+
+@media (min-width: 1024px) {
+  .record-head,
+  .record-row dl {
+    display: grid;
+    grid-template-columns: var(--record-columns);
+    gap: var(--sp-4);
+    align-items: baseline;
+  }
+  .record-head {
+    padding-bottom: var(--sp-2);
+    font-size: var(--fs-100);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+  .record-row { padding: var(--sp-2) 0; }
+  /* The label stays in the accessibility tree; only the column head is
+     visible, and it is `aria-hidden` so nothing is announced twice. */
+  .record-cell dt {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+/* A date with no valid stored snapshot. Footnote register and no accent:
+   it is an absence, not a failure, and the page does not know a cause. */
+.record-gap {
+  margin: 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.record-row.is-gap { padding: var(--sp-2) 0; }
+
+@media (max-width: 1023px) {
+  .record-row.is-current {
+    border-left: var(--rule-emphasis) solid var(--accent-amber-mark);
+    padding-left: var(--sp-3);
+  }
+}
+
+@media (max-width: 639px) {
+  .status-field { grid-template-columns: minmax(0, 1fr); }
+  .status-line-item {
+    flex: 1 1 40%;
+    min-width: 0;
+    padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  }
+  .status-line-item + .status-line-item { padding-left: var(--sp-3); }
+  .record-row dl { grid-template-columns: minmax(0, 1fr); }
+  .record-cell dt { margin-top: var(--sp-2); }
+  .record-cell:first-child dt { margin-top: 0; }
+}
 
 /* ══ Footer ══════════════════════════════════════════════════════════════
    Subordinate apparatus, not a second page. A hairline rule and space --
@@ -2873,135 +3189,133 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   .hide-mobile { display: none; }
 }
 
-/* "/demo/" -- Why Contact Luck Exists (v1.3.0) */
-.demo-controls {
+/* ══ /demo/ · How Contact Luck works (redesign Phase 7) ═══════════════════
+   Teaching, not evidence, and it should read as the simpler page. Where a
+   quantity here is the same quantity a play page shows, it is drawn the
+   same way; where the demo has no standing to borrow a scale, it does not
+   draw one.
+
+   What the baseline spent here and this block does not: a 3px field-green
+   top border on each card, a 3px amber top border on the simulator, eleven
+   radii across two components, a blue probability fill on a quantity with
+   no sign, an amber ball and flight path on a hypothetical contact (amber
+   means "the frozen official record", which is the opposite of what the
+   simulator shows), and a radial-gradient "stadium light" glow behind the
+   field diagram. */
+
+.demo-lede {
   display: flex;
-  gap: 10px;
-  margin: 4px 0 22px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-5);
+  margin: var(--sp-3) 0 var(--sp-6);
+}
+.demo-lede-line {
+  flex: 1 1 34ch;
+  max-width: var(--measure-prose);
+  margin: 0;
+  font-size: var(--fs-300);
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 
-.demo-play-button,
-.demo-replay-button {
-  padding: 8px 18px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+.demo-play-button {
+  flex: none;
+  min-height: var(--target-min);
+  padding: 0 var(--sp-5);
+  border: var(--rule-hairline) solid var(--baseline);
+  border-radius: var(--radius-control);
   background: var(--surface);
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font: inherit;
+  font-size: var(--fs-300);
   cursor: pointer;
 }
+.demo-play-button:hover { background: var(--surface-recessed); }
 
-.demo-play-button:hover,
-.demo-replay-button:hover { border-color: var(--accent-amber); }
-
+/* ── The two worked examples ─────────────────────────────────────────────
+   One of the three admissible card cases: a repeated instance of one object
+   type in a set the reader scans across (docs/design/layout.md, which names
+   /demo/'s two compared plays specifically). Hairline, control radius, no
+   coloured top border. */
 .demo-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
-}
-
-@media (max-width: 800px) {
-  .demo-grid { grid-template-columns: 1fr; }
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-5);
 }
 
 .demo-card {
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--accent-field);
-  border-radius: 10px;
-  padding: 18px 20px 22px;
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
   background: var(--surface);
 }
-
-.demo-card h2 { margin-top: 0; }
-
-.demo-card-subtitle {
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-  margin: -4px 0 14px;
+.demo-card-title {
+  margin: 0;
+  font-size: var(--fs-500);
+  line-height: 1.2;
+}
+.demo-card-apparatus {
+  margin: var(--sp-1) 0 var(--sp-4);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
 }
 
+/* ── The field diagram ───────────────────────────────────────────────────
+   Kept because the flight is what times the reveal: the ball lands exactly
+   as Stage 3 resolves. Subordinate in size, left-aligned rather than
+   centred so it does not sit in its own empty gutters, and captioned with
+   what it is not. */
+.demo-field-figure { margin: 0 0 var(--sp-4); }
 .demo-field {
   width: 100%;
-  max-width: 260px;
+  max-width: 220px;
   height: auto;
   display: block;
-  margin: 0 auto;
+}
+.demo-field-caption {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-100);
+  line-height: 1.4;
+  color: var(--text-muted);
+  max-width: 42ch;
 }
 
-/* Visual-identity presence pass: the field diagrams' background chrome
-   (fence/foul lines/infield) now carries the site's muted field-green
-   language everywhere they appear -- both the v1.3.0 walkthrough cards
-   AND the simulator (which no longer needs its own ancestor-scoped
-   override of these three shared classes; see `.simulator-field-path`/
-   `.simulator-field-ball` below for what's still simulator-only: the
-   AMBER live ball/path, which must stay off the walkthrough's own
-   favorable/unfavorable-colored ball). */
 .demo-field-fence { fill: none; stroke: var(--text-muted); stroke-width: 1.75; }
-.demo-field-foul-line { stroke: var(--accent-field); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.6; }
-.demo-field-infield {
-  fill: var(--accent-field-soft);
+.demo-field-foul-line {
   stroke: var(--accent-field);
-  stroke-width: 1.25;
-  opacity: 1;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+.demo-field-infield {
+  fill: var(--accent-field);
+  opacity: 0.16;
+  stroke: var(--accent-field);
+  stroke-width: 1;
 }
 .demo-ball-path {
   fill: none;
-  stroke: var(--text-muted);
+  stroke: var(--baseline);
   stroke-width: 1.5;
   stroke-dasharray: 4 4;
-  opacity: 0.45;
 }
-/* Neutral (pre-Reality) treatment for BOTH balls -- `--text-secondary`,
-   NOT `--diverging-positive` (that's the site's FAVORABLE color; using it
-   as the "neutral" default would make the favorable ball's Stage-3
-   "transition" a no-op and bias the pre-reveal state toward "favorable" by
-   accident). `--text-secondary` carries no favorable/unfavorable meaning
-   anywhere else on the site (it's the general secondary-text/UI-chrome
-   color -- already used on this exact page for `.demo-prob-label`/
-   `.page-subtitle`), and it's defined per-theme specifically so it reads
-   clearly against both the light and dark `--page`/`--surface`
-   backgrounds (dark grayish-brown in light mode, light warm gray in dark
-   mode) -- unlike `--baseline`/`--gridline`, which are deliberately LOW
-   -contrast chart chrome (grid lines, zero lines) and would make the ball
-   hard to see against the field diagram. `transition: fill` gives the
-   Stage-3 sign change (below) a soft cross-fade rather than a hard cut;
-   disabled entirely under reduced motion, matching every other timed
-   transition on this page. */
+
+/* The ball is neutral until Stage 3 resolves, then takes the sign of THIS
+   play's Contact Luck -- the sign of a point estimate, which is the one
+   thing the diverging pair is for. The sign classes ship in the markup from
+   first paint and have no effect until `.demo-reality-revealed` exists, so
+   the answer cannot leak during Stages 1-2. */
 .demo-ball {
   fill: var(--text-secondary);
   stroke: var(--surface);
   stroke-width: 2;
   transition: fill 0.3s ease;
 }
+.demo-card.demo-reality-revealed .demo-ball-favorable { fill: var(--fav-mark); }
+.demo-card.demo-reality-revealed .demo-ball-unfavorable { fill: var(--unfav-mark); }
 
-/* The ball's SIGNED color (Contact Luck favorable/unfavorable -- NOT
-   hit-vs-out; a future example's outcome class and Contact Luck sign need
-   not agree, see render_demo_field_svg's docstring) only takes effect once
-   Stage 3 ("Reality") has revealed the result -- gated behind the SAME
-   `.demo-card.demo-reality-revealed` ancestor class the probability-row
-   highlight above already uses, added/removed by static/demo.js at exactly
-   the right moment. `demo-ball-favorable`/`demo-ball-unfavorable` are
-   present on the ball from first paint (like `demo-prob-row-observed`
-   above) but have NO visual effect until that ancestor class exists, so
-   neither ball's eventual sign is visible during Stages 1-2. Both rules
-   below are genuine color CHANGES from the neutral `--text-secondary`
-   default -- every example now visibly transitions at Stage 3, favorable
-   or not. */
-.demo-card.demo-reality-revealed .demo-ball.demo-ball-favorable {
-  fill: var(--diverging-positive);
-}
-.demo-card.demo-reality-revealed .demo-ball.demo-ball-unfavorable {
-  fill: var(--diverging-negative);
-}
-
-.demo-field-caption {
-  text-align: center;
-  font-size: 0.74rem;
-  color: var(--text-muted);
-  font-style: italic;
-  margin: 6px 0 16px;
-}
-
+/* ── Stages ──────────────────────────────────────────────────────────── */
 .demo-stage {
   opacity: 0;
   max-height: 0;
@@ -3009,610 +3323,460 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   margin: 0;
   transition: opacity 0.45s ease;
 }
-
 .demo-stage.demo-stage-revealed {
   opacity: 1;
   max-height: none;
-  margin: 14px 0;
+  margin: var(--sp-4) 0 0;
 }
-
-.demo-stage h3 { margin: 0 0 8px; font-size: 0.94rem; }
-
-.demo-stat-row { display: flex; gap: 20px; flex-wrap: wrap; }
-.demo-stat { display: flex; flex-direction: column; gap: 2px; }
-.demo-stat-label { font-size: 0.76rem; color: var(--text-muted); }
-.demo-stat-value {
-  font-size: 1.05rem;
+.demo-stage h3 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-100);
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
 }
 
-.demo-prob-bars { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
-.demo-prob-row {
-  display: grid;
-  grid-template-columns: 36px 1fr 52px;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.85rem;
+/* A ruled stat line, not bordered tiles (guardrails anti-pattern 14). */
+.demo-line {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: var(--sp-2) 0;
+  border-top: var(--rule-hairline) solid var(--border);
+  border-bottom: var(--rule-hairline) solid var(--border);
 }
-/* Which class was the ACTUAL outcome only gets visually called out once the
-   "Reality" stage has revealed it (`.demo-card.demo-reality-revealed`, set
-   by static/demo.js at the same moment) -- marking it earlier, while Stage
-   2 is still presented as a pre-outcome expectation, would spoil the
-   reveal the sequence is built around. The `demo-prob-row-observed` class
-   itself is still always present in the markup (for reduced-motion, which
-   reveals every stage at once, and for anyone reading the raw HTML). */
-.demo-card.demo-reality-revealed .demo-prob-row-observed .demo-prob-label {
+.demo-line-item {
+  flex: 1 1 0;
+  min-width: 8rem;
+  padding-right: var(--sp-4);
+}
+.demo-line-item + .demo-line-item {
+  padding-left: var(--sp-4);
+  border-left: var(--rule-hairline) solid var(--border);
+}
+.demo-line dt {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.demo-line dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-400);
   color: var(--text-primary);
-  font-weight: 700;
 }
-.demo-prob-label { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.demo-prob-bar-track {
-  position: relative;
+
+/* ── Outcome probabilities ───────────────────────────────────────────────
+   Phase 6's treatment, because it is the same quantity: bounded 0-100%, so
+   a neutral bar on a full-width track. No spine, no donut, no gauge, and
+   neither sign colour, because a probability has no sign. The recorded
+   result is marked in TEXT as well as by weight. */
+.demo-probabilities {
+  width: 100%;
+  border-collapse: collapse;
+}
+.demo-probabilities th,
+.demo-probabilities td {
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+  font-size: var(--fs-300);
+}
+.demo-probabilities thead th {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom-color: var(--baseline);
+}
+.demo-col-outcome { width: 9.5rem; font-weight: 400; }
+.demo-col-pct {
+  width: calc(6ch + var(--sp-3));
+  text-align: right;
+  padding-right: 0;
+}
+.demo-probabilities td.demo-col-pct { text-align: right; }
+.demo-probabilities tbody tr.is-observed th,
+.demo-probabilities tbody tr.is-observed td { font-weight: 600; }
+
+/* The "what happened" tag belongs to the reveal: it is in the markup from
+   first paint but stays out of sight until Stage 3 resolves, so Stage 2 is
+   still a genuine pre-outcome expectation. Reduced motion reveals every
+   stage at once and gets the tag with them. */
+.demo-prob-tag {
+  display: none;
+  font-size: var(--fs-100);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--accent-amber-text);
+}
+.demo-card.demo-reality-revealed .demo-prob-tag { display: block; }
+.demo-simulator .demo-prob-tag { display: block; }
+
+.demo-prob-track {
+  display: block;
+  width: 100%;
   height: 10px;
-  border-radius: 5px;
   background: var(--surface-recessed);
-  overflow: hidden;
+  box-shadow: inset 0 0 0 var(--rule-hairline) var(--border);
 }
-.demo-prob-bar-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
+.demo-prob-fill {
+  display: block;
+  height: 100%;
   width: 0;
-  background: var(--diverging-positive);
-  border-radius: 5px;
+  min-width: 1px;
+  background: var(--text-muted);
   transition: width 0.9s ease;
 }
-.demo-stage-revealed .demo-prob-bar-fill { width: var(--demo-target-width); }
-.demo-prob-pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
-
-.demo-rv-line { margin: 6px 0 0; font-size: 0.92rem; }
-.demo-outcome { font-size: 1rem; margin: 0 0 4px; }
-
-/* Expected (a prediction) vs. Observed (a fact) run value get distinct,
-   deliberately NEUTRAL treatments -- neither is colored red/green, because
-   neither number is individually "good" or "bad": only their DIFFERENCE
-   (Contact Luck, below) has a genuine sign. Expected reads as a soft,
-   dashed-underline estimate; Observed reads as a solid, filled-in fact. The
-   same two classes are reused in `.demo-luck-diff` so the visual language
-   carries through from Stage 2/3 into the Stage 4 payoff. */
-.demo-rv-value { font-weight: 700; font-variant-numeric: tabular-nums; }
-.demo-rv-value-expected {
-  color: var(--text-secondary);
-  border-bottom: 1px dashed var(--baseline);
-}
-.demo-rv-value-observed {
-  color: var(--text-primary);
-  background: var(--diverging-mid);
-  border-radius: 4px;
-  padding: 1px 7px;
-}
-
-.demo-luck-diff {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 1rem;
-  margin-bottom: 6px;
-}
-.demo-luck-arrow { color: var(--text-muted); }
-
-.demo-luck-figure { font-size: 1.6rem; font-weight: 700; margin: 4px 0; }
-/* `.interval-positive`/`.interval-negative` (defined above) only carry
-   stroke/fill for SVG marks -- this pairs the same sign with TEXT color,
-   the same pattern `.player-hero-figure.interval-positive/negative` already
-   uses on the player detail page. */
-.demo-luck-figure.interval-positive { color: var(--fav-text); }
-.demo-luck-figure.interval-negative { color: var(--unfav-text); }
-
-.demo-luck-badge {
-  display: inline-block;
-  font-size: 0.78rem;
-  padding: 2px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  margin-bottom: 6px;
-}
-/* Border takes the MARK grade (>=3:1 is the bar for a non-text mark); the
-   label inside takes the TEXT grade. Same colour, two jobs, two grades. */
-.demo-luck-badge-favorable { border-color: var(--fav-mark); color: var(--fav-text); }
-.demo-luck-badge-unfavorable { border-color: var(--unfav-mark); color: var(--unfav-text); }
-
-.demo-explanation { color: var(--text-secondary); font-size: 0.9rem; margin: 0; }
-
-.demo-des {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  font-style: italic;
-  margin-top: 18px;
-  border-top: 1px solid var(--gridline);
-  padding-top: 10px;
-}
-
-/* "Try It Yourself" -- v1.3.1 counterfactual EV/launch-angle simulator.
-   Reuses the walkthrough's own .demo-prob-bars/.demo-rv-value/
-   .demo-luck-badge/.demo-luck-figure classes above for visual consistency
-   (same neutral-expected/solid-observed treatment, same favorable/blue
-   vs. unfavorable/red semantics) -- everything below is genuinely NEW
-   layout (sliders, play selector, outcome buttons), not a restyle of the
-   existing walkthrough. */
-/* No top border/margin of its own -- the `.seam-divider` immediately
-   before this section in demo.html now provides that separation. */
-.simulator-section {
-  margin-top: 8px;
-}
-
-.simulator-caveat {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  font-style: italic;
-  margin: -4px 0 18px;
-}
-
-.simulator-loading {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-}
-
-.simulator-play-selector {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 18px;
-}
-
-.simulator-play-button {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-secondary);
-  border-radius: 999px;
-  padding: 7px 16px;
-  font-size: 0.88rem;
-  cursor: pointer;
-}
-.simulator-play-button:hover { border-color: var(--accent-amber); }
-.simulator-play-button-selected {
-  border-color: var(--text-primary);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.simulator-body {
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--accent-amber);
-  border-radius: 10px;
-  padding: 18px 20px 22px;
-  background: var(--surface);
-  max-width: 560px;
-}
-
-.simulator-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px 28px;
-  align-items: flex-end;
-  margin-bottom: 6px;
-}
-
-.simulator-control {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1 1 200px;
-  min-width: 180px;
-}
-
-.simulator-control label {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.simulator-control-value {
-  font-size: 0.95rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Native range input, restyled just enough to (a) match the site's palette
-   and (b) give the thumb a large-enough touch target -- default browser
-   range-thumb sizes are well under typical touch-target guidance. */
-.simulator-slider {
-  width: 100%;
-  height: 28px;
-  margin: 0;
-  accent-color: var(--accent-amber);
-  cursor: pointer;
-}
-.simulator-slider::-webkit-slider-thumb { width: 22px; height: 22px; }
-.simulator-slider::-moz-range-thumb { width: 22px; height: 22px; }
-
-.simulator-reset-button {
-  border: 1px solid var(--border);
-  background: var(--page);
-  color: var(--text-primary);
-  border-radius: 8px;
-  padding: 8px 14px;
-  font-size: 0.86rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.simulator-reset-button:hover { border-color: var(--accent-amber); }
-
-/* Groups the fixed-context sentence with the Reset action -- both
-   secondary to the EV/LA readings above them. New (Version 1.3.1
-   polish-pass) wrapper with no prior mobile appearance to preserve, so it
-   gets a plain baseline treatment here rather than being confined to the
-   desktop media query below. */
-.simulator-control-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin-top: 10px;
-}
-
-.simulator-fixed-context {
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  margin: 4px 0;
-}
-
-/* Labeled Expected-RV/Observed-RV comparison in the Contact Luck payoff --
-   replaces an inline arrow row (`.demo-luck-diff`/`.demo-luck-arrow`,
-   still used unchanged by the v1.3.0 walkthrough elsewhere on this page)
-   with two explicit label/value rows, since unlabeled numbers around an
-   arrow require the reader to infer which side is which. New markup, so
-   (like `.simulator-control-footer` above) it gets a plain, legible
-   baseline here rather than being desktop-only. */
-.simulator-rv-compare {
-  margin: 10px 0 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.simulator-rv-compare-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-.simulator-rv-compare-label {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-}
-
-/* Always-visible, immediately-interactive prob bars -- NOT staged/gated
-   behind `.demo-stage-revealed` the way the walkthrough's are, and with a
-   much faster fill transition (dragging a slider needs snappy visual
-   feedback, not a leisurely 0.9s narrative reveal). */
-.simulator-prob-bar-fill {
+.demo-stage-revealed .demo-prob-fill { width: var(--demo-target-width); }
+.demo-probabilities tbody tr.is-observed .demo-prob-fill { background: var(--text-primary); }
+/* The simulator's bars are live, not narrative: they are at their value
+   from first paint and answer a dragged slider immediately. */
+.demo-prob-fill.is-live {
   width: var(--demo-target-width);
   transition: width 0.08s linear;
 }
 
-.simulator-outcome-buttons {
+.demo-rv-line {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 10px 0 18px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-300);
 }
-
-.simulator-outcome-button {
-  border: 1px solid var(--border);
-  background: var(--page);
-  color: var(--text-secondary);
-  border-radius: 8px;
-  padding: 9px 14px;
-  min-width: 48px;
-  font-size: 0.86rem;
+.demo-rv-label { color: var(--text-secondary); }
+.demo-rv-value {
+  font-size: var(--fs-500);
   font-weight: 600;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.simulator-outcome-button:hover { border-color: var(--accent-amber); }
-.simulator-outcome-button-selected {
-  border-color: var(--text-primary);
-  background: var(--diverging-mid);
   color: var(--text-primary);
 }
 
-/* The simulator's field diagram reuses `.demo-field`/`.demo-field-fence`/
-   `.demo-field-foul-line`/`.demo-field-infield`/`.demo-field-caption`
-   as-is (see `visuals.render_simulator_field_svg`) for the STATIC chrome
-   -- those three shared classes now carry the field-green identity at
-   the BASE level (see the comment above `.demo-field-fence`, further up
-   this file), so both the walkthrough and the simulator pick it up
-   automatically with no ancestor-scoped override needed here. Only the
-   live-updating ball/path need their own rules in this file. Unlike
-   `.demo-ball-path` (baked once at render time, never touched again),
-   `static/demo_simulator.js` rewrites `simulator-field-path`'s `d`
-   attribute on every slider move -- `d` interpolation is not reliably
-   animatable via CSS transition across browsers, so it is intentionally
-   left untransitioned (an instant snap) while the ball itself gets a
-   short `cx`/`cy` transition, matching `.simulator-prob-bar-fill`'s own
-   fast (not narrative-paced) feedback for live dragging.
+/* ── The payoff ──────────────────────────────────────────────────────────
+   The play page's own vocabulary: a signed numeral in the sign colour, the
+   word under it so colour is never the only channel, one sentence. No pill,
+   no badge, no box. */
+.demo-luck-figure {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-700);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.demo-luck-figure.cl-scale-favorable { color: var(--fav-text); }
+.demo-luck-figure.cl-scale-unfavorable { color: var(--unfav-text); }
+.demo-luck-label {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.demo-explanation {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
 
-   The live path/ball -- the actual foreground signal the visitor is
-   manipulating -- use the warm accent instead of the background chrome's
-   green, so foreground stays visually dominant over background. This is
-   deliberately NOT blue or red: the simulator's field never encodes
-   Contact Luck's favorable/unfavorable sign (that lives in the badge/
-   figure to the right), so amber stays unambiguous. */
+.demo-des {
+  margin: var(--sp-3) 0 0;
+  padding-top: var(--sp-3);
+  border-top: var(--rule-hairline) solid var(--border);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+.demo-note {
+  margin: var(--sp-5) 0 0;
+  font-size: var(--fs-200);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ══ The simulator ═══════════════════════════════════════════════════════
+   The second admissible card case: an interactive instrument with a defined
+   input surface. Separated from the walkthrough by a rule and space -- the
+   baseline used an amber seam ornament, which spent the one accent that
+   means "the frozen official record" on a divider. */
+.demo-simulator {
+  margin-top: var(--sp-7);
+  padding-top: var(--sp-6);
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.demo-simulator h2 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-600);
+}
+.demo-simulator-lede {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+
+.demo-play-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.demo-play-select {
+  min-height: var(--target-min);
+  padding: 0 var(--sp-4);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--page);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-300);
+  cursor: pointer;
+}
+.demo-play-select:hover { background: var(--surface-recessed); }
+.demo-play-select-selected {
+  border-color: var(--text-primary);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.demo-simulator-loading {
+  font-size: var(--fs-300);
+  color: var(--text-muted);
+}
+
+.demo-simulator-body {
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+}
+
+.demo-sim-stage + .demo-sim-stage {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.demo-sim-label {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.demo-sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-4);
+}
+.demo-slider-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.demo-slider-control label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.demo-slider-value {
+  font-size: var(--fs-600);
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+/* A native range input, sized so the whole control clears the 44px tap
+   floor rather than only its thumb. */
+.demo-slider {
+  width: 100%;
+  height: var(--target-min);
+  margin: 0;
+  accent-color: var(--accent-amber-mark);
+  cursor: pointer;
+}
+.demo-slider::-webkit-slider-thumb { width: 22px; height: 22px; }
+.demo-slider::-moz-range-thumb { width: 22px; height: 22px; }
+
+.demo-slider-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-3);
+}
+.demo-fixed-context {
+  flex: 1 1 24ch;
+  margin: 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.demo-reset {
+  flex: none;
+  min-height: var(--target-min);
+  padding: 0 var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--page);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-200);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.demo-reset:hover { background: var(--surface-recessed); }
+
+.demo-outcome-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.demo-outcome-button {
+  flex: 1 1 auto;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: 0 var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--page);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-300);
+  font-weight: 600;
+  cursor: pointer;
+}
+.demo-outcome-button:hover { background: var(--surface-recessed); }
+.demo-outcome-button-selected {
+  border-color: var(--text-primary);
+  background: var(--surface-recessed);
+  color: var(--text-primary);
+}
+
+.demo-sim-rv { margin-bottom: var(--sp-4); }
+
+/* The simulator's field diagram. Its live path and ball are the foreground
+   the reader is driving, so they take neutral INK rather than the amber the
+   baseline used: amber means "the frozen official record", and nothing in
+   this section is a record. The static chrome keeps the illustration-only
+   field green. */
+.simulator-field { max-width: 100%; }
 .simulator-field-path {
   fill: none;
-  stroke: var(--accent-amber);
+  stroke: var(--text-muted);
   stroke-width: 1.75;
   stroke-linecap: round;
   stroke-dasharray: 5 4;
-  opacity: 0.6;
 }
 .simulator-field-ball {
-  fill: var(--accent-amber);
+  fill: var(--text-primary);
   stroke: var(--surface);
   stroke-width: 2;
   r: 8;
   transition: cx 0.08s linear, cy 0.08s linear;
 }
 
-@media (max-width: 640px) {
-  .simulator-body { max-width: 100%; }
-  .simulator-controls { gap: 16px; }
+.demo-onward {
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-4);
+  border-top: var(--rule-hairline) solid var(--border);
+  font-size: var(--fs-300);
 }
 
-/* Desktop widescreen presentation (visual-polish pass, no functional
-   change) -- everything in this block is new and scoped entirely to
-   `min-width: 900px`, so below that breakpoint the simulator's markup
-   (now wrapped in `.simulator-layout`/`.simulator-field-column`/
-   `.simulator-controls-column`/`.simulator-stage` containers with NO
-   rules of their own outside this block, or only the minimal baseline
-   rules defined earlier above) renders close to how it did before these
-   classes existed. 900px sits between this same page's `.demo-grid`
-   breakpoint (800px, see above) and typical laptop viewport widths, so
-   the two-column layout only activates once there's genuinely enough
-   room for a wide field diagram alongside a full-width controls column.
+/* ── Shared probability-bar list ─────────────────────────────────────────
+   NOT used by /demo/ any more (it renders a table, above). These class
+   names are emitted by static/showcase_whatif.js for the PLAY page's
+   sensitivity module, so they are kept verbatim and restyled here rather
+   than renamed: that module has no committed fixture data and therefore
+   cannot be rendered locally, and a rename that cannot be looked at is a
+   worse trade than a name that no longer matches its route.
 
-   Second polish pass (hierarchy/controls, no functional change): an
-   earlier version of this block gave two `.simulator-panel` sections and
-   a `.simulator-payoff` section each their own border+background box,
-   nested inside `.simulator-body`'s own border+background -- real-browser
-   review found this reads as "cards inside a card." Replaced with
-   `.simulator-stage` -- a plain wrapper with NO box of its own, separated
-   from its neighbors by a single thin top divider
-   (`.simulator-stage + .simulator-stage`) -- so the right column reads as
-   one continuous flow through Contact -> Expectation -> Reality ->
-   Contact Luck, not four stacked boxes. */
-@media (min-width: 900px) {
-  .simulator-body {
-    max-width: 100%;
-    padding: 28px 32px 34px;
-  }
+   The restyle is the point. These bars were filled with
+   `--diverging-positive` -- the blue that means "this Contact Luck is
+   favorable" -- on a probability, which has no sign at all. Phase 6 settled
+   that probabilities are neutral; its own sensitivity bars had not been. */
+.demo-prob-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+  max-width: 34rem;
+}
+.demo-prob-row {
+  display: grid;
+  grid-template-columns: 7rem 1fr calc(6ch + var(--sp-2));
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-300);
+}
+.demo-prob-label { color: var(--text-secondary); }
+.demo-prob-bar-track {
+  display: block;
+  height: 10px;
+  background: var(--surface-recessed);
+  box-shadow: inset 0 0 0 var(--rule-hairline) var(--border);
+}
+.demo-prob-bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+  width: var(--demo-target-width);
+  background: var(--text-muted);
+}
+.simulator-prob-bar-fill { transition: width 0.08s linear; }
+.demo-prob-pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-primary);
+}
 
-  .simulator-caveat { font-size: 0.85rem; }
-  .simulator-field-column .demo-field-caption { font-size: 0.8rem; }
+/* ── /demo/ · narrow and mobile ──────────────────────────────────────────
+   Structural, not a shrink. The two example cards stop competing for width
+   and stack; the simulator's field moves below the controls it is driven
+   by, which is the order the reader works in anyway. */
+/* The simulator reads as ONE column at every width: contact (the two
+   sliders, then the field they drive) -> expectation -> result -> payoff.
+   Two earlier arrangements both failed the same test. A full-height second
+   column for the field left ~400px of empty space under a 250px diagram,
+   and pairing the field with the sliders alone moved the same emptiness to
+   the other side, because the diagram is taller than the two controls.
+   Whitespace is spent separating tiers, never padding a box
+   (docs/design/layout.md).
 
-  .simulator-layout {
-    display: grid;
-    grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.1fr);
-    gap: 44px;
-    /* `stretch` (grid's default -- set explicitly here since it was
-       previously overridden to `start`) lets the field column's height
-       match the taller controls column, so the field+caption group below
-       can be vertically centered within it instead of sitting pinned to
-       the top with empty space stranded underneath. */
-    align-items: stretch;
-  }
+   The instrument gets its own measure for the same reason: a 1200px-wide
+   card holding a 600px table is a box with air in it, not a surface. */
+.demo-simulator-body { max-width: 46rem; }
+.demo-simulator-field { margin: var(--sp-4) 0 0; }
+/* The diagram is capped; its caption is not, so the caption sets on the
+   normal measure instead of wrapping to four lines inside a 240px box. */
+.demo-simulator-field .simulator-field { max-width: 240px; }
 
-  /* Vertically centers the field+caption as one group within the taller
-     controls column's height, and gives the field a very faint "stadium
-     light" glow (the low-alpha `--accent-amber-soft` token, not a new
-     hardcoded color) behind the diamond -- atmosphere, not data; it never
-     extends past the SVG's own footprint enough to compete with either
-     column's text. */
-  .simulator-field-column {
-    padding-top: 4px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    position: relative;
-    border-radius: 14px;
-    background: radial-gradient(
-      ellipse 65% 55% at 50% 40%,
-      var(--accent-amber-soft),
-      transparent 72%
-    );
-  }
+@media (max-width: 1023px) {
+  .demo-grid { grid-template-columns: minmax(0, 1fr); }
+  .demo-card { max-width: 44rem; }
+}
 
-  /* Overrides `.demo-field`'s shared `max-width: 260px` (see that rule,
-     above) -- same SVG viewBox/coordinate system, just rendered larger;
-     wins on source order since both are single-class selectors and this
-     rule appears later in the stylesheet. */
-  .simulator-field {
-    max-width: 480px;
-    width: 100%;
-  }
-
-  .simulator-controls-column { min-width: 0; }
-
-  /* One continuous column, four stages separated by a thin rule instead
-     of four independent boxes (see the comment above this media query).
-     The first stage (Contact) sits directly under the play selector with
-     no divider of its own. */
-  .simulator-stage + .simulator-stage {
-    margin-top: 28px;
-    padding-top: 24px;
-    border-top: 1px solid var(--border);
-  }
-
-  .simulator-stage-label {
-    margin: 0 0 14px;
-    font-size: 0.76rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
-  }
-
-  /* Reference-play segmented control: a shared pill-shaped track with the
-     selected play filled in, rather than two independent outlined
-     buttons -- "choose the context for everything below," read at a
-     glance. */
-  .simulator-play-selector {
-    display: inline-flex;
-    gap: 2px;
-    padding: 3px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--page);
-  }
-  .simulator-play-button {
-    border: none;
-    background: transparent;
-    border-radius: 999px;
-    padding: 7px 20px;
-  }
-  .simulator-play-button:hover { color: var(--text-primary); }
-  .simulator-play-button:focus-visible {
-    outline: 2px solid var(--accent-amber);
-    outline-offset: 2px;
-  }
-  .simulator-play-button-selected {
-    background: var(--surface);
-    color: var(--text-primary);
-  }
-
-  /* ---- Stage 1: Contact -- exit velocity/launch angle read as active
-     readings, not helper text: label, then a large current-value figure,
-     then the slider. DOM order is unchanged from the baseline rules
-     above (label, input, value) -- this is a purely visual reorder via
-     `order`, inert below 900px. ---- */
-  .simulator-controls {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 28px;
-    align-items: start;
-  }
-  .simulator-control { gap: 6px; }
-  .simulator-control label {
-    order: 0;
-    font-size: 0.82rem;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .simulator-control-value {
-    order: 1;
-    font-size: 1.9rem;
-    line-height: 1.15;
-    color: var(--text-primary);
-  }
-  .simulator-slider { order: 2; }
-
-  .simulator-control-footer { margin-top: 16px; }
-  .simulator-fixed-context { font-size: 0.85rem; }
-  /* Reset stays available but visually recedes to a plain text action --
-     the sliders and outcome buttons are the primary controls here. */
-  .simulator-reset-button {
-    border-color: transparent;
-    background: transparent;
-    padding: 4px 2px;
-    font-size: 0.82rem;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-  .simulator-reset-button:hover { color: var(--text-primary); border-color: transparent; }
-
-  /* ---- Stage 2: Expectation ---- */
-  .simulator-controls-column .demo-prob-bars { gap: 10px; margin: 4px 0; }
-  .simulator-controls-column .demo-prob-row {
-    grid-template-columns: 42px 1fr 58px;
-    gap: 12px;
-    font-size: 0.94rem;
-  }
-  .simulator-controls-column .demo-prob-bar-track { height: 12px; border-radius: 6px; }
-  .simulator-controls-column .demo-prob-bar-fill { border-radius: 6px; }
-
-  /* Compact summary line, not another boxed card -- separated from the
-     probability rows by a dashed rule (echoing the dashed
-     `.demo-rv-value-expected` underline elsewhere on this page) and given
-     a bigger figure than plain body text, but still clearly a smaller
-     number than the final Contact Luck payoff below. */
-  .simulator-rv-summary {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-top: 16px;
-    padding-top: 14px;
-    border-top: 1px dashed var(--gridline);
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-  }
-  .simulator-rv-summary .demo-rv-value { font-size: 1.2rem; }
-
-  /* ---- Stage 3: Reality -- the five hypothetical-outcome buttons become
-     one coherent segmented strip (shared border, internal dividers,
-     equal-width segments) instead of five separate pill buttons. ---- */
-  .simulator-outcome-buttons {
-    display: flex;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--page);
-    margin-top: 4px;
-  }
-  .simulator-outcome-button {
-    flex: 1 1 0;
-    border: none;
-    border-right: 1px solid var(--border);
-    border-radius: 0;
-    background: transparent;
-    padding: 11px 8px;
-    font-size: 0.88rem;
-  }
-  .simulator-outcome-button:last-child { border-right: none; }
-  .simulator-outcome-button:hover { background: var(--surface); }
-  .simulator-outcome-button:focus-visible {
-    outline: 2px solid var(--accent-amber);
-    outline-offset: -2px;
-  }
-  /* Redeclared here (not just relying on the base rule above) so this
-     wins the cascade over the plain `.simulator-outcome-button` reset
-     immediately above -- both are equal-specificity single-class
-     selectors, so source order decides, and this rule must come last. */
-  .simulator-outcome-button-selected {
-    background: var(--diverging-mid);
-    color: var(--text-primary);
-  }
-
-  /* ---- Stage 4: Contact Luck -- the strongest numeric element in the
-     column. The label reads as a small eyebrow, not another h3-weight
-     heading, so the figure underneath keeps the emphasis. ---- */
-  .simulator-payoff-label {
-    margin: 0 0 10px;
-    font-size: 0.76rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-  }
-  .simulator-rv-compare { margin: 0 0 16px; gap: 6px; }
-  .simulator-rv-compare-row { font-size: 0.95rem; }
-  .simulator-rv-compare .demo-rv-value { font-size: 1.05rem; }
-
-  /* Larger than the walkthrough's own `.demo-luck-figure` (1.6rem,
-     unchanged there), but a single step up, not a display-sized number. */
-  .simulator-luck-figure {
-    font-size: 2.15rem;
-    margin: 4px 0 8px;
-  }
-  .simulator-stage-payoff .demo-explanation { font-size: 0.88rem; }
+@media (max-width: 639px) {
+  .demo-lede { margin-bottom: var(--sp-5); }
+  .demo-play-button { width: 100%; }
+  .demo-card { padding: var(--sp-4); }
+  /* Two items on one ruled line still fits at 320; the divider between
+     them is what breaks, so it becomes a two-row grid instead. */
+  .demo-line-item { min-width: 7rem; }
+  .demo-col-outcome { width: 7.5rem; }
+  .demo-outcome-button { flex: 1 1 3.5rem; }
+  .demo-prob-row { grid-template-columns: 5.5rem 1fr calc(6ch + var(--sp-1)); gap: var(--sp-2); }
+  .demo-simulator-body { padding: var(--sp-4) var(--sp-3) var(--sp-4); }
+  .demo-reset { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .demo-stage { transition: none; }
-  .demo-prob-bar-fill { transition: none; }
+  .demo-prob-fill { transition: none; }
+  .demo-prob-fill.is-live { transition: none; }
   .demo-ball { transition: none; }
-  .simulator-prob-bar-fill { transition: none; }
   .simulator-field-ball { transition: none; }
 }
 

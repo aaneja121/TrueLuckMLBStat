@@ -679,10 +679,15 @@ class TestScoredGamesLabelClarification:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "methodology" / "index.html").read_text()
-        assert "<strong>Scored Games</strong>" in html
-        assert "outcome-resolved eligible batted ball" in html
-        assert "This is <em>not</em> the" in html
-        assert "official MLB games played" in html
+        # Source line wrapping is not the contract, so the claim is matched
+        # against whitespace-normalized text rather than raw markup.
+        flat = " ".join(html.split())
+        assert "<strong>Scored Games</strong>" in flat
+        assert "outcome-resolved eligible batted ball" in flat
+        # Phase 7 rewrote the sentence around the claim; the claim itself is
+        # what this test exists to protect, so it is asserted directly
+        # rather than through the markup that used to carry it.
+        assert "not the same as official MLB games played" in flat
 
     def test_games_numeric_value_is_unchanged_in_leaderboard_row_and_player_page(
         self, tmp_path: Path

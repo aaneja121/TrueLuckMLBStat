@@ -47,7 +47,7 @@ import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -492,6 +492,232 @@ def _player_view(
     }
 
 
+#: Snapshot-type display labels. The raw values are `snake_case` schema
+#: tokens (`snapshot_data.classify_snapshot_type`); a reader gets the words.
+#: Display only -- nothing here changes precedence or which snapshot is used.
+_SNAPSHOT_TYPE_LABELS: dict[str, str] = {
+    "genuine_prospective_snapshot": "Genuine prospective",
+    "corrected_prospective_snapshot": "Corrected prospective",
+    "retrospective_backfill": "Retrospective backfill",
+    "invalid_incomplete_snapshot": "Invalid or incomplete",
+}
+
+#: Qualification-status display labels, matching `mlb_luck_score.scoring.
+#: qualification`'s own five statuses. Duplicated rather than imported for
+#: the same reason `_QUALIFICATION_EXPLANATIONS` is (CLAUDE.md rule 6).
+_QUALIFICATION_STATUS_LABELS: dict[str, str] = {
+    "qualified": "Qualified",
+    "provisionally_qualified": "Provisionally qualified",
+    "small_sample": "Small sample",
+    "insufficient_component_coverage": "Insufficient component coverage",
+    "not_reportable": "Not reportable",
+}
+
+
+_KNOWN_STATUS_LABELS: frozenset[str] = frozenset(
+    {
+        "Calibrated",
+        "Not calibrated",
+        "Provisional",
+        "Limited subgroup evidence",
+        "Unavailable",
+    }
+)
+
+
+def _humanize_token(value: str) -> str:
+    """A `snake_case` schema token as words, first letter capitalised."""
+    words = str(value).replace("_", " ").strip()
+    return words[:1].upper() + words[1:] if words else words
+
+
+def _display_date(iso_date: str | None) -> str:
+    """`2026-08-14` -> `Aug. 14, 2026`, matching the header's own badge."""
+    if not iso_date:
+        return "\u2014"
+    try:
+        return date.fromisoformat(iso_date).strftime("%b. %-d, %Y")
+    except ValueError:
+        return iso_date
+
+
+def _display_timestamp(iso_timestamp: str | None) -> str:
+    """`2026-08-15T13:35:37.370905+00:00` -> `Aug. 15, 2026, 13:35 UTC`.
+
+    Design principle 8, *format the data rather than engineering around it*:
+    the raw value is a 32-character unbreakable token that collapsed the
+    status history table's last columns to ~31px at narrow widths. The ISO
+    value is not lost -- it stays in the `<time datetime>` attribute. This
+    reformats an already-recorded string; it derives no new fact.
+    """
+    if not iso_timestamp:
+        return "\u2014"
+    try:
+        parsed = datetime.fromisoformat(iso_timestamp)
+    except ValueError:
+        return iso_timestamp
+    if parsed.tzinfo is None:
+        return parsed.strftime("%b. %-d, %Y, %H:%M")
+    return parsed.astimezone(UTC).strftime("%b. %-d, %Y, %H:%M UTC")
+
+
+def _snapshot_type_label(snapshot_type: str) -> str:
+    return _SNAPSHOT_TYPE_LABELS.get(snapshot_type, _humanize_token(snapshot_type))
+
+
+#: The snapshot records model information under THREE key vocabularies that
+#: do not line up: `model_versions` is keyed per model
+#: (`infield_defense_expected_winner`), `component_model_status` per
+#: component (`infield`), and `model_selection_winners` per component again
+#: plus `near_wall_specialist`, which has no version entry at all. The
+#: baseline shipped them as three disconnected lists, so a reader had to do
+#: the join themselves and could not tell which status went with which
+#: version. This maps every known key onto one canonical component, in the
+#: order the score is actually built. Unknown keys are never dropped -- they
+#: fall through to their own row (see `_model_rows`), so a future schema
+#: addition appears rather than disappearing.
+_MODEL_COMPONENT_CANONICAL: dict[str, str] = {
+    "contact": "Contact",
+    "outfield": "Outfield defense",
+    "outfield_defense": "Outfield defense",
+    "infield": "Infield defense",
+    "infield_defense": "Infield defense",
+    "infield_defense_expected_winner": "Infield defense",
+    "advancement": "Advancement",
+    "advancement_expected_winner": "Advancement",
+    "near_wall_specialist": "Near-wall specialist",
+}
+_MODEL_COMPONENT_ORDER: tuple[str, ...] = (
+    "Contact",
+    "Outfield defense",
+    "Infield defense",
+    "Advancement",
+    "Near-wall specialist",
+)
+
+
+def _model_rows(status: c.StatusPageData) -> list[dict[str, Any]]:
+    """One row per component, joining version, recorded status and selection.
+
+    Display only. `summarize_component_status` is the dashboard's existing
+    fail-soft labeller: a documented status becomes its public label, and
+    anything else comes back close to verbatim, which is the honest handling
+    for a value this dashboard is not entitled to reinterpret.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+
+    def cell(key: str) -> dict[str, Any]:
+        label = _MODEL_COMPONENT_CANONICAL.get(key) or _humanize_token(key)
+        return rows.setdefault(
+            label, {"component": label, "version": None, "status": None, "selection": None}
+        )
+
+    for name, version in status.model_versions.items():
+        cell(name)["version"] = str(version)
+    for name, value in status.component_model_status.items():
+        raw = str(value)
+        entry = cell(name)
+        entry["status"] = c.summarize_component_status([raw])
+        #: True when the snapshot recorded something outside the documented
+        #: status vocabulary. It is shown in the identifier register rather
+        #: than reworded, so it never reads as a label this site chose.
+        entry["status_is_raw"] = entry["status"] not in _KNOWN_STATUS_LABELS
+    for name, winner in status.model_selection_winners.items():
+        cell(name)["selection"] = str(winner)
+
+    ordered = [rows.pop(label) for label in _MODEL_COMPONENT_ORDER if label in rows]
+    return ordered + [rows[label] for label in sorted(rows)]
+
+
+def _history_gaps(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Interleave the snapshot history with an explicit marker for any date
+    that holds no valid snapshot.
+
+    A date missing from the history is a real provenance fact, and the
+    reader cannot tell an intentional gap from a rendering bug if the list
+    simply skips from the 8th to the 6th. This states it. It never asserts
+    a cause, because the dashboard does not know one, and it never
+    interpolates: a gap is drawn as a gap.
+
+    Calendar arithmetic over dates the snapshot already recorded. No score,
+    rank, interval or probability is derived here.
+    """
+    rows: list[dict[str, Any]] = []
+    previous: date | None = None
+    for entry in history:
+        try:
+            current = date.fromisoformat(entry["data_through_date"])
+        except (TypeError, ValueError):
+            rows.append({"kind": "snapshot", "entry": entry})
+            previous = None
+            continue
+        if previous is not None and (previous - current).days > 1:
+            newest_missing = previous - timedelta(days=1)
+            oldest_missing = current + timedelta(days=1)
+            label = (
+                _display_date(oldest_missing.isoformat())
+                if newest_missing == oldest_missing
+                else f"{_display_date(oldest_missing.isoformat())} to "
+                f"{_display_date(newest_missing.isoformat())}"
+            )
+            rows.append({"kind": "gap", "label": label})
+        rows.append({"kind": "snapshot", "entry": entry})
+        previous = current
+    return rows
+
+
+def _status_view(status: c.StatusPageData) -> dict[str, Any]:
+    """Presentation-only view model for `/status/`.
+
+    Every value here is a display FORM of something already in the snapshot:
+    a date reformatted, a `snake_case` token turned into words, a dict turned
+    into an ordered list of rows. No status, count, threshold or precedence
+    decision is made here -- `content.build_status_page_data` already made
+    them, and this never disagrees with it.
+    """
+    history = [
+        {
+            "data_through_date": entry.data_through_date,
+            "data_through_display": _display_date(entry.data_through_date),
+            "snapshots": [
+                {
+                    "directory_name": snap.directory_name,
+                    "snapshot_type": snap.snapshot_type,
+                    "type_label": _snapshot_type_label(snap.snapshot_type),
+                    "generated_at": snap.generated_at,
+                    "generated_at_display": _display_timestamp(snap.generated_at),
+                    "is_displayed": bool(
+                        entry.preferred and snap.directory_name == entry.preferred.directory_name
+                    ),
+                    #: The one snapshot this build was rendered from. Amber
+                    #: means "the frozen official record", so exactly one row
+                    #: in the history carries it -- not every published row.
+                    "is_current": snap.directory_name == status.snapshot_directory_name,
+                }
+                for snap in entry.all_valid_snapshots
+            ],
+        }
+        for entry in status.snapshot_history
+    ]
+    return {
+        "data_through_display": _display_date(status.data_through_date),
+        "generated_at_display": _display_timestamp(status.generated_at),
+        "snapshot_type_label": _snapshot_type_label(status.snapshot_type),
+        "model_rows": _model_rows(status),
+        "qualification_rows": [
+            {
+                "label": _QUALIFICATION_STATUS_LABELS.get(name, _humanize_token(name)),
+                "count": count,
+            }
+            for name, count in sorted(
+                status.qualification_counts.items(), key=lambda kv: -kv[1]
+            )
+        ],
+        "history": _history_gaps(history),
+        "snapshot_count": sum(len(entry["snapshots"]) for entry in history),
+    }
+
+
 def _demo_view(page_data: dc.DemoPageData) -> dict[str, Any]:
     examples = [
         {
@@ -864,7 +1090,10 @@ def build_dashboard(
     status_dir.mkdir(parents=True, exist_ok=True)
     (status_dir / "index.html").write_text(
         env.get_template("status.html").render(
-            **base_context, active_page="status", status=status_data
+            **base_context,
+            active_page="status",
+            status=status_data,
+            **_status_view(status_data),
         )
     )
 

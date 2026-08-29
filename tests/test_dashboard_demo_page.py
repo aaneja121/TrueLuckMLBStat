@@ -154,8 +154,11 @@ class TestDemoPageBuild:
             build_timestamp="2026-01-01T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "demo" / "index.html").read_text()
-        assert "Illustrative animation" in html
-        assert "not a reconstruction of the actual ball flight or defender positioning" in html
+        # Phase 7 rewrote the caption; the disclaimer it carries is what
+        # this test protects, so both halves of the claim are asserted.
+        assert "Illustrative ball flight" in html
+        assert "Not a reconstruction of the real flight" in html
+        assert "where the" in html and "fielders stood" in html
 
     def test_demo_nav_link_present_on_every_page(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
@@ -278,17 +281,22 @@ class TestSimulatorSectionBuild:
         return (tmp_path / "dist" / "demo" / "index.html").read_text()
 
     def test_demo_index_html_still_builds_with_the_simulator_section(self, tmp_path: Path) -> None:
-        assert "Try It Yourself" in self._build(
-            tmp_path
-        )  # requirement #15/#20: section present, build succeeds
+        html = self._build(tmp_path)
+        # Phase 7 set the heading in sentence case, matching every other
+        # heading on the site. The section, not its casing, is the contract.
+        assert "Try it yourself" in html
+        assert 'data-role="counterfactual-simulator"' in html
 
     def test_existing_v1_3_0_walkthrough_content_remains_present(self, tmp_path: Path) -> None:
         """Requirement #21: adding the simulator must not remove or alter
         the existing two-play walkthrough.
         """
         html = self._build(tmp_path)
-        assert "Why Contact Luck Exists" in html
+        # Phase 7 retitled the route to match its own nav label ("How It
+        # Works"); the walkthrough itself is what must survive.
+        assert "How Contact Luck works" in html
         assert 'data-role="demo-play-all"' in html
+        assert html.count('class="demo-card"') == 2
         # Redesign Phase 1 numeric primitive: signed Contact Luck / run
         # values render with U+2212 MINUS SIGN, not ASCII hyphen-minus,
         # so they align in a tabular-figure column. Asserted with the
@@ -344,8 +352,12 @@ class TestSimulatorSectionBuild:
         self, tmp_path: Path
     ) -> None:
         html = self._build(tmp_path)
-        assert "held fixed to the selected real play" in html
-        assert "Model sensitivity analysis, not a reconstruction of physical ball flight." in html
+        flat = " ".join(html.split())
+        # Phase 7 wording. Both halves of the ceteris-paribus contract are
+        # still stated: everything else is held at the reference play's own
+        # values, and nothing here is a recorded play.
+        assert "stays fixed at the reference play's own values" in flat
+        assert "hypothetical contact, not a recorded play" in flat
         for banned_phrase in (
             "physics simulator",
             "simulated trajectory",
@@ -369,10 +381,8 @@ class TestSimulatorSectionBuild:
         assert 'data-role="simulator-field-svg"' in html
         assert 'data-role="simulator-field-path"' in html
         assert 'data-role="simulator-field-ball"' in html
-        assert (
-            "Illustrative field view driven by the selected exit velocity and launch angle" in html
-        )
-        assert "not a reconstruction of physical ball flight" in html
+        assert "Illustrative field view, driven by the two sliders" in html
+        assert "not where a ball would physically land" in html
 
     def test_counterfactual_grid_json_is_copied_into_dist_demo(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)

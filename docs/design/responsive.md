@@ -20,7 +20,7 @@ inside them — see § Content-driven component breakpoints.
 | **Charts** | Full figure | Full figure | Re-authored viewBox | Simplified form (sparkline + endpoints) |
 | **Play data** | 4-across stat line | 4-across | 2 × 2 | Two-line ruled list |
 | **Methodology** | Sticky section index | Sticky index | Collapsed ToC | Collapsed ToC |
-| **Status history** | Scrolling table with min-width | same | **Definition list per snapshot** (date as heading, fields as label/value pairs) | Definition list |
+| **Status history** and the status **model table** | Aligned record rows under one column head, labels visually hidden | same | **A `<dl>` record per snapshot** (labels visible, one field per line) | Record per snapshot | 
 | **Search** | Inline combobox | Inline | Inline | Full-screen sheet |
 | **Long names** | Full | Full | Full-width line | Full-width line; ellipsis at a word boundary only if still overflowing |
 
@@ -189,6 +189,45 @@ Structural, not a shrink.
 
 Measured at 390 and 320: no horizontal overflow, tick labels 12 px, and the axis zero, the
 strip spine and every row spine on one x to three decimals.
+
+## The supporting routes - mobile (Phase 7)
+
+Structural, not a shrink, and one component is shared.
+
+**The record list** (`.record-list`) is one dom that is correct at every width, used by
+both the snapshot history and the status page's model table. Each record is a `<dl>` of
+label/value pairs, so the label/value pairing is programmatic for a screen reader whatever
+the layout is doing. At >= 1024 the records become aligned grid rows under one
+`aria-hidden` column head and their `<dt>`s go visually hidden; below that the labels come
+back and each record reads on its own. There is no second copy of the content and no
+`display: none` on anything operable.
+
+**The baseline defect it replaces** was measured: five columns, the last two carrying a
+32-character unbreakable ISO timestamp, collapsing to ~31 px with rows several lines tall.
+The fix is two-part and ordered. First the timestamp is reformatted **at the source**
+(`build.py`'s `_display_timestamp`: `Aug. 15, 2026, 13:35 UTC`, ISO kept in
+`<time datetime>`), which removes the unbreakable token entirely - design principle 8.
+Only then does the layout change. Fixing the layout without fixing the token would have
+been engineering around the data.
+
+**Methodology** keeps its index as a `<details>` that is sticky beside the body at >= 1024
+and a collapsed table of contents below it. Its qualification table wraps rather than
+setting the status names `nowrap`: "Insufficient component coverage" set nowrap pushed the
+table's min-content width to **359 px against a 320 px viewport**, which was the only
+overflow in the phase. The equation's three rows put their gloss under the term below 640
+so all three read the same way.
+
+**Demo** stacks its two example cards below 1024 and the simulator is one column at every
+width. Two earlier arrangements of the simulator's field diagram both failed the same test
+and are recorded here so they are not retried: a full-height second column left ~400 px of
+empty space under a ~250 px diagram, and pairing the field with the two sliders alone moved
+the same emptiness to the other side, because the diagram is taller than the controls. The
+field now sits under the sliders that drive it, capped at 240 px, and the instrument card
+takes its own 46 rem measure rather than the full data measure.
+
+Verified at 1440 / 1280 / 1024 / 768 / 390 / 320 in both themes across all seven built
+routes: no horizontal overflow anywhere, no rendered text below 11 px, and every operable
+control >= 44 px (inline links inside a sentence excepted, per WCAG 2.5.5).
 
 ## The play page - mobile (Phase 6)
 

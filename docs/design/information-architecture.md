@@ -112,16 +112,68 @@ that hitter in Explore → one play → back.
 Rigorous without dominating: prose measure, a section index, and definitions that a reader
 can link to. It is the destination for depth, never a prerequisite for using the product.
 
+**Built in Phase 7** as eleven ruled sections — Definition, Inputs, Expected run value,
+Observed run value, Contact Luck, Aggregation, Uncertainty, Qualification, Interpretation,
+Limitations, Version and provenance — each with a stable `id`, under a numbered index that
+is sticky at ≥ 1024 and a collapsed table of contents below it. Every section id is a link
+target, and `/status/` uses one: its qualification breakdown links to `#qualification`
+rather than to the top of the page.
+
+Two things the rewrite is careful about. The **per-play / per-100 confusion** is named and
+refused directly, because it is the one reading error this metric invites: a leaderboard
+figure is a season rate, and the page says a hitter at `+7.62` did not gain 7.62 runs on a
+batted ball. And the **five qualification statuses** are given in their real precedence
+order with what each one means, which is Phase 4's finding applied to the reference page:
+three of the four unranked statuses are not about sample size at all.
+
+The page also **scopes its own claims**. An early draft said nothing about the batter
+reaches the model; `sprint_speed` is an input to the infield-opportunity feature set, so
+the claim is scoped to the contact model and the exception is named.
+
 ## Status
 
 Provenance and freshness, not an admin console. The lead answers "how current is this and
 is it trustworthy" in one line; the snapshot history is the archive beneath it.
+
+**Built in Phase 7.** The lead is one sentence carrying the data-through date, the snapshot
+name, the integrity result and the two counts. Under it: the published snapshot as a ruled
+record, what is published, the models, the sources, then the history.
+
+Amber is spent on exactly two things — the snapshot this build was rendered from, and its
+data-through date — so the accent still means "the frozen official record" on a page where
+almost every row is a published snapshot.
+
+Three things the baseline got wrong and this page does not. The snapshot's three model
+vocabularies (`model_versions` per model, `component_model_status` per component,
+`model_selection_winners` per component plus `near_wall_specialist`) are **joined into one
+row per component**, so a status sits with the version it belongs to; the baseline printed
+three disconnected lists. A **status value outside the documented vocabulary** is shown as
+recorded, in the identifier register, rather than reworded into a label this site chose:
+the current snapshot records `outfield: "False"`, and the dashboard displays, it does not
+reinterpret. And a **date with no valid stored snapshot is stated**, not skipped, so an
+intentional gap (2026-08-07) cannot read as a rendering bug. No cause is asserted, because
+the page does not know one.
 
 ## Demo
 
 The conversion path for a confused visitor: two real batted balls explained visually, then
 a counterfactual instrument. Structurally the strongest page in the product today —
 protect it.
+
+**Built in Phase 7**, and the protection held: the four-stage reveal, the
+`requestAnimationFrame` ball flight, the `demo-reality-revealed` gate and the simulator's
+whole state model are unchanged. What changed is what the page spends before the reader
+reaches them. The lede is one line sharing a band with the Play control, and the six-line
+note about what the two plays are moved **below** the plays it describes.
+
+Where a quantity here is the same quantity a play page shows, it is now drawn the same way:
+outcome probabilities take Phase 6's neutral bar on a full-width track with the recorded
+result marked in text, and the payoff is a signed numeral with the word under it. What is
+deliberately **not** borrowed is the run-value gap figure. The demo's examples are 2024
+fixture plays and are not in the published `run_value` domain, so drawing them on that axis
+would assert an alignment that is not true. The gap is stated as two labelled values and a
+signed difference instead — which also keeps the demo visibly simpler than the play page,
+which is the correct hierarchy for a teaching route.
 
 ---
 

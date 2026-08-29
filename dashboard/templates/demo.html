@@ -1,86 +1,150 @@
 {% extends "base.html" %}
-{% block title %}Why Contact Luck Exists — Contact Luck{% endblock %}
-{% block meta_description %}A 30-second interactive demo of what Contact Luck measures, using two real 2024 MLB batted balls.{% endblock %}
+{% block title %}How Contact Luck works — Contact Luck{% endblock %}
+{% block meta_description %}Two real 2024 MLB batted balls, played out one stage at a time, plus a simulator that moves exit velocity and launch angle against the frozen model.{% endblock %}
+{% block og_title %}How Contact Luck works — Contact Luck{% endblock %}
+{% block og_url %}{{ site_url }}/demo/{% endblock %}
+{% block twitter_title %}How Contact Luck works — Contact Luck{% endblock %}
 {% block content %}
-<h1>Why Contact Luck Exists</h1>
-<p class="page-subtitle">
-  Two balls in play can tell completely different stories. Contact Luck measures the run-value
-  gap between what a batted ball was expected to produce and what actually happened.
-</p>
+{#
+  Redesign Phase 7 -- the conversion path for a confused visitor
+  (docs/design/information-architecture.md § Demo).
 
-<div class="demo-controls">
+  Teaching, not evidence. The page is one lede line, then two real batted
+  balls that play themselves out stage by stage, then an instrument the
+  reader drives. Everything that used to sit between the lede and the first
+  card (a two-line subtitle, then a six-line callout between the cards and
+  the simulator) is either gone or moved below the thing it describes.
+
+  Where a quantity here is the same quantity the play page shows, it is
+  drawn the same way: outcome probabilities are a neutral bar against a
+  full-width track with the recorded result marked in text (Phase 6), and
+  the Contact Luck payoff is a signed numeral with a word under it. What is
+  NOT borrowed is the run-value gap figure. The demo's examples are 2024
+  fixture plays and are not in the published `run_value` domain, so drawing
+  them on that axis would assert an alignment that is not true. The gap is
+  stated as two labelled values and a signed difference instead.
+
+  The two cards are one of the three admissible card cases
+  (docs/design/layout.md: "a repeated instance of one object type in a set
+  the reader scans across", which names /demo/'s two compared plays), and
+  the simulator is another (an interactive instrument with a defined input
+  surface). Both are hairline boxes; neither carries a coloured top border.
+#}
+<h1 class="route-title">How Contact Luck works</h1>
+<div class="demo-lede">
+  <p class="demo-lede-line">
+    Two batted balls, one favorable and one not. Each plays out in four steps: the contact, what
+    the model expected of it, what happened, and the gap between the last two.
+  </p>
   <button type="button" class="demo-play-button" data-role="demo-play-all">Play</button>
 </div>
 
 <div class="demo-grid">
   {% for example in examples %}
-  <section class="demo-card" data-example-id="{{ example.example_id }}">
-    <h2>{{ example.contact_description }}</h2>
-    <p class="demo-card-subtitle">
-      {{ example.batter_name }} ({{ example.batter_team }}) vs {{ example.opponent_team }} — {{ example.game_date }}
+  <section class="demo-card" data-example-id="{{ example.example_id }}"
+           aria-label="{{ example.contact_description }}, {{ example.batter_name }}">
+    <h2 class="demo-card-title">{{ example.contact_description }}</h2>
+    <p class="demo-card-apparatus">
+      {{ example.batter_name }} ({{ example.batter_team }}) vs {{ example.opponent_team }} · {{ example.game_date }}
     </p>
 
-    {{ example.field_svg | safe }}
-    <p class="demo-field-caption">
-      Illustrative animation — not a reconstruction of the actual ball flight or defender positioning.
-    </p>
+    <figure class="demo-field-figure">
+      {{ example.field_svg | safe }}
+      <figcaption class="demo-field-caption">
+        Illustrative ball flight. Not a reconstruction of the real flight or of where the
+        fielders stood.
+      </figcaption>
+    </figure>
 
+    {# ── Stage 1 ─────────────────────────────────────────────────────────
+       A ruled stat line, not two bordered tiles. Neither exit velocity nor
+       launch angle is a signed quantity, so neither carries a sign. #}
     <div class="demo-stage" data-stage="1">
-      <h3>Contact</h3>
-      <div class="demo-stat-row">
-        <span class="demo-stat">
-          <span class="demo-stat-label">Exit velocity</span>
-          <span class="demo-stat-value">{{ "%.1f"|format(example.exit_velocity_mph) }} mph</span>
-        </span>
-        <span class="demo-stat">
-          <span class="demo-stat-label">Launch angle</span>
-          <span class="demo-stat-value">{{ "%.0f"|format(example.launch_angle_deg) }}&deg;</span>
-        </span>
-      </div>
-    </div>
-
-    <div class="demo-stage" data-stage="2">
-      <h3>Expectation</h3>
-      <p class="page-subtitle" style="margin-bottom:8px;">
-        The model's outcome distribution for this batted ball, before the result is revealed.
-      </p>
-      <div class="demo-prob-bars">
-        {% for row in example.probability_rows %}
-        <div class="demo-prob-row{% if row.is_observed %} demo-prob-row-observed{% endif %}">
-          <span class="demo-prob-label">{{ row.label }}</span>
-          <span class="demo-prob-bar-track">
-            <span class="demo-prob-bar-fill" style="--demo-target-width: {{ "%.2f"|format(row.probability_pct) }}%"></span>
-          </span>
-          <span class="demo-prob-pct">{{ "%.1f"|format(row.probability_pct) }}%</span>
+      <h3>The contact</h3>
+      <dl class="demo-line">
+        <div class="demo-line-item">
+          <dt>Exit velocity</dt>
+          <dd class="num">{{ "%.1f"|format(example.exit_velocity_mph) }} mph</dd>
         </div>
-        {% endfor %}
-      </div>
-      <p class="demo-rv-line">Expected run value:
-        <span class="demo-rv-value demo-rv-value-expected">{{ example.expected_run_value | signed }}</span>
+        <div class="demo-line-item">
+          <dt>Launch angle</dt>
+          <dd class="num">{{ "%.0f"|format(example.launch_angle_deg) }}&deg;</dd>
+        </div>
+      </dl>
+    </div>
+
+    {# ── Stage 2 ─────────────────────────────────────────────────────────
+       Phase 6's probability treatment: a bounded 0-100% quantity gets a
+       neutral bar on a full-width track. No sign colour, because a
+       probability has no sign. The "what happened" tag is in the markup
+       from first paint but stays visually gated until Stage 3 reveals the
+       result, the same gate the baseline used on this page. #}
+    <div class="demo-stage" data-stage="2">
+      <h3>What the model expected</h3>
+      <table class="demo-probabilities">
+        <caption class="visually-hidden">
+          The model's chance of each outcome for this contact, before the result.
+        </caption>
+        <colgroup>
+          <col class="demo-col-outcome"><col class="demo-col-bar"><col class="demo-col-pct">
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col" class="demo-col-outcome">Outcome</th>
+            <th scope="col" class="demo-col-bar"><span class="visually-hidden">Share</span></th>
+            <th scope="col" class="demo-col-pct">Chance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in example.probability_rows %}
+          <tr{% if row.is_observed %} class="is-observed"{% endif %}>
+            <th scope="row" class="demo-col-outcome">
+              {{ row.label }}
+              {% if row.is_observed %}<span class="demo-prob-tag">what happened</span>{% endif %}
+            </th>
+            <td class="demo-col-bar">
+              <span class="demo-prob-track" aria-hidden="true">
+                <span class="demo-prob-fill" style="--demo-target-width: {{ "%.2f"|format(row.probability_pct) }}%"></span>
+              </span>
+            </td>
+            <td class="demo-col-pct num">{{ "%.1f"|format(row.probability_pct) }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="demo-rv-line">
+        <span class="demo-rv-label">Expected run value</span>
+        <span class="demo-rv-value num">{{ example.expected_run_value | signed }}</span>
       </p>
     </div>
 
+    {# ── Stage 3 ───────────────────────────────────────────────────────── #}
     <div class="demo-stage" data-stage="3">
-      <h3>Reality</h3>
-      <p class="demo-outcome">Result: <strong>{{ example.outcome_label }}</strong></p>
-      <p class="demo-rv-line">Observed run value:
-        <span class="demo-rv-value demo-rv-value-observed">{{ example.observed_run_value | signed }}</span>
-      </p>
+      <h3>What happened</h3>
+      <dl class="demo-line">
+        <div class="demo-line-item">
+          <dt>Recorded result</dt>
+          <dd>{{ example.outcome_label }}</dd>
+        </div>
+        <div class="demo-line-item">
+          <dt>Observed run value</dt>
+          <dd class="num">{{ example.observed_run_value | signed }}</dd>
+        </div>
+      </dl>
       <p class="demo-des">&ldquo;{{ example.description }}&rdquo;</p>
     </div>
 
+    {# ── Stage 4 ─────────────────────────────────────────────────────────
+       The payoff, in the play page's own vocabulary: the signed numeral in
+       the sign colour, the word under it so colour is never the only
+       channel, and one sentence saying which way it ran. #}
     <div class="demo-stage" data-stage="4">
       <h3>Contact Luck</h3>
-      <div class="demo-luck-diff">
-        <span class="demo-rv-value demo-rv-value-expected">{{ example.expected_run_value | signed }}</span>
-        <span class="demo-luck-arrow" aria-hidden="true">&rarr;</span>
-        <span class="demo-rv-value demo-rv-value-observed">{{ example.observed_run_value | signed }}</span>
-      </div>
-      <span class="demo-luck-badge {{ 'demo-luck-badge-favorable' if example.contact_luck_runs >= 0 else 'demo-luck-badge-unfavorable' }}">
-        {{ "Favorable" if example.contact_luck_runs >= 0 else "Unfavorable" }}
-      </span>
-      <p class="demo-luck-figure {{ 'interval-positive' if example.contact_luck_runs >= 0 else 'interval-negative' }}">
+      <p class="demo-luck-figure num {{ 'cl-scale-favorable' if example.contact_luck_runs >= 0 else 'cl-scale-unfavorable' }}">
         {{ example.contact_luck_runs | signed }} runs
+      </p>
+      <p class="demo-luck-label">
+        {{ "Favorable Contact Luck" if example.contact_luck_runs >= 0 else "Unfavorable Contact Luck" }}
       </p>
       <p class="demo-explanation">{{ example.explanation }}</p>
     </div>
@@ -88,122 +152,143 @@
   {% endfor %}
 </div>
 
-<p class="callout">
-  These two plays are real, individual batted balls from the 2024 MLB season, scored with the
-  same frozen Contact Luck model used throughout this site (see the recorded model configuration
-  in the methodology page's technical detail). They were chosen to illustrate two clear,
-  contrasting cases — they are not a representative sample of a typical batted ball, and a single
-  play like either of these is never treated as its own judgment; it only ever contributes to a
-  player's season-long total.
+<p class="demo-note prose">
+  Both are real batted balls from the 2024 season, scored by the same frozen model the rest of
+  the site uses. They were picked as clear contrasting cases, so neither is a typical batted
+  ball. One play is never a verdict on a hitter. It contributes to a season total and nothing
+  more.
 </p>
 
-<div class="seam-divider" aria-hidden="true"><span class="seam-mark"></span></div>
-
-<section class="simulator-section" data-role="counterfactual-simulator">
-  <h2>Try It Yourself</h2>
-  <p class="page-subtitle">
-    Change exit velocity and launch angle to see how the frozen model responds. All other model
-    inputs are held fixed to the selected real play.
+{# ── The instrument ───────────────────────────────────────────────────── #}
+<section class="demo-simulator" data-role="counterfactual-simulator"
+         aria-labelledby="simulator-heading">
+  <h2 id="simulator-heading">Try it yourself</h2>
+  <p class="demo-simulator-lede prose">
+    Move exit velocity and launch angle, and the frozen model answers again. Everything else
+    stays fixed at the reference play's own values. Every reading below is a hypothetical
+    contact, not a recorded play.
   </p>
-  <p class="simulator-caveat">Model sensitivity analysis, not a reconstruction of physical ball flight.</p>
 
-  <div class="simulator-play-selector" role="tablist" aria-label="Reference play">
+  {# Not a tablist. These buttons choose which play's fixed context the
+     sliders run against; they control no tabpanel and have no tab-key
+     behaviour of their own, so they are a pressed-button group, which is
+     what they actually are. #}
+  <div class="demo-play-selector" role="group" aria-label="Reference play">
     {% for example in examples %}
-    <button type="button" class="simulator-play-button" data-role="simulator-select-play"
-            data-example-id="{{ example.example_id }}" role="tab" aria-selected="false">
+    <button type="button" class="demo-play-select" data-role="simulator-select-play"
+            data-example-id="{{ example.example_id }}" aria-pressed="false">
       {{ example.batter_name }}
     </button>
     {% endfor %}
   </div>
 
-  <p class="simulator-loading" data-role="simulator-loading">Loading the counterfactual grid&hellip;</p>
+  <p class="demo-simulator-loading" data-role="simulator-loading">Loading the model grid&hellip;</p>
 
-  <div class="simulator-body" data-role="simulator-body" hidden>
-    <div class="simulator-layout">
-      <div class="simulator-field-column">
-        {{ simulator_field_svg | safe }}
-        <p class="demo-field-caption">
-          Illustrative field view driven by the selected exit velocity and launch angle &mdash;
-          a model sensitivity visualization, not a reconstruction of physical ball flight.
-        </p>
-      </div>
+  <div class="demo-simulator-body" data-role="simulator-body" hidden>
+    <div class="demo-simulator-controls">
 
-      <div class="simulator-controls-column">
-        <div class="simulator-stage simulator-stage-contact">
-          <div class="simulator-controls">
-            <div class="simulator-control">
+        <div class="demo-sim-stage">
+          <h3 class="demo-sim-label">The contact</h3>
+          <div class="demo-sliders">
+            <div class="demo-slider-control">
               <label for="simulator-ev-slider">Exit velocity</label>
-              <input type="range" id="simulator-ev-slider" class="simulator-slider"
+              <span class="demo-slider-value num" data-role="simulator-ev-value">&mdash;</span>
+              <input type="range" id="simulator-ev-slider" class="demo-slider"
                      data-role="simulator-ev-slider" min="0" max="1" value="0" step="1">
-              <span class="simulator-control-value" data-role="simulator-ev-value">&mdash;</span>
             </div>
-            <div class="simulator-control">
+            <div class="demo-slider-control">
               <label for="simulator-la-slider">Launch angle</label>
-              <input type="range" id="simulator-la-slider" class="simulator-slider"
+              <span class="demo-slider-value num" data-role="simulator-la-value">&mdash;</span>
+              <input type="range" id="simulator-la-slider" class="demo-slider"
                      data-role="simulator-la-slider" min="0" max="1" value="0" step="1">
-              <span class="simulator-control-value" data-role="simulator-la-value">&mdash;</span>
             </div>
           </div>
-
-          <div class="simulator-control-footer">
-            <p class="simulator-fixed-context" data-role="simulator-fixed-context"></p>
-            <button type="button" class="simulator-reset-button" data-role="simulator-reset">
-              Reset to real play
+          <div class="demo-slider-footer">
+            <p class="demo-fixed-context" data-role="simulator-fixed-context"></p>
+            <button type="button" class="demo-reset" data-role="simulator-reset">
+              Reset to recorded values
             </button>
           </div>
+
+          {# Under the two controls that drive it. It shows where the
+             contact the sliders describe would go, so it belongs with
+             them rather than in a column of its own. #}
+          <figure class="demo-simulator-field">
+            {{ simulator_field_svg | safe }}
+            <figcaption class="demo-field-caption">
+              Illustrative field view, driven by the two sliders. It shows how the model's
+              answer moves, not where a ball would physically land.
+            </figcaption>
+          </figure>
         </div>
 
-        <div class="simulator-stage simulator-stage-expectation">
-          <h3 class="simulator-stage-label">Expected outcomes</h3>
-          <div class="demo-prob-bars">
-            {% for opt in simulator_outcome_options %}
-            <div class="demo-prob-row" data-role="simulator-prob-row" data-outcome-class="{{ opt.cls }}">
-              <span class="demo-prob-label">{{ opt.label }}</span>
-              <span class="demo-prob-bar-track">
-                <span class="demo-prob-bar-fill simulator-prob-bar-fill" data-role="simulator-prob-fill"
-                      style="--demo-target-width: 0%"></span>
-              </span>
-              <span class="demo-prob-pct" data-role="simulator-prob-pct">&mdash;</span>
-            </div>
-            {% endfor %}
-          </div>
-          <p class="demo-rv-line simulator-rv-summary">Expected run value
-            <span class="demo-rv-value demo-rv-value-expected" data-role="simulator-expected-rv">&mdash;</span>
-          </p>
+        <div class="demo-sim-stage">
+          <h3 class="demo-sim-label">What the model expects</h3>
+          <table class="demo-probabilities">
+            <caption class="visually-hidden">
+              The model's chance of each outcome for the contact set by the sliders.
+            </caption>
+            <colgroup>
+              <col class="demo-col-outcome"><col class="demo-col-bar"><col class="demo-col-pct">
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col" class="demo-col-outcome">Outcome</th>
+                <th scope="col" class="demo-col-bar"><span class="visually-hidden">Share</span></th>
+                <th scope="col" class="demo-col-pct">Chance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for opt in simulator_outcome_options %}
+              <tr data-role="simulator-prob-row" data-outcome-class="{{ opt.cls }}">
+                <th scope="row" class="demo-col-outcome">{{ opt.label }}</th>
+                <td class="demo-col-bar">
+                  <span class="demo-prob-track" aria-hidden="true">
+                    <span class="demo-prob-fill is-live" data-role="simulator-prob-fill"
+                          style="--demo-target-width: 0%"></span>
+                  </span>
+                </td>
+                <td class="demo-col-pct num" data-role="simulator-prob-pct">&mdash;</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
 
-        <div class="simulator-stage simulator-stage-reality">
-          <h3 class="simulator-stage-label">What if the realized result were&hellip;</h3>
-          <div class="simulator-outcome-buttons" role="group" aria-label="Hypothetical realized outcome">
+        <div class="demo-sim-stage">
+          <h3 class="demo-sim-label">If the result had been</h3>
+          <div class="demo-outcome-buttons" role="group" aria-label="Hypothetical result">
             {% for opt in simulator_outcome_options %}
-            <button type="button" class="simulator-outcome-button" data-role="simulator-outcome-button"
+            <button type="button" class="demo-outcome-button" data-role="simulator-outcome-button"
                     data-outcome-class="{{ opt.cls }}" aria-pressed="false">{{ opt.label }}</button>
             {% endfor %}
           </div>
         </div>
 
-        <div class="simulator-stage simulator-stage-payoff">
-          <h3 class="simulator-payoff-label">Contact Luck</h3>
-          <div class="simulator-rv-compare">
-            <div class="simulator-rv-compare-row">
-              <span class="simulator-rv-compare-label">Expected RV</span>
-              <span class="demo-rv-value demo-rv-value-expected" data-role="simulator-expected-rv">&mdash;</span>
+        <div class="demo-sim-stage">
+          <h3 class="demo-sim-label">Contact Luck</h3>
+          <dl class="demo-line demo-sim-rv">
+            <div class="demo-line-item">
+              <dt>Expected RV</dt>
+              <dd class="num" data-role="simulator-expected-rv">&mdash;</dd>
             </div>
-            <div class="simulator-rv-compare-row">
-              <span class="simulator-rv-compare-label">Observed RV</span>
-              <span class="demo-rv-value demo-rv-value-observed" data-role="simulator-observed-rv">&mdash;</span>
+            <div class="demo-line-item">
+              <dt>Observed RV</dt>
+              <dd class="num" data-role="simulator-observed-rv">&mdash;</dd>
             </div>
-          </div>
-          <span class="demo-luck-badge" data-role="simulator-luck-badge">&mdash;</span>
-          <p class="demo-luck-figure simulator-luck-figure" data-role="simulator-luck-figure">&mdash;</p>
+          </dl>
+          <p class="demo-luck-figure num" data-role="simulator-luck-figure">&mdash;</p>
+          <p class="demo-luck-label" data-role="simulator-luck-badge">&mdash;</p>
           <p class="demo-explanation" data-role="simulator-luck-explanation"></p>
         </div>
-      </div>
+
     </div>
   </div>
 </section>
 
-<p><a href="{{ root_prefix }}methodology/">Read the full methodology &rarr;</a></p>
+<p class="demo-onward">
+  <a href="{{ root_prefix }}methodology/">Read the methodology &rarr;</a>
+</p>
 {% endblock %}
 {% block extra_scripts %}
 <script src="{{ asset_prefix }}static/demo.js"></script>

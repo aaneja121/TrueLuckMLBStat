@@ -48,11 +48,19 @@ STYLE_CSS = Path(__file__).resolve().parents[1] / "dashboard" / "static" / "styl
 
 #: The elements that actually hold unbreakable machine tokens. Each must be
 #: able to break anywhere, or the v1.3.0 overflow bug returns.
+#
+#: Redesign Phase 7 updated the list, not the contract. `.component-table`
+#: and the `snapshot-type-*` classes no longer exist anywhere on the site
+#: (Phases 4 and 7 replaced both components), so pinning them asserted
+#: nothing. The identifier-bearing elements now are the shared `<code>`,
+#: the status page's `.status-code` (model versions, schema tokens, reason
+#: codes) and `.status-snapshot-name` (`2026-08-08__refreshed`), plus the
+#: status tables' own cells.
 IDENTIFIER_BEARING_SELECTORS = (
     "code",
-    ".component-table td",
+    ".status-code",
+    ".status-snapshot-name",
     ".status-table td",
-    '[class*="snapshot-type-"]',
 )
 
 

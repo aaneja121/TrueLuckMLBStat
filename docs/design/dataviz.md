@@ -185,3 +185,29 @@ Probabilities are bounded 0-100%, so they get a plain horizontal bar against a f
 track in neutral ink: no zero spine, no donut, no gauge, and neither sign colour, because a
 probability has no sign.
 
+## Where a figure was deliberately not drawn (Phase 7)
+
+Two decisions on the supporting routes, both of them a refusal.
+
+**`/demo/` does not draw the gap figure.** Its two worked examples are 2024 fixture plays
+and are not in the published `run_value` domain, so putting them on that axis would assert
+a comparability that is not true - the same anti-fake-alignment guard that makes a second
+scale declare its own domain, applied to a figure that would have had no honest domain at
+all. The gap is stated as two labelled values and a signed difference. The side effect is
+the right hierarchy: the teaching route reads as simpler than the evidence route.
+
+**`/status/` does not draw a freshness timeline.** The implementation plan proposed one (a
+date axis, explicitly not the zero spine). Built against real data it would draw ten
+near-uniform ticks one day apart and carry nothing the printed dates do not already say -
+an instrument spent on a fact the list states. What the timeline was for, a gap that must
+render as a gap and never be interpolated, is delivered instead by an explicit row: **"No
+valid snapshot for Aug. 7, 2026."** It asserts no cause, because the dashboard does not
+know one.
+
+**Probabilities are neutral on every route that draws them.** Phase 6 settled this for the
+play page; Phase 7 found that the play page's own sensitivity bars had not followed it.
+`showcase_whatif.js` emits `.demo-prob-*` class names, which were filled with
+`--diverging-positive` - the blue that means "this Contact Luck is favorable" - on a
+quantity that has no sign. The class names are kept (that module has no committed fixture
+data and cannot be rendered locally, so a rename that cannot be looked at is the worse
+trade) and the fill is now `--text-muted`.

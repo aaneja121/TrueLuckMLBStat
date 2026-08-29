@@ -141,6 +141,42 @@ And on `/plays/`, which draws on the same domain:
 
 Nothing about this is a blocker for a fixture build; it is what the fixture cannot tell you.
 
+### Open data-integrity questions — resolve before deployment
+
+Neither is a rendering defect. In both cases the dashboard is displaying the frozen
+artifact correctly, which is exactly why they have to be answered in the data rather than
+in the templates. **Do not change scoring or renderer behaviour to make either go away.**
+
+1. **Observed run value vs. outcome class (found in Phase 6, unresolved).** Some fixture
+   plays carry an `observed_run_value` that matches a *different* outcome class's run-value
+   table entry than the one the play's `outcome_class` names. Two explanations are live and
+   they are not distinguishable from the dashboard: it is legitimate whole-play run-value
+   behaviour, because observed run value counts baserunner advancement and state changes
+   and therefore need not equal the recorded result's table value; or it is a
+   fixture/artifact-generation defect. Settle it against the scoring ledger on a production
+   build before shipping, not by assumption.
+
+2. **`component_model_status.outfield` is the string `"False"` (found in Phase 7).** The
+   snapshot records a value that is not one of `component_confidence`'s five documented
+   statuses, so no public label exists for it. `/status/` shows it verbatim in the
+   identifier register rather than reinterpreting it, which is the honest display, but the
+   underlying value is almost certainly a serialization slip upstream. Check what the
+   outfield component's status is meant to be and fix it at the source; the status page
+   will then label it like every other component with no dashboard change.
+
+### Check on the supporting routes after a production build (Phase 7)
+
+3. **The snapshot history at real length.** The local set is 10 snapshots. Confirm the
+   record list stays readable at production length, and that the `is-current` marker still
+   lands on exactly one row.
+4. **Snapshot-type coverage.** No `retrospective_backfill` and no
+   `invalid_incomplete_snapshot` exists locally, so neither type label has ever rendered.
+   Invalid snapshots are excluded from the history by construction; confirm that is still
+   what you want a reader to see, or that the count of excluded ones is surfaced.
+5. **Gap rows.** The gap marker is exercised by the real 2026-08-07 hole. Confirm it reads
+   as an absence rather than an error, and that a longer run of missing dates collapses to
+   one row with a date range.
+
 ## Tests & tooling
 
 - `make check` = `ruff format` + `ruff check` + `mypy` + `pytest`.
