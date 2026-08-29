@@ -142,3 +142,46 @@ The showcase list is a separate section and cannot be a table row, so it is alig
 other way: its grid uses the same four leading tracks as the table (`32rem`, minus the
 grid gap the table carries as cell padding) and the same reserved numeral track. One zero
 on the page, not two that happen to be close.
+
+## The gap figure (play page, Phase 6)
+
+The play page's central instrument, and the reason the `run_value` scale is snapshot-level
+rather than per-play: expected run value, observed run value, and the distance between
+them, on the domain `/explore/` is already drawn on. A per-play scale would put two plays'
+marks at the same x for different numbers.
+
+**The two marks are told apart by shape first.** Expected is a hollow ring in neutral ink;
+observed is a smaller solid dot in the sign colour. Each carries a named, valued label, and
+the accessible description states all three numbers and the direction in words. Colour is
+the third channel, never the only one.
+
+**Coincidence is handled by geometry, not by nudging.** When a play's expected and observed
+values nearly match, the marks genuinely overlap: Contreras's `745940-49-2` puts them
+2.8 px apart. The ring is deliberately *larger* than the dot and drawn beneath it, so a
+coincident pair renders as a ring around a dot rather than as one mark hiding the other.
+Neither position is ever moved. The two labels sit on opposite sides of the field, so they
+cannot collide however close the marks are, and each keeps its own exact value.
+
+**The connector is the answer.** It spans `min()` to `max()` of the two marks, so it is
+correct in both directions without the template knowing which value is on the left, and it
+crosses the spine when the pair straddles zero.
+
+### One scale object, two routes
+
+Sections 9 and 23 of the Phase 6 brief ask that there not be two independently derived
+`run_value` scales. That is enforced by construction rather than by convention:
+`build_dashboard` builds one `ZeroScale`, packs one context dict and one JSON blob, and
+renders both into `explore.html` and `play.html`. A test asserts the rendered blobs are
+byte-identical and that `build.py` builds the scale exactly once.
+
+### What gets no spine
+
+An amber rule means a zero-centred quantity. On this page that is the gap figure and
+nothing else. Exit velocity, launch angle, batted-ball type, the outcome probabilities, the
+dates and the field diagram get none, and a test enumerates every `--cl-zero` spine in the
+play-page stylesheet block and asserts the list is exactly `.play-gap-field`.
+
+Probabilities are bounded 0-100%, so they get a plain horizontal bar against a full-width
+track in neutral ink: no zero spine, no donut, no gauge, and neither sign colour, because a
+probability has no sign.
+

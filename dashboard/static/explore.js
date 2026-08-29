@@ -40,20 +40,16 @@
   var SHOWCASE_INITIAL_VISIBLE = 6;
 
   var EM_DASH = "—";
-  var MINUS = "−";
+
+  // Phase 6 consolidation: the signed-number primitive and the run-value
+  // scale helpers live once, in app.js, on `window.ContactLuck`. This file
+  // carried its own copy of `formatSigned`, as did play.js and
+  // showcase_whatif.js.
+  var shared = window.ContactLuck || {};
+  var formatSigned = shared.formatSigned;
 
   function qs(selector, root) {
     return (root || document).querySelector(selector);
-  }
-
-  function formatSigned(value, digits) {
-    if (value === null || value === undefined) return EM_DASH;
-    // Redesign Phase 1 numeric primitive: explicit sign, and U+2212 MINUS
-    // SIGN rather than ASCII hyphen-minus, so signed values align in a
-    // tabular-figure column and read identically to the build-time `signed`
-    // Jinja filter in dashboard/build.py.
-    var text = value.toFixed(digits === undefined ? 2 : digits);
-    return (value >= 0 ? "+" : "") + text.replace("-", MINUS);
   }
 
   function outcomeLabel(cls) {
@@ -98,24 +94,8 @@
   // is never re-derived here from whichever hitter happens to be loaded.
   var scale = null;
 
-  function loadScale() {
-    var el = document.getElementById("explore-run-value-scale");
-    if (!el) return null;
-    try {
-      var raw = JSON.parse(el.textContent);
-      if (raw.domain_max <= raw.domain_min) return null;
-      return raw;
-    } catch (err) {
-      return null;
-    }
-  }
-
   function scalePct(value) {
-    var span = scale.domain_max - scale.domain_min;
-    var fraction = (value - scale.domain_min) / span;
-    if (fraction < 0) fraction = 0;
-    if (fraction > 1) fraction = 1;
-    return (fraction * 100).toFixed(4) + "%";
+    return shared.runValuePct(scale, value);
   }
 
   function signClass(value) {
@@ -615,7 +595,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    scale = loadScale();
+    scale = shared.runValueScale ? shared.runValueScale() : null;
     initShowcaseSection();
     initExplorePage();
   });

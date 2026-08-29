@@ -25,7 +25,15 @@
   "use strict";
 
   var CLASS_ORDER = ["out", "single", "double", "triple", "home_run"];
-  var CLASS_LABELS = { out: "Out", single: "1B", double: "2B", triple: "3B", home_run: "HR" };
+  // The same outcome names the play page's own probability table uses --
+  // one quantity, one vocabulary, on one page.
+  var CLASS_LABELS = {
+    out: "Out",
+    single: "Single",
+    double: "Double",
+    triple: "Triple",
+    home_run: "Home run",
+  };
 
   // Mirrors dashboard/static/play.js's own PLAY_ID_PATTERN exactly
   // (duplicated, not shared -- these are separate script files with no
@@ -36,15 +44,9 @@
     return (root || document).querySelector(selector);
   }
 
-  function formatSigned(value) {
-    if (value === null || value === undefined) return "—";
-    // Redesign Phase 1 numeric primitive: explicit sign, and U+2212 MINUS
-    // SIGN rather than ASCII hyphen-minus, so signed Contact Luck / run
-    // values align in a tabular-figure column and read identically to the
-    // build-time `signed` Jinja filter in dashboard/build.py.
-    var sign = value >= 0 ? "+" : "";
-    return sign + value.toFixed(2).replace("-", "\u2212");
-  }
+  // Phase 6 consolidation: the signed-number primitive lives once, in
+  // app.js, on `window.ContactLuck`.
+  var formatSigned = (window.ContactLuck || {}).formatSigned;
 
   function humanizeBbType(bbType) {
     return String(bbType).replace(/_/g, " ");

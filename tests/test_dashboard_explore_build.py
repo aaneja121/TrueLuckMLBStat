@@ -874,7 +874,14 @@ class TestTerminology:
             showcase_path,
         )
         html = (tmp_path / "dist" / "plays" / "index.html").read_text()
-        assert "Final observed RV" in html
+        # Phase 6 renamed the DISPLAY label to "Observed", which pairs
+        # with "Expected" on the run-value figure. The quantity and its
+        # definition are unchanged, and the "final / whole play" part of the
+        # meaning is carried by the note below the figure (see the next
+        # test) rather than by a longer label.
+        assert 'data-role="play-observed-rv"' in html
+        assert "Observed" in html
+        assert "Expected" in html
 
     def test_play_page_explains_recorded_result_vs_final_rv_are_not_guaranteed_identical(
         self, tmp_path: Path
@@ -899,7 +906,9 @@ class TestTerminology:
         # before matching rather than requiring one exact contiguous
         # substring.
         collapsed = re.sub(r"\s+", " ", html)
-        assert "not always identical" in collapsed or "not guaranteed" in collapsed.lower()
+        # Same guarantee, one sentence instead of a two-sentence callout.
+        assert "baserunner advancement" in collapsed
+        assert "differ from what the recorded result alone would suggest" in collapsed
 
     def test_explore_page_uses_recorded_result_column_label(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
@@ -1313,9 +1322,7 @@ class TestShowcaseAndWhatIfClientBehavior:
             showcase_path,
         )
         html = (tmp_path / "dist" / "plays" / "index.html").read_text()
-        assert html.index('data-role="play-luck-figure"') < html.index(
-            'data-role="play-whatif-section"'
-        )
+        assert html.index('data-role="play-luck"') < html.index('data-role="play-whatif-section"')
 
     def test_whatif_js_fetches_sensitivity_json_not_players_or_games(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)

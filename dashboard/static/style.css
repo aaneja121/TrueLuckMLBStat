@@ -4068,12 +4068,6 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   color: var(--text-muted);
 }
 
-/* Retained for `/plays/`, which still uses it and belongs to Phase 6. */
-.explore-loading {
-  font-size: var(--fs-300);
-  color: var(--text-secondary);
-}
-
 /* ── Mobile ──────────────────────────────────────────────────────────── */
 /* A different row structure, not a narrower one. The results table would
    need ~500px to keep four columns honest, so below 768 each play becomes
@@ -4166,12 +4160,491 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   .explore-reset { flex: 1 1 100%; }
 }
 
-/* Individual play page -- the field ball's favorable/unfavorable sign is
-   shown immediately (the result is already known; there is no staged
-   reveal on this page, unlike the "/demo/" walkthrough), so it is colored
-   directly rather than gated behind `.demo-card.demo-reality-revealed`. */
-[data-role="play-field-wrap"] .demo-ball.demo-ball-favorable { fill: var(--diverging-positive); }
-[data-role="play-field-wrap"] .demo-ball.demo-ball-unfavorable { fill: var(--diverging-negative); }
+/* ══ The play page (redesign Phase 6) ════════════════════════════════════
+   The deepest evidence layer: one batted ball, and why it has the Contact
+   Luck it has. The page answers in order -- who and what happened, the
+   number, the figure that produces it, the contact, and what the model
+   expected of that contact.
+
+   ZERO SPINE DISCIPLINE. The amber rule belongs to `.play-gap-field` and
+   nothing else here. Exit velocity, launch angle, batted-ball type, the
+   outcome probabilities and the field diagram are not zero-centred
+   quantities, so they get no spine and no shared axis.
+
+   The baseline this replaces: a 260 px unlabelled field diagram in the
+   position of greatest prominence, four bordered `.stat-card` tiles, and
+   the run-value accounting -- the actual answer -- last, as two numerals
+   either side of an arrow with no scale under them. */
+
+.play-status {
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+
+.play-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--sp-5);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-200);
+}
+.play-breadcrumb a {
+  display: inline-block;
+  min-height: var(--target-min);
+  line-height: var(--target-min);
+  color: var(--text-secondary);
+}
+
+.play-name {
+  margin: 0;
+  font-size: var(--fs-700);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+/* Apparatus register, the same footnote treatment the player page gives a
+   batter id: present, never competing with the name. */
+.play-apparatus {
+  margin: var(--sp-1) 0 var(--sp-5);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.play-player-link { white-space: nowrap; }
+
+/* ── The verdict ─────────────────────────────────────────────────────── */
+.play-verdict { margin-bottom: var(--sp-3); }
+.play-luck {
+  margin: 0;
+  font-size: var(--fs-800);
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.play-luck.cl-scale-favorable { color: var(--fav-text); }
+.play-luck.cl-scale-unfavorable { color: var(--unfav-text); }
+.play-luck-label {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+/* ── The run-value figure ────────────────────────────────────────────────
+   Expected, observed, and the distance between them, on the ONE snapshot
+   -level `run_value` domain /explore/ is drawn on. The two marks are
+   distinguished by SHAPE first -- hollow ring versus solid dot -- and by a
+   named label each, so the pair survives greyscale and stays readable when
+   the marks nearly touch. Neither position is ever nudged to make room. */
+.play-gap {
+  margin: 0 0 var(--sp-4);
+  max-width: var(--measure-data);
+}
+.play-gap-plot { position: relative; }
+
+.play-gap-caption {
+  position: relative;
+  left: var(--play-mark);
+  width: max-content;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.play-gap-caption[data-anchor="center"] { transform: translateX(-50%); text-align: center; }
+.play-gap-caption[data-anchor="end"] { transform: translateX(-100%); text-align: right; }
+.play-gap-caption.is-expected { margin-bottom: var(--sp-1); }
+.play-gap-caption.is-observed { margin-top: var(--sp-1); }
+.play-gap-caption-name {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.play-gap-caption-value {
+  font-size: var(--fs-400);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.play-gap-field { min-height: 28px; }
+/* The spine, and the only one on this page. */
+.play-gap-field::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.55;
+  pointer-events: none;
+}
+/* THE GAP. Drawn from whichever mark is lower to whichever is higher, so it
+   is correct in both directions without the template knowing which is
+   which. This bar IS the Contact Luck. */
+.play-gap-connector {
+  position: absolute;
+  top: 50%;
+  left: min(var(--play-expected), var(--play-observed));
+  width: calc(max(var(--play-expected), var(--play-observed)) - min(var(--play-expected), var(--play-observed)));
+  height: var(--rule-emphasis);
+  transform: translateY(-50%);
+  background: currentColor;
+}
+.play-gap-mark {
+  position: absolute;
+  top: 50%;
+  border-radius: var(--radius-pill);
+  transform: translate(-50%, -50%);
+}
+/* Expected: a hollow ring in neutral ink. It is what the contact was worth
+   on average, not an outcome, and it should not read as one.
+   DELIBERATELY LARGER than the observed dot and drawn beneath it, so that a
+   play whose two values nearly coincide renders as a ring around a dot
+   rather than as one mark hiding the other. Neither position moves. */
+.play-gap-mark.is-expected {
+  left: var(--play-expected);
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid var(--text-secondary);
+  background: var(--page);
+  z-index: 2;
+}
+/* Observed: a solid dot in the sign colour. This is what happened. */
+.play-gap-mark.is-observed {
+  left: var(--play-observed);
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  z-index: 3;
+}
+
+.play-axis-row {
+  position: relative;
+  margin-top: var(--sp-3);
+}
+.play-gap-caption-text {
+  margin-top: var(--sp-4);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  max-width: var(--measure-prose);
+}
+
+.play-equation {
+  margin: 0 0 var(--sp-2);
+  max-width: var(--measure-prose);
+}
+.play-equation-note {
+  margin: 0 0 var(--sp-6);
+  padding-bottom: var(--sp-5);
+  border-bottom: var(--rule-hairline) solid var(--border);
+  max-width: var(--measure-prose);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+/* ── Sections ────────────────────────────────────────────────────────── */
+.play-section { margin-bottom: var(--sp-6); }
+.play-section h2 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-500);
+}
+.play-section-lede {
+  margin: 0 0 var(--sp-3);
+  max-width: var(--measure-prose);
+  color: var(--text-secondary);
+}
+
+/* ── The contact ─────────────────────────────────────────────────────────
+   A ruled stat LINE, not four bordered tiles (guardrails anti-pattern 14).
+   No sign on any of these: none is a signed quantity. */
+.play-contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 0 0 var(--sp-5);
+  padding: var(--sp-3) 0;
+  border-top: var(--rule-hairline) solid var(--border);
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.play-contact-item {
+  flex: 1 1 0;
+  min-width: 9rem;
+  padding-right: var(--sp-4);
+}
+.play-contact-item + .play-contact-item {
+  padding-left: var(--sp-4);
+  border-left: var(--rule-hairline) solid var(--border);
+}
+.play-contact dt {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.play-contact dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-400);
+  color: var(--text-primary);
+}
+
+/* ── The field diagram ───────────────────────────────────────────────────
+   Kept because it carries play-specific evidence the numbers do not: where
+   the ball went. Field green is legitimate here -- this IS a baseball field
+   -- and it stays subordinate: capped well below the run-value figure's
+   prominence, captioned with what it is and what it is not, and hidden
+   entirely when the play carries no location. */
+.play-field {
+  margin: 0;
+  max-width: 300px;
+}
+.play-field-svg { width: 100%; height: auto; display: block; }
+.play-field-fence { fill: none; stroke: var(--text-muted); stroke-width: 1.75; }
+.play-field-foul-line {
+  stroke: var(--accent-field);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+.play-field-infield {
+  fill: var(--accent-field);
+  opacity: 0.16;
+  stroke: var(--accent-field);
+  stroke-width: 1;
+}
+.play-field-ball { fill: var(--text-muted); }
+.play-field-ball-favorable { fill: var(--fav-mark); }
+.play-field-ball-unfavorable { fill: var(--unfav-mark); }
+.play-field-caption {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-100);
+  color: var(--text-muted);
+}
+
+/* ── Outcome probabilities ───────────────────────────────────────────────
+   A bounded 0-100% quantity gets a plain bar against a full-width track:
+   no spine, no donut, no gauge. The recorded result is marked in TEXT as
+   well as by weight, so the comparison the reader wants survives greyscale. */
+.play-probabilities {
+  width: 100%;
+  max-width: 34rem;
+  border-collapse: collapse;
+}
+.play-probabilities th,
+.play-probabilities td {
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) 0;
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.play-probabilities thead th {
+  font-size: var(--fs-100);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom-color: var(--baseline);
+}
+.col-prob-outcome { width: 11rem; font-weight: 400; }
+.col-prob-pct {
+  width: calc(6ch + var(--sp-3));
+  text-align: right;
+  padding-right: 0;
+}
+.play-probabilities td.col-prob-pct { text-align: right; }
+.play-probabilities tbody tr.is-observed th,
+.play-probabilities tbody tr.is-observed td { font-weight: 600; }
+.play-prob-tag {
+  display: block;
+  font-size: var(--fs-100);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-amber-text);
+}
+/* Neutral ink on a recessed track. A probability is not a signed quantity,
+   so it gets neither of the sign colours (guardrails 9) and no third hue. */
+.play-prob-track {
+  display: block;
+  width: 100%;
+  height: 10px;
+  background: var(--surface-recessed);
+  box-shadow: inset 0 0 0 var(--rule-hairline) var(--border);
+}
+.play-prob-fill {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+  background: var(--text-muted);
+}
+.play-probabilities tbody tr.is-observed .play-prob-fill { background: var(--text-primary); }
+
+/* ── Sensitivity ─────────────────────────────────────────────────────────
+   Below the real play's own accounting, always. It moves the model's
+   expectation for a hypothetical contact and nothing else. */
+.play-whatif {
+  padding-top: var(--sp-5);
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.play-whatif-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3) var(--sp-5);
+  padding: var(--sp-3) 0;
+  border-top: var(--rule-hairline) solid var(--border);
+  border-bottom: var(--rule-hairline) solid var(--border);
+}
+.play-whatif-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  flex: 1 1 16rem;
+}
+.play-whatif-control label {
+  grid-column: 1 / -1;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.play-whatif-slider {
+  grid-column: 1;
+  width: 100%;
+  min-height: var(--target-min);
+  accent-color: var(--accent-amber-mark);
+}
+.play-whatif-value {
+  grid-column: 2;
+  font-size: var(--fs-300);
+  white-space: nowrap;
+}
+.play-whatif-reset {
+  min-height: var(--target-min);
+  padding-inline: var(--sp-3);
+  border: var(--rule-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-300);
+  cursor: pointer;
+}
+.play-whatif-reset:hover { background: var(--surface-recessed); }
+/* The sensitivity bars are the SAME quantity as the table above, so they
+   get the same instrument: neutral ink on a recessed track, in a matching
+   three-track row. `showcase_whatif.js` writes `.demo-prob-*` markup that
+   /demo/ also uses, so this is scoped to the play page rather than changing
+   the shared classes. Blue is the sign of a point estimate and a
+   probability has no sign (guardrails 9). */
+.play-whatif .demo-prob-bars { max-width: 34rem; }
+.play-whatif .demo-prob-row {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) calc(6ch + var(--sp-3));
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-300);
+}
+.play-whatif .demo-prob-label { color: var(--text-primary); }
+.play-whatif .demo-prob-bar-track {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border-radius: 0;
+  background: var(--surface-recessed);
+  box-shadow: inset 0 0 0 var(--rule-hairline) var(--border);
+}
+.play-whatif .demo-prob-bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+  border-radius: 0;
+  background: var(--text-muted);
+}
+.play-whatif .demo-prob-pct { color: var(--text-primary); }
+
+.play-whatif-fixed {
+  margin: var(--sp-2) 0 var(--sp-4);
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  max-width: var(--measure-prose);
+}
+.play-whatif-rv {
+  display: flex;
+  flex-wrap: wrap;
+  margin: var(--sp-4) 0 0;
+  padding: var(--sp-3) 0;
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.play-whatif-rv-item {
+  flex: 1 1 0;
+  min-width: 11rem;
+  padding-right: var(--sp-4);
+}
+.play-whatif-rv-item + .play-whatif-rv-item {
+  padding-left: var(--sp-4);
+  border-left: var(--rule-hairline) solid var(--border);
+}
+.play-whatif-rv dt {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.play-whatif-rv dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-400);
+}
+
+/* ── Play not found ──────────────────────────────────────────────────── */
+.play-missing { max-width: var(--measure-prose); }
+.play-missing h1 { margin: 0 0 var(--sp-2); font-size: var(--fs-600); }
+.play-missing-actions {
+  margin-top: var(--sp-4);
+}
+.play-missing-actions a {
+  display: inline-block;
+  min-height: var(--target-min);
+  line-height: var(--target-min);
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────
+   The run-value figure keeps its full axis, both marks and both labelled
+   values: it is the answer, and nothing about it sheds. The contact line
+   and the sensitivity readout become two-column grids rather than a row of
+   four; the probability table keeps every label. */
+@media (max-width: 767px) {
+  .play-name { font-size: var(--fs-600); }
+  .play-luck { font-size: var(--fs-700); }
+
+  .play-contact,
+  .play-whatif-rv {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--sp-3);
+  }
+  .play-contact-item,
+  .play-whatif-rv-item {
+    min-width: 0;
+    padding: 0;
+  }
+  .play-contact-item + .play-contact-item,
+  .play-whatif-rv-item + .play-whatif-rv-item {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .col-prob-outcome { width: 8rem; }
+  .play-field { max-width: 220px; }
+  .play-whatif-control { flex: 1 1 100%; }
+}
+
+/* At 320 the two gap labels can be wider than the space between their own
+   marks. They are on separate lines already, so they simply overlap the
+   field's horizontal extent rather than each other -- what has to survive
+   is that each value stays legible and attached to its own mark. */
+@media (max-width: 359px) {
+  .play-gap-caption-value { font-size: var(--fs-300); }
+}
 
 /* Redesign Phase 1: the text half of the clipping contract. The caret says
    "this continues"; this says what continues and confirms the printed

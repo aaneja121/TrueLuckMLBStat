@@ -189,3 +189,18 @@ Structural, not a shrink.
 
 Measured at 390 and 320: no horizontal overflow, tick labels 12 px, and the axis zero, the
 strip spine and every row spine on one x to three decimals.
+
+## The play page - mobile (Phase 6)
+
+The run-value figure is the answer, so **nothing about it sheds**: the full axis, both
+marks, the connector and both labelled values survive to 320. The two labels are already on
+opposite sides of the field, so narrowing changes nothing about whether they collide.
+
+What does change: the contact line and the sensitivity readout become two-column grids
+rather than a row of four; the name and the Contact Luck numeral each step down one scale
+step; the probability table keeps every outcome name at full length; the field diagram caps
+at 220 px. Below 360 the two gap values step down one size.
+
+Measured at 390 and 320: no horizontal overflow, tick labels 12 px, and the axis zero and
+the figure spine on one x to three decimals.
+

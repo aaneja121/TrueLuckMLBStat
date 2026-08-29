@@ -123,6 +123,22 @@ from real Explorer artifacts:
 3. **The results table at real per-hitter play counts** (hundreds of rows, not two): row
    density, and that the page stays responsive while filtering and sorting client-side.
 
+And on `/plays/`, which draws on the same domain:
+
+4. **Open several production play ids** from Explore rows and from showcase rows. Confirm
+   the gap figure's two marks land where the printed values say, and that a play whose
+   expected and observed values nearly coincide still renders as a ring around a dot.
+5. **Sensitivity availability.** The committed fixture ships zero interactive showcase
+   plays, so the "What if?" module has never been rendered from committed data. On a
+   production build, open a play with `interactive_available: true` and confirm the section
+   reveals, the sliders move only *Expected RV, this contact*, and the play's own Contact
+   Luck and observed run value do not change.
+6. **Location completeness.** The field diagram hides itself when a play has no spray angle
+   or hit distance. Check the share of production plays that render it; if it is very low,
+   the section is worth revisiting.
+7. **The full loop**, on production ids: player page → `/explore/?batter=<id>` → a play →
+   back, and the play page's own back link carrying the same hitter.
+
 Nothing about this is a blocker for a fixture build; it is what the fixture cannot tell you.
 
 ## Tests & tooling
@@ -134,6 +150,7 @@ Nothing about this is a blocker for a fixture build; it is what the fixture cann
   `test_dashboard_content.py`, `test_dashboard_visuals.py`,
   `test_dashboard_snapshot_discovery.py`, `test_dashboard_isolation.py`,
   `test_dashboard_responsive_overflow.py`, `test_dashboard_explore_*.py`,
+  `test_dashboard_play_page.py`, `test_dashboard_player_page.py`,
   `test_dashboard_demo_*.py`, plus `tests/dashboard_snapshot_fixtures.py`.
   `test_dashboard_responsive_overflow.py` and `test_dashboard_isolation.py` are the two
   most likely to be tripped by UI work.

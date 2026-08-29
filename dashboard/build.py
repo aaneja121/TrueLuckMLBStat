@@ -970,32 +970,49 @@ def build_dashboard(
             [explore_data.contact_luck_min, explore_data.contact_luck_max],
             zero_fraction=league_scale.zero_fraction,
         )
+        # Built ONCE and rendered into BOTH routes. Redesign Phase 6 draws
+        # the play page's expected-vs-observed figure on this scale, and
+        # "the same domain" has to be true by construction rather than by
+        # two call sites agreeing: one object, one dict, two templates.
+        #
+        # `unit_label` names what EXPLORE's marks are (one Contact Luck value
+        # per play). The play page's figure carries expected and observed run
+        # value as well, so it prints its own unit on the figure. The shared
+        # thing is the DOMAIN and the zero fraction; each figure still has to
+        # say honestly what its own marks measure.
+        run_value_context = {
+            "ticks": _axis_ticks(run_value_scale),
+            "unit_label": run_value_scale.unit_label,
+            "domain_min": run_value_scale.domain_min,
+            "domain_max": run_value_scale.domain_max,
+            "play_count": explore_data.total_play_count,
+        }
+        run_value_scale_json = json.dumps(
+            {
+                "domain_min": run_value_scale.domain_min,
+                "domain_max": run_value_scale.domain_max,
+                "unit_label": run_value_scale.unit_label,
+            },
+            sort_keys=True,
+        )
         (explore_dir / "index.html").write_text(
             env.get_template("explore.html").render(
                 **base_context,
                 active_page="explore",
-                run_value={
-                    "ticks": _axis_ticks(run_value_scale),
-                    "unit_label": run_value_scale.unit_label,
-                    "domain_min": run_value_scale.domain_min,
-                    "domain_max": run_value_scale.domain_max,
-                    "play_count": explore_data.total_play_count,
-                },
-                run_value_scale_json=json.dumps(
-                    {
-                        "domain_min": run_value_scale.domain_min,
-                        "domain_max": run_value_scale.domain_max,
-                        "unit_label": run_value_scale.unit_label,
-                    },
-                    sort_keys=True,
-                ),
+                run_value=run_value_context,
+                run_value_scale_json=run_value_scale_json,
             )
         )
 
         plays_dir = out_dir / "plays"
         plays_dir.mkdir(parents=True, exist_ok=True)
         (plays_dir / "index.html").write_text(
-            env.get_template("play.html").render(**base_context, active_page=None)
+            env.get_template("play.html").render(
+                **base_context,
+                active_page=None,
+                run_value=run_value_context,
+                run_value_scale_json=run_value_scale_json,
+            )
         )
 
     shutil.copytree(DASHBOARD_STATIC_DIR, out_dir / "static", dirs_exist_ok=True)

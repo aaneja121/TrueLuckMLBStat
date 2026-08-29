@@ -1,7 +1,7 @@
 # Zero Spine — implementation plan
 
 **Selected direction:** Direction 2 · The Zero Spine (`docs/design/directions-2026-08-26.md`).
-**Status: Phases 1–5 implemented** (foundation, shell, leaderboard, player page, Explore), plus a site-wide copy pass (Phase 4.5). Phases 6–8 are still plan only. Gates G1, G3 and G4 are signed off; **G2, G5 and G6 are built and self-verified, awaiting sign-off**. Where implementation diverged from this plan the divergence is recorded inline, marked with a blockquote — the plan is kept honest rather than rewritten.
+**Status: Phases 1–6 implemented** (foundation, shell, leaderboard, player page, Explore, play page), plus a site-wide copy pass (Phase 4.5). Phases 7–8 are still plan only. Gates G1, G3, G4 and G6 are signed off; **G2, G5 and G7 are built and self-verified, awaiting sign-off**. Where implementation diverged from this plan the divergence is recorded inline, marked with a blockquote — the plan is kept honest rather than rewritten.
 
 Governed by `DESIGN.md`, `docs/design/guardrails.md`, `PRODUCT.md`, `CONTEXT.md`.
 Companion decision surface (diagrams, gates, order): the published artifact linked from the
@@ -806,8 +806,8 @@ themes:
 | **G4** | Phase 3 | The leaderboard as a whole: axis, distribution strip, spine, density |
 | **G2** ⏳ | Phase 4 | The trend's declared exception, rendered — criteria in Phase 4, item 15. **Built and self-verified; awaiting sign-off.** |
 | **G5** ⏳ | Phase 4 | The player hero, and the unqualified/near-zero/clipped states. **Built and self-verified; awaiting sign-off.** |
-| **G6** ⏳ | Phase 5 | Explore as a discovery instrument rather than a filter form. **Built and self-verified; awaiting sign-off.** |
-| **G7** | Phase 6 | The play page's run-value instrument and what gets no spine |
+| **G6** ✅ | Phase 5 | Explore as a discovery instrument rather than a filter form |
+| **G7** ⏳ | Phase 6 | The play page's run-value instrument and what gets no spine. **Built and self-verified; awaiting sign-off.** |
 | **G8** | Phase 7 | `/status/` replacement and the untouched demo |
 | **G9** | Phase 8 | Final anti-vibecode review across all eight routes |
 

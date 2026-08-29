@@ -559,10 +559,59 @@
     });
   }
 
-  // Explore drives the same combobox from its own script tag.
+  // ══ Shared numeric and scale helpers ═════════════════════════════════════
+  // Redesign Phase 6. `formatSigned` was carried verbatim by explore.js,
+  // play.js and showcase_whatif.js; `runValueScale`/`runValuePct` would have
+  // been a fourth and fifth copy the moment the play page drew on the same
+  // axis. They live here once. This is not a module system -- the three
+  // pages are still independent <script> tags -- it is one place for the
+  // handful of functions all of them genuinely share.
+
+  var MINUS = "−";
+
+  //: Redesign Phase 1 numeric primitive: an explicit sign, and U+2212 MINUS
+  //: SIGN rather than ASCII hyphen-minus, so signed values align in a
+  //: tabular-figure column and read identically to the build-time `signed`
+  //: Jinja filter in dashboard/build.py.
+  function formatSigned(value, digits) {
+    if (value === null || value === undefined) return "—";
+    var text = value.toFixed(digits === undefined ? 2 : digits);
+    return (value >= 0 ? "+" : "") + text.replace("-", MINUS);
+  }
+
+  //: The ONE `run_value` domain, computed at build time over every published
+  //: play (dashboard/build.py) and rendered into both /explore/ and /plays/
+  //: from the same object. Read here; never derived.
+  function runValueScale() {
+    var el = document.getElementById("explore-run-value-scale");
+    if (!el) return null;
+    try {
+      var raw = JSON.parse(el.textContent);
+      if (!(raw.domain_max > raw.domain_min)) return null;
+      return raw;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  //: A value's position as a LAYOUT PERCENTAGE of the plot field, against
+  //: that fixed domain -- not a score, rank, interval or probability. A
+  //: value outside the domain clips; the scale never widens to fit one mark.
+  function runValuePct(scale, value) {
+    var fraction = (value - scale.domain_min) / (scale.domain_max - scale.domain_min);
+    if (fraction < 0) fraction = 0;
+    if (fraction > 1) fraction = 1;
+    return (fraction * 100).toFixed(4) + "%";
+  }
+
+  // Explore and the play page drive the same combobox and the same scale
+  // from their own script tags.
   window.ContactLuck = window.ContactLuck || {};
   window.ContactLuck.createCombobox = createCombobox;
   window.ContactLuck.normalizeSearchText = normalizeSearchText;
+  window.ContactLuck.formatSigned = formatSigned;
+  window.ContactLuck.runValueScale = runValueScale;
+  window.ContactLuck.runValuePct = runValuePct;
 
   document.addEventListener("DOMContentLoaded", function () {
     initRankingTabs();

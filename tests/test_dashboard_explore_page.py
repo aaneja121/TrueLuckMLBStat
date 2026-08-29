@@ -287,18 +287,23 @@ class TestRunValueScale:
 
     def test_the_browser_never_derives_a_domain_of_its_own(self) -> None:
         """A per-hitter autoscale would put two hitters' plays on two
-        different scales and move zero off the spine."""
-        js = EXPLORE_JS.read_text()
-        assert 'document.getElementById("explore-run-value-scale")' in js
-        pct = js.split("function scalePct(", 1)[1].split("\n  }", 1)[0]
+        different scales and move zero off the spine. Phase 6 moved the
+        reader and the interpolator into app.js so /plays/ could share them;
+        Explore calls them and still derives nothing."""
+        app = (EXPLORE_JS.parent / "app.js").read_text()
+        assert 'document.getElementById("explore-run-value-scale")' in app
+        pct = app.split("function runValuePct(", 1)[1].split("\n  }", 1)[0]
         assert "scale.domain_max - scale.domain_min" in pct
         # No min/max over the loaded rows anywhere near the scale code.
         assert "Math.min.apply" not in pct
         assert "Math.max.apply" not in pct
+        js = EXPLORE_JS.read_text()
+        assert "shared.runValueScale" in js
+        assert "function runValueScale(" not in js
 
     def test_a_value_outside_the_domain_clips_rather_than_widening_it(self) -> None:
-        js = EXPLORE_JS.read_text()
-        pct = js.split("function scalePct(", 1)[1].split("\n  }", 1)[0]
+        app = (EXPLORE_JS.parent / "app.js").read_text()
+        pct = app.split("function runValuePct(", 1)[1].split("\n  }", 1)[0]
         assert "if (fraction < 0) fraction = 0;" in pct
         assert "if (fraction > 1) fraction = 1;" in pct
 
@@ -356,10 +361,15 @@ class TestResultsArchitecture:
         assert "playUrl(row.play_id)" in build_row
 
     def test_sign_is_carried_by_the_glyph_as_well_as_the_colour(self) -> None:
-        js = EXPLORE_JS.read_text()
-        signed = js.split("function formatSigned(", 1)[1].split("\n  }", 1)[0]
+        """The primitive moved to app.js in Phase 6, when /plays/ became the
+        third caller. Explore uses it; nothing keeps a private copy."""
+        app = (EXPLORE_JS.parent / "app.js").read_text()
+        signed = app.split("function formatSigned(", 1)[1].split("\n  }", 1)[0]
         assert '(value >= 0 ? "+" : "")' in signed
         assert 'replace("-", MINUS)' in signed
+        js = EXPLORE_JS.read_text()
+        assert "var formatSigned = shared.formatSigned;" in js
+        assert "function formatSigned(" not in js
 
     def test_the_results_table_needs_no_horizontal_scroll_container(self, site: Path) -> None:
         """The baseline wrapped a seven-column nowrap table in a bare

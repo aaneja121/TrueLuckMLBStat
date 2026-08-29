@@ -92,6 +92,21 @@ The sequence must make expected-vs-actual immediately understandable:
 answer and belongs above the fold. Baseline defect: a 260 px unlabelled field diagram
 occupies the position of greatest prominence while the run-value accounting sits last.
 
+**Built in Phase 6**, with the verdict leading, as on every other route: name and result,
+the Contact Luck numeral, then the one figure that produces it, then a sentence stating the
+arithmetic in words. The evidence follows in causal order: the contact, then what the model
+expected of that contact, then sensitivity where it exists.
+
+The field diagram was kept rather than dropped, because it carries play-specific evidence
+the numbers do not. It is now subordinate (below the gap figure, capped at 300 px, hidden
+entirely when the play carries no spray angle or hit distance rather than drawing a ball at
+home plate) and captioned with what it is and is not.
+
+**Both routes out live in one place**, at full target size: back to *this hitter* in Play
+Explorer (`/explore/?batter=<id>`, never a cold Explore) and on to their season page. That
+closes the loop the product's value proposition depends on: leaderboard row → player page →
+that hitter in Explore → one play → back.
+
 ## Methodology
 
 Rigorous without dominating: prose measure, a section index, and definitions that a reader
