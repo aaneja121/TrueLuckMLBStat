@@ -1020,6 +1020,12 @@ def build_dashboard(
         "dashboard_version": DASHBOARD_VERSION,
         "snapshot_directory_name": latest.directory_name,
         "build_timestamp": build_timestamp,
+        # Phase 8: the footer printed this raw ISO string on every route
+        # while /status/ formatted its own timestamps for a reader -- one
+        # product, two treatments of the same kind of value. Both now go
+        # through `_display_timestamp`, and the machine value stays in
+        # `<time datetime>` exactly as it does on /status/.
+        "build_timestamp_display": _display_timestamp(build_timestamp),
         "player_index_json": player_index_json,
         "explore_available": explore_available,
     }

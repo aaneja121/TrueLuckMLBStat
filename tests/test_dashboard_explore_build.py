@@ -713,9 +713,13 @@ class TestPlayPageRouting:
         # A play_id format guard exists and is checked BEFORE the fetch --
         # i.e. the regex-match code appears earlier in source order than
         # the fetch() call that reaches the network.
-        match_pos = js.index("PLAY_ID_PATTERN.exec")
-        fetch_pos = js.index("fetch(")
-        assert match_pos < fetch_pos
+        # Phase 8: the play-id contract moved into app.js
+        # (`window.ContactLuck.gamePkFromPlayId`) so the two /plays/ scripts
+        # stop carrying two copies of the same regex. These assertions now
+        # pin the CONTRACT -- derive game_pk, then bail before any fetch --
+        # rather than the identifier that used to implement it.
+        assert js.index("gamePkFromPlayId") < js.index("fetch(")
+        assert js.index("if (!gamePk)") < js.index("fetch(")
 
     def test_play_js_never_fetches_full_players_catalog_or_player_index(
         self, tmp_path: Path
@@ -762,7 +766,9 @@ class TestPlayPageRouting:
         )
         js = (tmp_path / "dist" / "static" / "play.js").read_text()
         collapsed = re.sub(r"\s+", " ", js)
-        assert re.search(r"if \(!match\)\s*\{.*?showNotFound\(page\);\s*return;", collapsed)
+        # Phase 8: `if (!match)` became `if (!gamePk)` when the play-id
+        # contract moved to app.js. Same guard, same landing state.
+        assert re.search(r"if \(!gamePk\)\s*\{.*?showNotFound\(page\);\s*return;", collapsed)
 
 
 class TestExplorerNetworkBehavior:

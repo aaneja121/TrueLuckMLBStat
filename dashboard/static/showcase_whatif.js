@@ -35,11 +35,6 @@
     home_run: "Home run",
   };
 
-  // Mirrors dashboard/static/play.js's own PLAY_ID_PATTERN exactly
-  // (duplicated, not shared -- these are separate script files with no
-  // module system between them, same convention as demo.js/demo_simulator.js).
-  var PLAY_ID_PATTERN = /^(\d+)-\d+-\d+$/;
-
   function qs(selector, root) {
     return (root || document).querySelector(selector);
   }
@@ -170,8 +165,12 @@
     var params = new URLSearchParams(window.location.search);
     var playId = params.get("id");
     if (!playId) return;
-    var match = PLAY_ID_PATTERN.exec(playId);
-    if (!match) return; // Malformed id -- never even attempt a fetch.
+    // Phase 8: the play-id contract lives once, in app.js, alongside the
+    // signed-number primitive this file already shares from there.
+    var validated = window.ContactLuck && window.ContactLuck.gamePkFromPlayId
+      ? window.ContactLuck.gamePkFromPlayId(playId)
+      : (/^(\d+)-\d+-\d+$/.exec(playId) || [])[1] || null;
+    if (!validated) return; // Malformed id -- never even attempt a fetch.
 
     fetch("/explore/showcase-sensitivity/" + encodeURIComponent(playId) + ".json")
       .then(function (response) {

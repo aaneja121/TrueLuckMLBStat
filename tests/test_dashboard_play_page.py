@@ -453,7 +453,9 @@ class TestNotFound:
         collapsed = re.sub(r"\s+", " ", js)
         # missing id, malformed id, fetch failure, id absent from its game
         assert collapsed.count("showNotFound(page)") >= 4
-        assert re.search(r"if \(!match\)\s*\{.*?showNotFound\(page\);\s*return;", collapsed)
+        # Phase 8: `if (!match)` became `if (!gamePk)` when the play-id
+        # contract moved to app.js. Same guard, same landing state.
+        assert re.search(r"if \(!gamePk\)\s*\{.*?showNotFound\(page\);\s*return;", collapsed)
 
 
 class TestNavigationContinuity:
@@ -485,7 +487,13 @@ class TestPreservedBehaviour:
         js = PLAY_JS.read_text()
         assert "window.location.search" in js
         assert 'params.get("id")' in js
-        assert js.index("PLAY_ID_PATTERN.exec") < js.index("fetch(")
+        # Phase 8: the play-id contract moved into app.js
+        # (`window.ContactLuck.gamePkFromPlayId`) so the two /plays/ scripts
+        # stop carrying two copies of the same regex. These assertions now
+        # pin the CONTRACT -- derive game_pk, then bail before any fetch --
+        # rather than the identifier that used to implement it.
+        assert js.index("gamePkFromPlayId") < js.index("fetch(")
+        assert js.index("if (!gamePk)") < js.index("fetch(")
 
     def test_only_the_one_game_shard_is_fetched(self) -> None:
         js = PLAY_JS.read_text()

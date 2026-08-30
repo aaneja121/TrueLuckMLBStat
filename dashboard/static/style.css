@@ -21,8 +21,6 @@
   --border: rgba(11, 11, 11, 0.12);
   --diverging-positive: #2a78d6;
   --diverging-negative: #e34948;
-  --diverging-mid: #f0efec;
-  --band-opacity: 0.10;
   /* Version 1.3.2 visual identity pass ("modern baseball scorebook at
      night") -- ONE warm, non-semantic accent (scoreboard amber / stadium
      light) plus an optional muted, atmospheric field-green, both scoped to
@@ -41,9 +39,7 @@
      hierarchy reads as page < recessed control < card at a glance, not
      one flat plane with borders drawn on top. */
   --accent-amber: #b06f16;
-  --accent-amber-soft: rgba(176, 111, 22, 0.16);
   --accent-field: #4e6f51;
-  --accent-field-soft: rgba(78, 111, 81, 0.12);
 
   /* ══ Redesign Phase 1 · two grades per semantic colour ══════════════════
      Root cause of every light-theme contrast failure in the 2026-08-26
@@ -178,12 +174,8 @@
     --border: rgba(255, 255, 255, 0.12);
     --diverging-positive: #3987e5;
     --diverging-negative: #e66767;
-    --diverging-mid: #383835;
-    --band-opacity: 0.16;
     --accent-amber: #e0aa57;
-    --accent-amber-soft: rgba(224, 170, 87, 0.2);
     --accent-field: #8dac8f;
-    --accent-field-soft: rgba(141, 172, 143, 0.16);
 
     /* Dark already cleared the 4.5:1 text bar on every semantic colour, so
        the two grades coincide here. Measured page / surface / recessed:
@@ -253,7 +245,6 @@ code,
 .no-break-words,
 .player-link,
 table.leaderboard td,
-.player-hero-name,
 h1 {
   overflow-wrap: normal;
   word-break: normal;
@@ -845,27 +836,6 @@ h3 { font-size: 1rem; margin: 20px 0 8px; }
 
 /* Version 1.4.1 "What if?" sensitivity module on the play page -- reuses
    the "Try It Yourself" simulator's control/slider/prob-bar/rv-compare
-   classes verbatim (see dashboard/static/demo_simulator.js), only this
-   section-level wrapper and the badge above are new. */
-.showcase-whatif-section { margin-top: 28px; }
-
-.terminology-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
-.terminology-tab {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: var(--radius-control);
-  padding: 8px 14px;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
 /* ══ Shared axis header · Phase 3 ═════════════════════════════════════════
    The measuring axis, drawn once, in the SAME grid column the rows use.
    `.cl-axis-figure` is width-matched to the verdict column by
@@ -1647,8 +1617,7 @@ td.evidence {
 .interval-bar-compact { width: 220px; height: 32px; margin: 0 auto; }
 .interval-bar-full { width: 100%; max-width: 480px; height: 72px; }
 
-.interval-zero-line,
-.trend-zero-line {
+.interval-zero-line {
   stroke: var(--baseline);
   stroke-width: 1;
 }
@@ -1722,20 +1691,6 @@ td.evidence {
    itself never computes anything.
 
    The spine is a child of the LIST, not of a row: one rule, full height. */
-.cl-scale-list {
-  position: relative;
-}
-.cl-scale-list::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: var(--cl-zero);
-  width: var(--rule-emphasis);
-  margin-left: calc(var(--rule-emphasis) / -2);
-  background: var(--accent-amber-mark);
-  pointer-events: none;
-}
 .cl-scale-field {
   position: relative;
   /* No horizontal padding: the field IS the coordinate space, so anything
@@ -1831,10 +1786,13 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    the leaderboard's, so a reader arriving from a row recognises the scale
    instantly; nothing on this page invents a second design system.
 
-   RETAINED BUT NO LONGER USED HERE: `.player-header`, `.player-name-row`,
-   `.player-hero-figure`, `.player-orientation`, `.stat-grid`/`.stat-card`
-   and `.badge` still ship because `/plays/` and `/explore/` render them and
-   those routes are Phases 5 and 6. They are dead on this route only.
+   Phase 8 removed the Phase 1-4 leftovers this block used to retain
+   (`.player-name-row`, `.player-meta`, `.player-orientation`,
+   `.player-hero-figure`, `.player-hero-name`). The note that kept them said
+   `/plays/` and `/explore/` still rendered them; Phases 5-7 rebuilt both
+   routes, and the built HTML -- not the note -- is what was checked.
+   `.player-header` is deliberately kept: `tests/test_dashboard_player_
+   page.py` slices this stylesheet on it as a block boundary.
 
    COLUMN GEOMETRY. The component table's plot column is a coordinate space
    in exactly the sense `--lb-*` makes the leaderboard's verdict column one:
@@ -2401,9 +2359,18 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    not be seen at all. `--baseline` is the ruled-ink token, so the band reads
    as chart chrome rather than as a fifth colour. */
 .trend-band { fill: var(--baseline); opacity: 0.5; stroke: none; }
+/* Phase 8: was `--accent-field`. `docs/design/color.md` demotes the field
+   green to an illustration-only token -- "it may appear inside field
+   diagrams and nowhere else" -- and a season trend is not a field diagram,
+   so this was the fifth colour the `.trend-band` comment directly above is
+   careful to avoid. It cannot take a sign colour either (the line crosses
+   zero; the SIGN lives on each dot) or the amber (that means the frozen
+   record and the zero spine). Neutral ink is what is left, and it is what
+   the line always should have been: it reads clearly above the band at the
+   mark grade in both themes. */
 .trend-line {
   fill: none;
-  stroke: var(--accent-field);
+  stroke: var(--text-secondary);
   stroke-width: 2;
   stroke-linejoin: round;
 }
@@ -2604,14 +2571,6 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   border-top: 3px solid var(--accent-amber);
 }
 
-.player-name-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.player-name-row h1 { margin: 0; }
-
 /* RETIRED in Phase 2: `.player-header-mark` was a 100x32 open-chevron
    "trajectory" ornament beside the player name. Phase 1 gave the open
    outward chevron a meaning in the Zero Scale primitive -- "the interval
@@ -2620,41 +2579,6 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    uses it as a legend, is a collision in the visual vocabulary, not a
    flourish. Removed rather than replaced: nothing was being communicated,
    so nothing needs to take its place (DESIGN.md principle 5). */
-
-/* Compact uppercase metadata treatment -- MLBAM ID / data-through date /
-   the 95% interval line -- distinct from `.page-subtitle`'s plain prose
-   styling elsewhere on this page. */
-.player-meta {
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-  margin: 4px 0 10px;
-}
-
-/* Cold-entry orientation line (Version 1.3.3 information-architecture
-   pass) -- a single plain-language sentence, NOT another callout card, so
-   a visitor who lands directly on a player URL (a very shareable page) can
-   interpret the Runs/100 figure above without having seen the homepage
-   first. Sign-adaptive ("more"/"less" favorable) using the same
-   `player.score >= 0` boolean the figure's own color already keys off. */
-.player-orientation {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  max-width: 34em;
-  margin: 10px 0 0;
-}
-.player-orientation a { white-space: nowrap; }
-
-.player-hero-figure {
-  font-size: 2.4rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.player-hero-figure.interval-positive { color: var(--fav-text); }
-.player-hero-figure.interval-negative { color: var(--unfav-text); }
 
 /* ══ /methodology/ (redesign Phase 7) ═════════════════════════════════════
    A document, and it gets a document's apparatus: a section index, the
@@ -3179,15 +3103,6 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    overriding the new padding and holding rows at 54.5px and the header row
    at 70px -- four hitters above the fold instead of eight. The compact SVG
    bar it also sized no longer exists on this surface. */
-
-@media (max-width: 640px) {
-  .player-hero-figure { font-size: 1.9rem; }
-  /* Total runs / eligible BBE / games / interval width move to the player
-     page on mobile -- keeping Rank, Player, Runs/100, and the interval bar
-     visible without needing horizontal scroll for the primary leaderboard
-     use case. */
-  .hide-mobile { display: none; }
-}
 
 /* ══ /demo/ · How Contact Luck works (redesign Phase 7) ═══════════════════
    Teaching, not evidence, and it should read as the simpler page. Where a
@@ -4808,17 +4723,4 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    is that each value stays legible and attached to its own mark. */
 @media (max-width: 359px) {
   .play-gap-caption-value { font-size: var(--fs-300); }
-}
-
-/* Redesign Phase 1: the text half of the clipping contract. The caret says
-   "this continues"; this says what continues and confirms the printed
-   numbers are the real ones. Muted metadata register -- it is apparatus,
-   not a warning, and must never read as though the player's score is less
-   valid than anyone else's (guardrail 4). */
-.interval-clip-note {
-  max-width: 68ch;
-  margin: 8px 0 0;
-  font-size: var(--fs-200);
-  line-height: 1.5;
-  color: var(--text-muted);
 }

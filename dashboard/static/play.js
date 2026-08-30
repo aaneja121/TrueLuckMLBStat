@@ -32,7 +32,6 @@
   // non-negative integers separated by hyphens, nothing else. Validated
   // BEFORE any fetch is attempted, so a malformed id never reaches the
   // network layer at all.
-  var PLAY_ID_PATTERN = /^(\d+)-\d+-\d+$/;
 
   // Illustrative-only field geometry: a fixed distance-to-radius mapping
   // from the play's own recorded spray_angle_approx/hit_distance_sc. Never
@@ -344,13 +343,16 @@
       showNotFound(page);
       return;
     }
-    var match = PLAY_ID_PATTERN.exec(playId);
-    if (!match) {
+    // The play-id contract lives once, in app.js (`gamePkFromPlayId`); the
+    // local fallback keeps this page working if app.js failed to load.
+    var gamePk = shared.gamePkFromPlayId
+      ? shared.gamePkFromPlayId(playId)
+      : (/^(\d+)-\d+-\d+$/.exec(playId) || [])[1] || null;
+    if (!gamePk) {
       // Malformed play_id -- never even attempt a fetch.
       showNotFound(page);
       return;
     }
-    var gamePk = match[1];
     var scale = shared.runValueScale ? shared.runValueScale() : null;
 
     fetch("/explore/games/" + encodeURIComponent(gamePk) + ".json")

@@ -113,7 +113,7 @@
       <p class="site-footer-provenance">
         <a href="{{ root_prefix }}methodology/">Methodology</a>
         <a href="{{ root_prefix }}status/">Data &amp; status</a>
-        <span class="site-footer-build">Dashboard v{{ dashboard_version }} · snapshot {{ snapshot_directory_name }} · generated {{ build_timestamp }}</span>
+        <span class="site-footer-build">Dashboard v{{ dashboard_version }} · snapshot {{ snapshot_directory_name }} · generated <time datetime="{{ build_timestamp }}">{{ build_timestamp_display }}</time></span>
       </p>
     </div>
   </footer>

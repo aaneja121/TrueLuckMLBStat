@@ -604,6 +604,19 @@
     return (fraction * 100).toFixed(4) + "%";
   }
 
+  // A play's stable identity is `game_pk-at_bat_number-pitch_number`
+  // (dashboard/build.py, templates/play.html). Both /plays/ scripts validate
+  // an incoming `?id=` against it and derive `game_pk` from it before
+  // fetching anything, so the format was written out twice; Phase 8 made it
+  // one definition. Returns the `game_pk` substring, or null for a
+  // malformed id, so a caller never fetches on a bad id.
+  var PLAY_ID_PATTERN = /^(\d+)-\d+-\d+$/;
+
+  function gamePkFromPlayId(playId) {
+    var match = PLAY_ID_PATTERN.exec(String(playId || ""));
+    return match ? match[1] : null;
+  }
+
   // Explore and the play page drive the same combobox and the same scale
   // from their own script tags.
   window.ContactLuck = window.ContactLuck || {};
@@ -612,6 +625,7 @@
   window.ContactLuck.formatSigned = formatSigned;
   window.ContactLuck.runValueScale = runValueScale;
   window.ContactLuck.runValuePct = runValuePct;
+  window.ContactLuck.gamePkFromPlayId = gamePkFromPlayId;
 
   document.addEventListener("DOMContentLoaded", function () {
     initRankingTabs();

@@ -67,7 +67,10 @@ from mlb_luck_score.scoring.aggregation_uncertainty import (
     bootstrap_batter_season_intervals,
 )
 from mlb_luck_score.scoring.attribution_ledger import build_attribution_ledger
-from mlb_luck_score.scoring.component_confidence import build_play_level_confidence
+from mlb_luck_score.scoring.component_confidence import (
+    build_play_level_confidence,
+    normalize_model_status,
+)
 from mlb_luck_score.scoring.qualification import (
     assign_qualification_status,
     summarize_qualification_counts,
@@ -250,7 +253,36 @@ def train_and_score_2026(
                 f"{near_wall_winner} (informational only; Version 0.7 stays provisional/frozen)"
             ),
         },
+        # Version 1.4.2: normalized onto `component_confidence`'s fixed
+        # MODEL_STATUS_* vocabulary, which is what every OTHER consumer of
+        # these same three raw values already does.
+        #
+        # `_read_existing_gate_status` returns `str(node)` of whatever the
+        # gate file holds, and the three components' gate files do not agree
+        # on a type: infield and advancement expose a status string at
+        # `gate_summary.overall_status`, while the outfield comparison file
+        # (a single candidate, no selection) exposes only the boolean
+        # `validation_summary.per_candidate.measured_contact_only_v07.
+        # passes_basic_validation`. So `outfield` was publishing the literal
+        # string "False" in a field documented as carrying the MODEL_STATUS_*
+        # vocabulary, while the per-play layer -- which routes the same raw
+        # value through `normalize_model_status` -- correctly recorded
+        # `not_calibrated` for the same model in the same snapshot.
+        #
+        # `normalize_model_status` is the project's existing canonical
+        # mapping and already names this exact input in its docstring; it is
+        # idempotent on an already-valid status, so infield/advancement are
+        # unchanged. No verdict is invented here: an unrecognized string
+        # still maps to `unavailable`, never to `calibrated`.
         "component_model_status": {
+            "outfield": normalize_model_status(outfield_status_raw),
+            "infield": normalize_model_status(infield_status_raw),
+            "advancement": normalize_model_status(advancement_status_raw),
+        },
+        # The unnormalized gate readings are kept alongside, so the snapshot
+        # still records exactly what each gate file said and the mapping
+        # stays auditable rather than lossy.
+        "component_model_status_raw": {
             "outfield": outfield_status_raw,
             "infield": infield_status_raw,
             "advancement": advancement_status_raw,

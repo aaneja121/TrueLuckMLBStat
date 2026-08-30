@@ -75,3 +75,11 @@ outputs/explorer_build/*
 # secrets; the actual auth token lives outside the repo in the user's
 # global Wrangler config).
 .wrangler/
+
+# Microsoft Playwright MCP scratch output. The rendered-verification step in
+# CLAUDE.md ("not done until it has been rendered and looked at") writes this
+# directory into the repository root on every run. It is not just untidy:
+# `prospective.prospective_ingestion.run_prospective_guards` treats an
+# untracked-but-not-ignored path as a dirty tree and HARD-BLOCKS every real
+# snapshot run, so a leftover scratch dir stops production scoring.
+.playwright-mcp/
