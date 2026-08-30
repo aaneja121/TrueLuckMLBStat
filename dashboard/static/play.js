@@ -27,12 +27,6 @@
     home_run: "Home run",
   };
 
-  // A play_id is ALWAYS exactly `<game_pk>-<at_bat_number>-<pitch_number>`
-  // (mlb_luck_score.data.clean_batted_balls.build_event_id) -- three
-  // non-negative integers separated by hyphens, nothing else. Validated
-  // BEFORE any fetch is attempted, so a malformed id never reaches the
-  // network layer at all.
-
   // Illustrative-only field geometry: a fixed distance-to-radius mapping
   // from the play's own recorded spray_angle_approx/hit_distance_sc. Never
   // a physics simulation, never a reconstruction of the actual ball flight.

@@ -821,7 +821,14 @@ h1 { font-size: 1.6rem; margin: 0 0 6px; }
    "the frozen official record." Section separation is now the rule above
    the heading plus the space around it. */
 h2 {
-  font-size: 1.2rem;
+  /* Phase 8: was 1.2rem (19.2px), which is not one of the nine steps in
+     `docs/design/typography.md` -- it sat between --fs-500 and --fs-600.
+     Every route that cares scopes its own h2 size, so this default was
+     reached by exactly two section heads (the homepage worked example and
+     Explore's showcase), which rendered off-scale. --fs-600 is the token
+     documented for section heads, and is what the player, methodology and
+     status sections already use. */
+  font-size: var(--fs-600);
   margin: 32px 0 10px;
 }
 h3 { font-size: 1rem; margin: 20px 0 8px; }
