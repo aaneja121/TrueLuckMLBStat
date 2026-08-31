@@ -81,7 +81,16 @@ def _make_public_score_table(distinguishing_value: float) -> pd.DataFrame:
     )
 
 
-def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, *, distinguishing_value: float) -> None:
+def _stub_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    distinguishing_value: float,
+    report_overrides: dict[str, Any] | None = None,
+) -> None:
+    """`report_overrides` is merged (top level) into the stub scoring
+    report, so another module can reuse this same real-`run_prospective_
+    snapshot` harness to exercise how a specific report field is persisted.
+    """
     auth = SimpleNamespace(token="stub-token", granted_at="2026-01-01T00:00:00+00:00")
     monkeypatch.setattr(runner, "run_prospective_guards", lambda **kw: auth)
     monkeypatch.setattr(
@@ -211,6 +220,7 @@ def _stub_pipeline(monkeypatch: pytest.MonkeyPatch, *, distinguishing_value: flo
                 "advancement": "advancement_speed_v09",
             },
             "component_model_status": {"infield": "calibrated"},
+            **(report_overrides or {}),
         },
         scoring_df=fake_scoring_df,
         ledger=fake_ledger,

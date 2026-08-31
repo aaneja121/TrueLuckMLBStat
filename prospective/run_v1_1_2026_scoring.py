@@ -397,10 +397,33 @@ def run_prospective_snapshot(
         "geometry_join": join_provenance["geometry_join"],
         "sprint_speed_join": join_provenance["sprint_speed_join"],
     }
-    component_status_summary = {
+    component_status_summary: dict[str, Any] = {
         "model_selection_winners": artifacts.report["model_selection_winners"],
         "component_model_status": artifacts.report["component_model_status"],
     }
+    # Version 1.4.2: `prospective_scoring.train_and_score_2026` records BOTH
+    # the normalized `component_model_status` (on `component_confidence`'s
+    # fixed MODEL_STATUS_* vocabulary) and `component_model_status_raw` (the
+    # unnormalized gate readings, exactly as `_read_existing_gate_status`
+    # returned them). Only the normalized half used to be copied here, so the
+    # raw half died in memory and never reached the snapshot -- the mapping
+    # was published without the input it was derived from.
+    #
+    # Copied verbatim: no re-mapping, no re-typing, no defaulting. A raw
+    # value means exactly what the gate file said, including "False" for the
+    # outfield gate's boolean `passes_basic_validation`.
+    #
+    # Conditional because a report is not required to carry the key: reports
+    # from other aggregators (and the historical reports that produced every
+    # already-published snapshot) do not have it, and this writer must keep
+    # working with those rather than fail. When it is absent the key is
+    # omitted entirely rather than written as null, so a reader can tell
+    # "never recorded" from "recorded as nothing"; readers already treat the
+    # field as optional (`dashboard/content.py` uses `.get`).
+    if "component_model_status_raw" in artifacts.report:
+        component_status_summary["component_model_status_raw"] = artifacts.report[
+            "component_model_status_raw"
+        ]
 
     observed_date_coverage = statcast_provenance["observed_date_coverage"]
     retrieval_timestamps = {
