@@ -1,7 +1,7 @@
-"""Version 1.4.0 search hotfix: tests for `dashboard/static/explore.js`'s
-Play Explorer player-name search matching -- case-insensitive, diacritic
--insensitive, whitespace-normalized (`normalizeSearchText`), while leaving
-displayed names (`playerLabel`) exactly as fetched, accents included.
+"""Version 1.4.0 search hotfix: tests for the Play Explorer's player-name
+search matching -- case-insensitive, diacritic-insensitive,
+whitespace-normalized (`normalizeSearchText`), while leaving displayed
+names (`playerLabel`) exactly as fetched, accents included.
 
 Runs the ACTUAL shipped `normalizeSearchText` function body under Node (no
 DOM/jsdom needed -- it's a pure string function with no `document`
@@ -9,6 +9,11 @@ reference), extracted from the real file rather than reimplemented in
 Python, so these tests can never silently drift from what the browser
 actually executes. Node is a system dependency already required for this
 repo's frontend tooling; this adds no new dependency.
+
+Redesign Phase 5 moved that function to `dashboard/static/app.js` when
+Explore adopted the shared combobox; Explore now calls the one
+implementation instead of carrying a pinned duplicate. The behaviour under
+test is unchanged, so this module follows the function.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from pathlib import Path
 import pytest
 
 EXPLORE_JS_PATH = Path(__file__).resolve().parents[1] / "dashboard" / "static" / "explore.js"
+APP_JS_PATH = Path(__file__).resolve().parents[1] / "dashboard" / "static" / "app.js"
 
 
 def _extract_js_function(source: str, name: str) -> str:
@@ -48,7 +54,7 @@ def _extract_js_function(source: str, name: str) -> str:
 
 @pytest.fixture(scope="module")
 def normalize_search_text() -> Callable[[str], str]:
-    source = EXPLORE_JS_PATH.read_text(encoding="utf-8")
+    source = APP_JS_PATH.read_text(encoding="utf-8")
     fn_source = _extract_js_function(source, "normalizeSearchText")
 
     def call(text: str) -> str:
@@ -171,11 +177,18 @@ class TestDisplayNameUnaffected:
         assert "entry.batter_name" in player_label_source
 
     def test_normalize_search_text_defined_exactly_once(self) -> None:
-        source = EXPLORE_JS_PATH.read_text(encoding="utf-8")
-        assert source.count("function normalizeSearchText(") == 1
+        """Once across BOTH files now -- Explore stopped carrying a copy in
+        Phase 5 and drives the shared combobox instead."""
+        app_source = APP_JS_PATH.read_text(encoding="utf-8")
+        explore_source = EXPLORE_JS_PATH.read_text(encoding="utf-8")
+        assert app_source.count("function normalizeSearchText(") == 1
+        assert explore_source.count("function normalizeSearchText(") == 0
 
-    def test_on_search_input_normalizes_both_the_query_and_every_candidate_name(self) -> None:
-        source = EXPLORE_JS_PATH.read_text(encoding="utf-8")
-        on_search_input_source = _extract_js_function(source, "onSearchInput")
-        assert on_search_input_source.count("normalizeSearchText(") == 2
-        assert ".toLowerCase()" not in on_search_input_source
+    def test_the_matcher_normalizes_both_the_query_and_every_candidate_name(self) -> None:
+        """The predicate moved into the combobox factory's `search()` with
+        Explore's adoption of it; the accent-folding on BOTH sides of the
+        comparison is what these tests exist to hold."""
+        source = APP_JS_PATH.read_text(encoding="utf-8")
+        search_source = _extract_js_function(source, "search")
+        assert search_source.count("normalizeSearchText(") == 2
+        assert ".toLowerCase()" not in search_source

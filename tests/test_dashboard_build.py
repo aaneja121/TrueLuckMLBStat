@@ -154,7 +154,19 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        assert "<title>5.25 runs/100 (95% interval: 1.10 to 9.40)</title>" in html
+        # Redesign Phase 1: Contact Luck values carry an explicit sign
+        # wherever they are stated, including in the accessible text -- the
+        # sign glyph is the non-colour channel for the favorable/unfavorable
+        # pair, and a screen reader never receives the colour.
+        #
+        # Redesign Phase 4: the hero is no longer an SVG, so the guarantee no
+        # longer lives in a `<title>`. It is stronger now -- the point
+        # estimate and its interval are ordinary text beside the mark, which
+        # is `aria-hidden` -- and it is asserted in that form.
+        flat = re.sub(r"\s+", " ", html)
+        assert '<p class="player-score num">+5.25' in flat
+        assert '95% interval <span class="num">+1.10</span> to' in flat
+        assert '<span class="num">+9.40</span>' in flat
 
     def test_component_status_reason_codes_propagate_to_player_page(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -166,11 +178,12 @@ class TestBuildContent:
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
         # Raw codes still exist -- inside the technical disclosure, not the
-        # primary table.
+        # decomposition itself. Phase 4 renamed the disclosure class and
+        # merged the two baseline tables into one; the guarantee is the same.
         assert "near_wall_provisional" in html
         assert "calibrated_with_limited_subgroup_evidence" in html
-        assert '<details class="technical-disclosure">' in html
-        assert "View technical reason codes" in html
+        assert '<details class="player-disclosure">' in html
+        assert "Technical reason codes" in html
 
     def test_component_status_shows_plain_language_summary_first(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -181,7 +194,7 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        primary_table_html = html.split('<details class="technical-disclosure">', 1)[0]
+        primary_table_html = html.split('<details class="player-disclosure">', 1)[0]
         assert "Provisional" in primary_table_html
         assert "Limited subgroup evidence" in primary_table_html
         # The raw status token must not leak into the primary (non-disclosure)
@@ -199,8 +212,11 @@ class TestBuildContent:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        assert "Share from provisional components" in html
+        # Phase 4 shortened the stat line's label to fit a ruled line rather
+        # than a tile; it stays plain language, never the schema field name.
+        assert "From provisional components" in html
         assert "Provisional-component share" not in html
+        assert "share_of_value_from_provisional_components" not in html
 
     def test_trend_chart_present_across_two_stored_snapshots(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -275,9 +291,17 @@ class TestIntervalColumnHeaderAlignment:
     drifting apart again.
     """
 
-    def test_header_and_every_interval_cell_share_the_interval_col_class(
-        self, tmp_path: Path
-    ) -> None:
+    def test_the_verdict_is_one_cell_per_row(self, tmp_path: Path) -> None:
+        """Redesign Phase 3 replaced this test's subject.
+
+        There is no longer an "interval-col" column: the point estimate and
+        the interval that qualifies it are ONE cell on the shared axis
+        (`docs/design/tables.md` rule 1), which is what removed the widest
+        column pair and turned the column into a readable distribution. The
+        contract asserted here is unchanged in substance -- every row carries
+        exactly one interval rendering, and the header names the column once
+        per table.
+        """
         out_root, art_root = _seed_two_snapshots(tmp_path)
         dashboard_build.build_dashboard(
             out_dir=tmp_path / "dist",
@@ -287,29 +311,33 @@ class TestIntervalColumnHeaderAlignment:
         )
         html = (tmp_path / "dist" / "index.html").read_text()
 
-        headers = re.findall(r'<th class="interval-col">95% interval</th>', html)
-        assert len(headers) == 2, (
-            "expected one '95% interval' header per table (favorable + unfavorable)"
-        )
+        headers = re.findall(r"<th[^>]*class=\"col-verdict\"", html)
+        assert len(headers) == 2, "one verdict header per table (favorable + unfavorable)"
 
-        cells = re.findall(r'<td class="interval-col"><svg class="interval-bar', html)
         rows = re.findall(r"<tr data-official-rank=", html)
-        assert len(cells) == len(rows) > 0
+        fields = re.findall(r'<div class="cl-scale-field', html)
+        values = re.findall(r'<span class="verdict-value num">', html)
+        assert len(fields) == len(values) == len(rows) > 0
         qualified_count = sum(1 for p in _players() if p["qualification_status"] == "qualified")
-        assert len(cells) == 2 * qualified_count  # every qualified player, in both tables
+        assert len(fields) == 2 * qualified_count
 
-    def test_stylesheet_centers_the_interval_col_class_and_the_compact_bar(self) -> None:
-        css = (
-            Path(__file__).resolve().parents[1] / "dashboard" / "static" / "style.css"
-        ).read_text()
-        assert re.search(
-            r"table\.leaderboard\s+(td|th)\.interval-col,\s*"
-            r"table\.leaderboard\s+(th|td)\.interval-col\s*\{[^}]*text-align:\s*center",
-            css,
-        ), "the interval-col header/cell rule must center-align (grep-visible in style.css)"
-        assert re.search(r"\.interval-bar-compact\s*\{[^}]*margin:\s*0 auto", css), (
-            "the compact bar itself must be centered within its (now text-align:center) cell"
+    def test_the_leaderboard_emits_no_svg_at_all(self, tmp_path: Path) -> None:
+        """The surface that produced 5.5px axis labels no longer has SVG.
+
+        124 inline SVGs became CSS-positioned marks on one shared field, so
+        `docs/design/guardrails.md` anti-pattern 11 (SVG text below 12 CSS px
+        after viewBox scaling) is not merely fixed here -- it is unreachable.
+        """
+        out_root, art_root = _seed_two_snapshots(tmp_path)
+        dashboard_build.build_dashboard(
+            out_dir=tmp_path / "dist",
+            outputs_root=out_root,
+            artifacts_root=art_root,
+            build_timestamp="2026-01-02T12:00:00+00:00",
         )
+        html = (tmp_path / "dist" / "index.html").read_text()
+        body = html.split("<main", 1)[1]
+        assert "<svg" not in body
 
 
 class TestResponsiveBasics:
@@ -323,7 +351,9 @@ class TestResponsiveBasics:
         )
         html = (tmp_path / "dist" / "index.html").read_text()
         assert 'name="viewport"' in html
-        assert 'class="overflow-x"' in html
+        # Phase 3: the scroll container gained a min-width contract and its
+        # own class; `.overflow-x` remains on it (tables.md rule 3).
+        assert 'class="leaderboard-scroll overflow-x"' in html
 
     def test_stylesheet_has_a_media_query(self) -> None:
         css = (
@@ -437,6 +467,26 @@ def _row_svg(html: str, table_id: str, batter_name: str) -> str:
     ).group(0)
 
 
+def _row_field(html: str, table_id: str, batter_name: str) -> dict[str, float]:
+    """The Zero Spine plot-field percentages for one leaderboard row.
+
+    Redesign Phase 3 replaced the row's inline SVG with CSS custom properties
+    on `.cl-scale-field`; this is the percentage-space equivalent of
+    `_bar_positions`, returned as plain numbers in 0..100.
+    """
+    table_html = html.split(f'id="lb-{table_id}"', 1)[1]
+    row_start = table_html.find(f'data-player-name="{batter_name}"')
+    assert row_start != -1, f"{batter_name!r} not found in table {table_id!r}"
+    style = re.search(
+        r'class="cl-scale-field[^"]*"[^>]*style="([^"]+)"', table_html[row_start:]
+    ).group(1)
+    return {
+        "lo": float(re.search(r"--cl-lo:\s*([\d.]+)%", style).group(1)),
+        "hi": float(re.search(r"--cl-hi:\s*([\d.]+)%", style).group(1)),
+        "pt": float(re.search(r"--cl-pt:\s*([\d.]+)%", style).group(1)),
+    }
+
+
 class TestIntervalDomainConsistency:
     """Regression coverage for the interval-bar scale bug: every mini bar in
     the SAME leaderboard view (both tables) must share one x-domain, AND a
@@ -458,21 +508,29 @@ class TestIntervalDomainConsistency:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "index.html").read_text()
-        zero_positions = set(re.findall(r'interval-zero-line" x1="([\d.-]+)"', html))
-        assert len(zero_positions) == 1, (
-            f"expected one shared zero position across every row in both "
-            f"tables, found: {zero_positions}"
+        # Redesign Phase 3: rows carry layout percentages, not per-row SVG.
+        # Invariant Z is now stronger, not weaker -- there is exactly ONE
+        # zero locus for the whole page (`--cl-zero` on <html>), and every
+        # field is a child of the same table column, so a single rule drawn
+        # at that fraction registers against all rows by construction.
+        zero_loci = set(re.findall(r"--cl-zero:\s*([\d.]+%)", html))
+        assert len(zero_loci) == 1, (
+            f"expected one shared zero locus for the whole page, found: {zero_loci}"
         )
+        # And every row really does use it: no row carries its own zero.
+        assert "--cl-zero:" not in html.split("<tbody>", 1)[1]
 
     def test_domain_reflects_both_tables_even_when_they_diverge(self, tmp_path: Path) -> None:
         """Alice is the most favorable player and would be cut from the
         unfavorable table by a `top_n=1` slice, while Bob (the most
         unfavorable) would be cut from the favorable table the same way --
         each table alone is missing one extreme. The shared domain must
-        still be built from the UNION of what both tables display, not from
-        whichever table happens to be used to compute it -- so Bob's
-        negative CI in the favorable-derived view must not be clipped
-        against a domain sized only for Alice's positive range.
+        still be built from the UNION of what both tables display, so Bob's
+        negative interval is not clipped against a domain sized only for
+        Alice's positive range.
+
+        Redesign Phase 3: the rows carry layout percentages rather than
+        per-row SVG, so the same property is now read off `--cl-lo/hi/pt`.
         """
         out_root, art_root = tmp_path / "outputs", tmp_path / "artifacts"
         write_snapshot(
@@ -494,33 +552,21 @@ class TestIntervalDomainConsistency:
         )
         html = (tmp_path / "dist" / "index.html").read_text()
 
-        alice_svg = _row_svg(html, "favorable", "Alice Alpha")
-        bob_svg = _row_svg(html, "unfavorable", "Bob Beta")
-        alice_pos = _bar_positions(alice_svg)
-        bob_pos = _bar_positions(bob_svg)
+        # One zero locus for the page means both tables share one domain by
+        # construction -- there is nowhere for a second domain to live.
+        assert len(set(re.findall(r"--cl-zero:\s*([\d.]+%)", html))) == 1
 
-        # Same shared domain -> identical zero position in both tables,
-        # even though Bob never appears in the favorable table this domain
-        # was historically (buggily) derived from alone.
-        assert alice_pos["zero"] == bob_pos["zero"]
+        bob = _row_field(html, "unfavorable", "Bob Beta")
+        # Bob's interval is [-7.2, 1.3]. Sized only for Alice's [1.1, 9.4],
+        # his lower bound would clamp flush to 0% -- indistinguishable from a
+        # far less negative value. Not clamped means strictly inside.
+        assert 0.5 < bob["lo"] < 100.0
+        assert 0.0 < bob["hi"] < 100.0
 
-        # Bob's CI is [-7.2, 1.3] -- entirely on the negative side except
-        # for a sliver above zero. If the domain were sized only for
-        # Alice's [1.1, 9.4] range, Bob's lower bound (-7.2) would fall
-        # outside domain_min and get clamped flush to the left margin,
-        # identical to where a much-less-negative value would also clamp.
-        # Confirm no clamping happened: Bob's lower bound must sit strictly
-        # inside the drawable area, not pinned to the margin.
-        compact_width, compact_margin = 220, 10
-        assert bob_pos["lower"] > compact_margin + 0.5
-        assert bob_pos["lower"] < compact_width - compact_margin
-
-        # And the point estimate must sit at its mathematically correct
-        # proportional location within Bob's own CI.
+        # And the point estimate sits at its correct proportional location
+        # within Bob's own interval.
         value_fraction = (-3.5 - (-7.2)) / (1.3 - (-7.2))
-        pixel_fraction = (bob_pos["point"] - bob_pos["lower"]) / (
-            bob_pos["upper"] - bob_pos["lower"]
-        )
+        pixel_fraction = (bob["pt"] - bob["lo"]) / (bob["hi"] - bob["lo"])
         assert pixel_fraction == pytest.approx(value_fraction, abs=1e-3)
 
     def test_player_detail_page_bar_uses_the_same_scale_as_its_leaderboard_row(
@@ -542,29 +588,36 @@ class TestIntervalDomainConsistency:
         index_html = (tmp_path / "dist" / "index.html").read_text()
         player_html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
 
-        row_svg = _row_svg(index_html, "favorable", "Alice Alpha")
-        player_svg = re.search(
-            r'<svg class="interval-bar interval-bar-full".*?</svg>', player_html
-        ).group(0)
+        # Redesign Phase 4: the player hero is now the same CSS Zero Spine
+        # primitive the leaderboard row is, so this stops being a
+        # cross-renderer tolerance check and becomes an EXACT one -- the two
+        # percentages come from one `ZeroScale` and must be byte-identical.
+        # The cross-renderer check the plan also asks for did not disappear;
+        # it moved to `tests/test_dashboard_player_page.py`
+        # (`TestRendererAgreement`), where it compares renderer A's fractions
+        # against renderer B's SVG directly.
+        row = _row_field(index_html, "favorable", "Alice Alpha")
+        hero_style = re.search(
+            r'class="cl-scale-field[^"]*"[^>]*style="([^"]+)"',
+            player_html.split('class="player-mark-row"', 1)[1],
+            re.DOTALL,
+        ).group(1)
+        hero = {
+            prop: float(re.search(rf"--cl-{prop}:\s*([\d.]+)%", hero_style).group(1))
+            for prop in ("lo", "pt", "hi")
+        }
 
-        row_pos = _bar_positions(row_svg)
-        player_pos = _bar_positions(player_svg)
+        # Invariant Z: one zero locus for the whole site, written once onto
+        # <html> and never recomputed per page.
+        page_zero = re.search(r"--cl-zero:\s*([\d.]+%)", index_html).group(1)
+        assert page_zero == re.search(r"--cl-zero:\s*([\d.]+%)", player_html).group(1)
 
-        compact_width, compact_margin = 220, 10
-        full_width, full_margin = 480, 28
-
-        def fractions(pos: dict[str, float], width: int, margin: int) -> dict[str, float]:
-            inner_w = width - 2 * margin
-            return {k: (v - margin) / inner_w for k, v in pos.items()}
-
-        row_fractions = fractions(row_pos, compact_width, compact_margin)
-        player_fractions = fractions(player_pos, full_width, full_margin)
-
-        for key in ("zero", "lower", "point", "upper"):
-            assert row_fractions[key] == pytest.approx(player_fractions[key], abs=1e-3), (
-                f"{key} fraction differs between leaderboard row "
-                f"({row_fractions[key]:.4f}) and player detail page "
-                f"({player_fractions[key]:.4f}) -- they must share one scale"
+        # Invariant D: the same player's same numbers, at the same fraction.
+        for prop in ("lo", "pt", "hi"):
+            assert hero[prop] == row[prop], (
+                f"--cl-{prop} differs between the leaderboard row "
+                f"({row[prop]}%) and the player hero ({hero[prop]}%) -- "
+                "they must be one measurement, not two"
             )
 
 
@@ -589,8 +642,16 @@ class TestScoredGamesLabelClarification:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "index.html").read_text()
-        assert html.count(">Scored Games<") == 2  # one header per table (favorable + unfavorable)
+        # Redesign Phase 3 compressed the three evidence columns into one
+        # sample cell, so "Scored Games" is no longer a column header. The
+        # PRODUCT commitment it guarded is unchanged and still asserted: the
+        # games figure is never presented as bare "Games", and every row
+        # carries the disambiguated wording for assistive technology.
+        rows = html.count("<tr data-official-rank=")
+        assert rows > 0
+        assert html.count("Scored Games") == rows
         assert ">Games<" not in html
+        assert "scored games" in html  # the visible column sub-label
 
     def test_player_page_stat_label_says_scored_games(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_two_snapshots(tmp_path)
@@ -601,7 +662,12 @@ class TestScoredGamesLabelClarification:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
-        assert ">Scored Games<" in html
+        # Phase 4 moved this from a bordered tile to the ruled stat line and
+        # set the label in sentence case, with the disambiguation attached to
+        # the label itself rather than a `title` on a div. The product
+        # commitment -- never bare "Games" -- is unchanged.
+        assert "Scored games</abbr>" in html
+        assert "not official MLB games played" in html
         assert ">Games<" not in html
 
     def test_methodology_page_defines_scored_games(self, tmp_path: Path) -> None:
@@ -613,10 +679,15 @@ class TestScoredGamesLabelClarification:
             build_timestamp="2026-01-02T12:00:00+00:00",
         )
         html = (tmp_path / "dist" / "methodology" / "index.html").read_text()
-        assert "<strong>Scored Games</strong>" in html
-        assert "outcome-resolved eligible batted ball" in html
-        assert "This is <em>not</em> the" in html
-        assert "official MLB games played" in html
+        # Source line wrapping is not the contract, so the claim is matched
+        # against whitespace-normalized text rather than raw markup.
+        flat = " ".join(html.split())
+        assert "<strong>Scored Games</strong>" in flat
+        assert "outcome-resolved eligible batted ball" in flat
+        # Phase 7 rewrote the sentence around the claim; the claim itself is
+        # what this test exists to protect, so it is asserted directly
+        # rather than through the markup that used to carry it.
+        assert "not the same as official MLB games played" in flat
 
     def test_games_numeric_value_is_unchanged_in_leaderboard_row_and_player_page(
         self, tmp_path: Path
@@ -639,9 +710,8 @@ class TestScoredGamesLabelClarification:
 
         player_html = (tmp_path / "dist" / "players" / "1" / "index.html").read_text()
         stat_value = re.search(
-            r'<div class="stat-label"[^>]*>Scored Games</div>\s*'
-            r'<div class="stat-value">(\d+)</div>',
+            r"Scored games</abbr></dt>\s*<dd class=\"num\">(\d+)</dd>",
             player_html,
         )
-        assert stat_value is not None, "could not find the Scored Games stat card"
+        assert stat_value is not None, "could not find the Scored games stat"
         assert stat_value.group(1) == "101"

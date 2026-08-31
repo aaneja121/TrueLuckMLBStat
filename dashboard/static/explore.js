@@ -1,22 +1,32 @@
-// Contact Luck v1.4.0 (Phase 4.2) -- Play Explorer landing/results page.
-// Purely presentational, player-first flow:
-//   1. On page load, fetch ONLY the small, already-computed players.json
-//      catalog (see dashboard/explore_content.py /
-//      demo/build_play_explorer_fixture.py) -- never any play data yet.
-//   2. Let the visitor search/select a hitter from that catalog.
-//   3. ONLY after a hitter is selected, fetch that ONE hitter's
-//      players/<batter_id>.json play index -- never every batter's file,
-//      never the old monolithic search-index.json (removed in Phase 4.2;
-//      at full 2024 development-data scale it measured ~29.3 MiB, over
-//      Cloudflare Pages' 25 MiB per-asset limit).
-//   4. Filter/sort that ONE hitter's already-loaded plays entirely
-//      client-side -- no per-keystroke network request, no recomputation
-//      of any scoring field. Every value rendered here (including Contact
-//      Luck) is copied verbatim from the fetched row.
+// Contact Luck -- Play Explorer (redesign Phase 5).
+//
+// Purely presentational, player-first, and sharded. The fetch contract from
+// Phase 4.2 is unchanged and must stay that way:
+//   1. On page load, fetch ONLY the small players.json catalog -- never any
+//      play data yet.
+//   2. ONLY after a hitter is selected, fetch that ONE hitter's
+//      players/<batter_id>.json index -- never every batter's file, never a
+//      monolithic index (at full 2024 development-data scale that measured
+//      ~29.3 MiB, over Cloudflare Pages' 25 MiB per-asset limit).
+//   3. Filter and sort that one hitter's already-loaded plays client-side.
+//      Every value rendered, Contact Luck included, is copied verbatim from
+//      the fetched row. Nothing here is recomputed.
+//
+// Phase 5 changes three things and nothing else about that contract:
+//   * The picker is the shared ARIA 1.2 combobox from app.js, not a second
+//     weaker implementation.
+//   * THE URL IS THE SINGLE SOURCE OF TRUTH for which hitter is selected.
+//     Selecting pushes `?batter=<id>`; popstate re-derives the selection
+//     from the address. The in-memory selection is never the authority --
+//     that is what keeps Back/Forward honest and the URL never stale.
+//   * Each play is drawn on the build-supplied `run_value` domain. The
+//     domain arrives as data; this file interpolates a layout percentage
+//     against it and derives no scale of its own.
 (function () {
   "use strict";
 
   var PLAYERS_URL = "players.json";
+  var SHOWCASE_URL = "showcase.json";
 
   var OUTCOME_LABELS = {
     out: "Out",
@@ -26,22 +36,20 @@
     home_run: "Home run",
   };
 
-  var MAX_SUGGESTIONS = 8;
+  //: How many plays each showcase group shows before its one-way reveal.
+  var SHOWCASE_INITIAL_VISIBLE = 6;
+
+  var EM_DASH = "—";
+
+  // Phase 6 consolidation: the signed-number primitive and the run-value
+  // scale helpers live once, in app.js, on `window.ContactLuck`. This file
+  // carried its own copy of `formatSigned`, as did play.js and
+  // showcase_whatif.js.
+  var shared = window.ContactLuck || {};
+  var formatSigned = shared.formatSigned;
 
   function qs(selector, root) {
     return (root || document).querySelector(selector);
-  }
-
-  function formatSigned(value) {
-    if (value === null || value === undefined) return "—";
-    var sign = value >= 0 ? "+" : "";
-    return sign + value.toFixed(2);
-  }
-
-  function formatDate(iso) {
-    // iso is already YYYY-MM-DD -- rendered as-is, no timezone conversion
-    // (this repository never infers a timezone for a bare date string).
-    return iso;
   }
 
   function outcomeLabel(cls) {
@@ -52,137 +60,136 @@
     return entry.batter_name || "Player " + entry.batter_id;
   }
 
-  // Search matching only -- NEVER used for display (playerLabel/DOM text
-  // always renders the original, accented entry.batter_name verbatim).
-  // Case-insensitive, diacritic-insensitive (Unicode NFD decomposes an
-  // accented character into a base letter plus a separate combining-mark
-  // codepoint, e.g. U+00E9 "e-acute" -> "e" + U+0301; \u0300-\u036f is the
-  // Unicode "Combining Diacritical Marks" block, stripped here so the base
-  // letter is all that remains), and whitespace-normalized (trims both
-  // ends, collapses any internal run of whitespace to a single space) --
-  // so "jose ramirez", "JOSE RAMIREZ", and "Jose   Ramirez" all normalize
-  // to the identical search key "jose ramirez", the same key "Jose
-  // Ramirez" and the real, accented "José Ramírez" also normalize to.
-  function normalizeSearchText(text) {
-    return (text || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, " ");
+  function plural(n, word) {
+    return n + " " + word + (n === 1 ? "" : "s");
   }
 
-  // Version 1.4.1 Showcase Plays -- an editorial entry point, entirely
-  // independent of the player-search/browse section below (no shared
-  // state, no shared DOM beyond both living on /explore/). Fetches ONLY
-  // showcase.json (a small, fixed-size ~24-row file) once on page load;
-  // every value rendered is copied verbatim from that fetched row, never
-  // recomputed. A card's "View play" link uses the SAME `/plays/?id=`
-  // query-param route the player-browse table uses.
-  var SHOWCASE_URL = "showcase.json";
-
-  //: How many cards each group shows before the "Show all" reveal button
-  //: appears -- keeps the Showcase scannable/editorial rather than a
-  //: second large table dumped above the search bar (see Section 4 of the
-  //: v1.4.1 task: "show perhaps first 6 per group prominently").
-  var SHOWCASE_INITIAL_VISIBLE = 6;
-
-  function evLaLabel(launchSpeed, launchAngle) {
-    var ev =
-      launchSpeed === null || launchSpeed === undefined ? "—" : launchSpeed.toFixed(1) + " mph";
-    var la =
-      launchAngle === null || launchAngle === undefined
-        ? "—"
-        : Math.round(launchAngle) + "°";
-    return ev + " / " + la;
-  }
-
-  function buildShowcaseCard(row) {
-    var favorable = row.contact_luck_runs >= 0;
-    var card = document.createElement("div");
-    card.className =
-      "showcase-card " + (favorable ? "showcase-card-favorable" : "showcase-card-unfavorable");
-
-    var name = document.createElement("p");
-    name.className = "showcase-card-name";
-    name.textContent = row.batter_name || "Player " + row.batter_id;
-    card.appendChild(name);
-
-    var date = document.createElement("p");
-    date.className = "showcase-card-date";
-    date.textContent = formatDate(row.game_date);
-    card.appendChild(date);
-
-    var rowsEl = document.createElement("div");
-    rowsEl.className = "showcase-card-rows";
-
-    [
-      ["Recorded result", outcomeLabel(row.outcome_class)],
-      ["EV / LA", evLaLabel(row.launch_speed, row.launch_angle)],
-      ["Expected RV", formatSigned(row.expected_run_value)],
-      ["Final observed RV", formatSigned(row.observed_run_value)],
-    ].forEach(function (pair) {
-      var rowEl = document.createElement("div");
-      rowEl.className = "showcase-card-row";
-      var labelEl = document.createElement("span");
-      labelEl.className = "showcase-card-row-label";
-      labelEl.textContent = pair[0];
-      var valueEl = document.createElement("span");
-      valueEl.textContent = pair[1];
-      rowEl.appendChild(labelEl);
-      rowEl.appendChild(valueEl);
-      rowsEl.appendChild(rowEl);
-    });
-    card.appendChild(rowsEl);
-
-    var figure = document.createElement("p");
-    figure.className =
-      "demo-luck-figure showcase-card-figure " +
-      (favorable ? "interval-positive" : "interval-negative");
-    figure.textContent = formatSigned(row.contact_luck_runs) + " runs";
-    card.appendChild(figure);
-
-    var footer = document.createElement("div");
-    footer.className = "showcase-card-footer";
-    if (row.interactive_available) {
-      var badge = document.createElement("span");
-      badge.className = "showcase-card-whatif-badge";
-      badge.textContent = "What if? available";
-      footer.appendChild(badge);
+  function evLaText(launchSpeed, launchAngle) {
+    // In the results table's own column a missing measurement is an em
+    // dash, which is what a numeric column uses for "not recorded". In
+    // prose it is left out entirely: a sentence made of dashes reads as a
+    // rendering fault rather than as absent data.
+    var parts = [];
+    if (launchSpeed !== null && launchSpeed !== undefined) {
+      parts.push(launchSpeed.toFixed(1) + " mph");
     }
-    var link = document.createElement("a");
-    link.className = "showcase-card-link";
-    link.href = "/plays/?id=" + encodeURIComponent(row.play_id);
-    link.textContent = "View play →";
-    footer.appendChild(link);
-    card.appendChild(footer);
+    if (launchAngle !== null && launchAngle !== undefined) {
+      parts.push(Math.round(launchAngle) + "°");
+    }
+    return parts.join(" · ");
+  }
 
-    return card;
+  function playUrl(playId) {
+    // Query-param route (Phase 4.1: a single static /plays/ shell, never one
+    // directory per play_id). Absolute path, matching this site's routing
+    // convention (root_prefix is always "/").
+    return "/plays/?id=" + encodeURIComponent(playId);
+  }
+
+  // ── The run-value scale ────────────────────────────────────────────────
+  // The domain is computed at BUILD time over every published play and
+  // delivered as JSON (see dashboard/build.py). Mapping a value to a
+  // fraction of the plot field is a layout calculation against that fixed
+  // domain -- not a score, rank, interval or probability -- and the domain
+  // is never re-derived here from whichever hitter happens to be loaded.
+  var scale = null;
+
+  function scalePct(value) {
+    return shared.runValuePct(scale, value);
+  }
+
+  function signClass(value) {
+    return value >= 0 ? "cl-scale-favorable" : "cl-scale-unfavorable";
+  }
+
+  // ── Showcase ───────────────────────────────────────────────────────────
+  // A ruled list, not a card grid: the baseline drew bordered cards with a
+  // coloured top rule, spending the sign colours on decoration. Here the
+  // colour is on the mark and the numeral, where it encodes the sign.
+  function buildShowcaseItem(row) {
+    var li = document.createElement("li");
+    li.className = "explore-showcase-item";
+
+    var head = document.createElement("p");
+    head.className = "explore-showcase-item-head";
+    var link = document.createElement("a");
+    link.className = "explore-showcase-item-link";
+    link.href = playUrl(row.play_id);
+    link.textContent = row.batter_name || "Player " + row.batter_id;
+    head.appendChild(link);
+    var date = document.createElement("span");
+    date.className = "explore-showcase-item-date";
+    date.textContent = row.game_date;
+    head.appendChild(date);
+    li.appendChild(head);
+
+    var detail = document.createElement("p");
+    detail.className = "explore-showcase-item-detail";
+    var contact = evLaText(row.launch_speed, row.launch_angle);
+    detail.textContent =
+      [outcomeLabel(row.outcome_class), contact].filter(Boolean).join(" · ") +
+      " · expected " +
+      formatSigned(row.expected_run_value) +
+      ", actual " +
+      formatSigned(row.observed_run_value);
+    li.appendChild(detail);
+
+    if (scale) {
+      var field = document.createElement("div");
+      field.className = "cl-scale-field explore-play-field " + signClass(row.contact_luck_runs);
+      field.setAttribute("aria-hidden", "true");
+      field.style.setProperty("--cl-pt", scalePct(row.contact_luck_runs));
+      var dot = document.createElement("span");
+      dot.className = "cl-scale-point";
+      field.appendChild(dot);
+      li.appendChild(field);
+    }
+
+    var value = document.createElement("p");
+    value.className = "explore-showcase-item-value num " + signClass(row.contact_luck_runs);
+    value.textContent = formatSigned(row.contact_luck_runs);
+    li.appendChild(value);
+
+    if (row.interactive_available) {
+      var note = document.createElement("p");
+      note.className = "explore-showcase-item-note";
+      note.textContent = "What if? available";
+      li.appendChild(note);
+    }
+    return li;
   }
 
   function renderShowcaseGroup(section, groupKey, rows) {
-    var cardsEl = qs('[data-role="showcase-cards-' + groupKey + '"]', section);
+    var listEl = qs('[data-role="showcase-cards-' + groupKey + '"]', section);
     var revealBtn = qs('[data-role="showcase-reveal-' + groupKey + '"]', section);
-    if (!cardsEl) return;
+    if (!listEl) return;
 
     var sorted = rows.slice().sort(function (a, b) {
       return a.rank - b.rank;
     });
-    var initiallyVisible = sorted.slice(0, SHOWCASE_INITIAL_VISIBLE);
     var rest = sorted.slice(SHOWCASE_INITIAL_VISIBLE);
-
-    initiallyVisible.forEach(function (row) {
-      cardsEl.appendChild(buildShowcaseCard(row));
+    sorted.slice(0, SHOWCASE_INITIAL_VISIBLE).forEach(function (row) {
+      listEl.appendChild(buildShowcaseItem(row));
     });
 
+    // Preserved one-way reveal: the trigger hides after use, and nothing
+    // already on screen moves or re-orders.
     if (rest.length && revealBtn) {
       revealBtn.hidden = false;
       revealBtn.textContent = "Show all " + sorted.length;
       revealBtn.addEventListener("click", function () {
+        var firstNew = null;
         rest.forEach(function (row) {
-          cardsEl.appendChild(buildShowcaseCard(row));
+          var el = buildShowcaseItem(row);
+          if (!firstNew) firstNew = el;
+          listEl.appendChild(el);
         });
         revealBtn.hidden = true;
+        // Focus would otherwise land on <body> when the trigger vanishes.
+        if (firstNew) {
+          var target = qs("a", firstNew);
+          if (target) target.focus();
+        }
       });
     }
   }
@@ -200,57 +207,65 @@
         return response.json();
       })
       .then(function (rows) {
-        var favorable = rows.filter(function (r) {
-          return r.group === "favorable";
-        });
-        var unfavorable = rows.filter(function (r) {
-          return r.group === "unfavorable";
-        });
-        renderShowcaseGroup(section, "favorable", favorable);
-        renderShowcaseGroup(section, "unfavorable", unfavorable);
+        renderShowcaseGroup(
+          section,
+          "favorable",
+          rows.filter(function (r) {
+            return r.group === "favorable";
+          })
+        );
+        renderShowcaseGroup(
+          section,
+          "unfavorable",
+          rows.filter(function (r) {
+            return r.group === "unfavorable";
+          })
+        );
         if (loadingEl) loadingEl.hidden = true;
         if (bodyEl) bodyEl.hidden = false;
       })
       .catch(function (err) {
         if (loadingEl) {
-          loadingEl.textContent =
-            "Showcase Plays could not load right now. The rest of the page is unaffected.";
+          loadingEl.textContent = "These plays could not load. The rest of the page still works.";
         }
         if (window.console && window.console.error) window.console.error(err);
       });
   }
 
+  // ── The hitter's plays ─────────────────────────────────────────────────
   function initExplorePage() {
-    var root = qs('[data-role="explore-selected"]');
-    if (!root) return;
+    var selectedRoot = qs('[data-role="explore-selected"]');
+    if (!selectedRoot) return;
 
+    var pickerWrap = qs('[data-role="explore-picker"]');
     var searchInput = qs('[data-role="explore-player-search"]');
-    var searchResults = qs('[data-role="explore-player-search-results"]');
-    var catalogLoadingEl = qs('[data-role="explore-catalog-loading"]');
+    var listbox = qs('[data-role="explore-player-search-results"]');
+    var searchStatus = qs('[data-role="explore-player-search-status"]');
+    var catalogStatusEl = qs('[data-role="explore-catalog-status"]');
     var promptEl = qs('[data-role="explore-prompt"]');
-    var selectedNameEl = qs('[data-role="explore-selected-name"]');
-    var selectedMetaEl = qs('[data-role="explore-selected-meta"]');
-    var changePlayerBtn = qs('[data-role="explore-change-player"]');
 
+    var nameEl = qs('[data-role="explore-selected-name"]');
+    var metaEl = qs('[data-role="explore-selected-meta"]');
+    var playerLinkEl = qs('[data-role="explore-selected-player-link"]');
+
+    var distributionField = qs('[data-role="explore-distribution-field"]');
     var loadingEl = qs('[data-role="explore-loading"]');
     var emptyEl = qs('[data-role="explore-empty"]');
+    var noPlaysEl = qs('[data-role="explore-no-plays"]');
     var countEl = qs('[data-role="explore-result-count"]');
-    var table = qs('[data-role="explore-results-table"]');
+    var resultsStatus = qs('[data-role="explore-results-status"]');
+    var resultsEl = qs('[data-role="explore-results"]');
+    var captionEl = qs('[data-role="explore-results-caption"]');
     var tbody = qs('[data-role="explore-results-body"]');
     var outcomeSelect = qs('[data-role="explore-outcome-filter"]');
     var luckSelect = qs('[data-role="explore-luck-filter"]');
     var sortSelect = qs('[data-role="explore-sort"]');
+    var resetBtn = qs('[data-role="explore-reset"]');
 
     var playersCatalog = [];
-    var selectedBatterId = null;
+    var selectedEntry = null;
     var selectedRows = [];
-
-    function matchesFilters(row, outcomeFilter, luckFilter) {
-      if (outcomeFilter && row.outcome_class !== outcomeFilter) return false;
-      if (luckFilter === "favorable" && !(row.contact_luck_runs >= 0)) return false;
-      if (luckFilter === "unfavorable" && !(row.contact_luck_runs < 0)) return false;
-      return true;
-    }
+    var combobox = null;
 
     var SORTERS = {
       most_favorable: function (a, b) {
@@ -271,183 +286,296 @@
       },
     };
 
-    function renderResults() {
-      var outcomeFilter = outcomeSelect.value;
-      var luckFilter = luckSelect.value;
-      var sortKey = sortSelect.value;
+    function matchesFilters(row) {
+      var outcome = outcomeSelect.value;
+      var luck = luckSelect.value;
+      if (outcome && row.outcome_class !== outcome) return false;
+      if (luck === "favorable" && !(row.contact_luck_runs >= 0)) return false;
+      if (luck === "unfavorable" && !(row.contact_luck_runs < 0)) return false;
+      return true;
+    }
 
-      var filtered = selectedRows.filter(function (row) {
-        return matchesFilters(row, outcomeFilter, luckFilter);
+    function filtersActive() {
+      return outcomeSelect.value !== "" || luckSelect.value !== "all";
+    }
+
+    function renderDistribution(matching) {
+      if (!scale || !distributionField) return;
+      var included = {};
+      matching.forEach(function (row) {
+        included[row.play_id] = true;
       });
-      var sorter = SORTERS[sortKey] || SORTERS.most_favorable;
-      filtered.sort(sorter);
+
+      distributionField.innerHTML = "";
+      selectedRows.forEach(function (row) {
+        var mark = document.createElement("span");
+        mark.className =
+          "explore-distribution-mark " +
+          signClass(row.contact_luck_runs) +
+          (included[row.play_id] ? "" : " is-filtered-out");
+        mark.style.left = scalePct(row.contact_luck_runs);
+        distributionField.appendChild(mark);
+      });
+
+      var values = selectedRows.map(function (row) {
+        return row.contact_luck_runs;
+      });
+      distributionField.setAttribute(
+        "aria-label",
+        plural(selectedRows.length, "play") +
+          " from " +
+          formatSigned(Math.min.apply(null, values)) +
+          " to " +
+          formatSigned(Math.max.apply(null, values)) +
+          " runs of Contact Luck. Every value is listed in the rows below."
+      );
+    }
+
+    function buildRow(row) {
+      var tr = document.createElement("tr");
+
+      // Play identity: the date is the link, because a date plus a result is
+      // how a reader tells one of this hitter's batted balls from another.
+      var playTd = document.createElement("th");
+      playTd.setAttribute("scope", "row");
+      playTd.className = "col-play";
+      var link = document.createElement("a");
+      link.className = "explore-play-link";
+      link.href = playUrl(row.play_id);
+      link.textContent = row.game_date;
+      playTd.appendChild(link);
+      tr.appendChild(playTd);
+
+      var resultTd = document.createElement("td");
+      resultTd.className = "col-play-result";
+      resultTd.textContent = outcomeLabel(row.outcome_class);
+      tr.appendChild(resultTd);
+
+      var contactTd = document.createElement("td");
+      contactTd.className = "col-play-contact num";
+      contactTd.textContent = evLaText(row.launch_speed, row.launch_angle) || EM_DASH;
+      tr.appendChild(contactTd);
+
+      var expectedTd = document.createElement("td");
+      expectedTd.className = "col-play-expected num";
+      expectedTd.textContent = formatSigned(row.expected_run_value);
+      tr.appendChild(expectedTd);
+
+      // The verdict is ONE cell: the mark and the numeral are grid siblings
+      // sharing a percentage basis, exactly as on the leaderboard, so the
+      // spine at `--cl-zero` registers down every row by construction.
+      var verdictTd = document.createElement("td");
+      verdictTd.className = "col-play-verdict " + signClass(row.contact_luck_runs);
+      if (scale) {
+        var field = document.createElement("div");
+        field.className = "cl-scale-field explore-play-field";
+        field.setAttribute("aria-hidden", "true");
+        field.style.setProperty("--cl-pt", scalePct(row.contact_luck_runs));
+        var dot = document.createElement("span");
+        dot.className = "cl-scale-point";
+        field.appendChild(dot);
+        verdictTd.appendChild(field);
+      }
+      var value = document.createElement("span");
+      value.className = "explore-play-value num";
+      value.textContent = formatSigned(row.contact_luck_runs);
+      verdictTd.appendChild(value);
+      tr.appendChild(verdictTd);
+
+      return tr;
+    }
+
+    function renderResults() {
+      var filtered = selectedRows.filter(matchesFilters);
+      filtered.sort(SORTERS[sortSelect.value] || SORTERS.most_favorable);
+
+      if (resetBtn) resetBtn.hidden = !filtersActive();
+      renderDistribution(filtered);
 
       tbody.innerHTML = "";
       if (!filtered.length) {
-        table.hidden = true;
-        emptyEl.hidden = false;
+        // Preserved invariant: the empty state hides the table AND the
+        // result count together.
+        resultsEl.hidden = true;
         countEl.hidden = true;
+        emptyEl.hidden = false;
+        if (resultsStatus) resultsStatus.textContent = "No plays match these filters.";
         return;
       }
       emptyEl.hidden = true;
-      table.hidden = false;
+      resultsEl.hidden = false;
       countEl.hidden = false;
-      countEl.textContent = filtered.length + " play" + (filtered.length === 1 ? "" : "s");
+      countEl.textContent =
+        filtered.length === selectedRows.length
+          ? plural(filtered.length, "play")
+          : filtered.length + " of " + plural(selectedRows.length, "play");
+      if (captionEl) {
+        captionEl.textContent =
+          "Published plays for " +
+          playerLabel(selectedEntry) +
+          ", with exit velocity, launch angle, recorded result and Contact Luck in runs.";
+      }
+      if (resultsStatus) resultsStatus.textContent = countEl.textContent + " shown.";
 
       var frag = document.createDocumentFragment();
       filtered.forEach(function (row) {
-        var tr = document.createElement("tr");
-
-        var dateTd = document.createElement("td");
-        dateTd.textContent = formatDate(row.game_date);
-        tr.appendChild(dateTd);
-
-        var batterTd = document.createElement("td");
-        var link = document.createElement("a");
-        link.className = "player-link";
-        // Query-param route (Phase 4.1: a single static /plays/ shell,
-        // never one directory per play_id). Absolute path, matching this
-        // site's existing routing convention (root_prefix is always "/").
-        link.href = "/plays/?id=" + encodeURIComponent(row.play_id);
-        link.textContent = row.batter_name || "Player " + row.batter_id;
-        batterTd.appendChild(link);
-        tr.appendChild(batterTd);
-
-        var evTd = document.createElement("td");
-        evTd.className = "numeric";
-        evTd.textContent =
-          row.launch_speed === null || row.launch_speed === undefined
-            ? "—"
-            : row.launch_speed.toFixed(1);
-        tr.appendChild(evTd);
-
-        var laTd = document.createElement("td");
-        laTd.className = "numeric";
-        laTd.textContent =
-          row.launch_angle === null || row.launch_angle === undefined
-            ? "—"
-            : Math.round(row.launch_angle) + "°";
-        tr.appendChild(laTd);
-
-        var outcomeTd = document.createElement("td");
-        outcomeTd.textContent = outcomeLabel(row.outcome_class);
-        tr.appendChild(outcomeTd);
-
-        var expectedTd = document.createElement("td");
-        expectedTd.className = "numeric";
-        expectedTd.textContent = formatSigned(row.expected_run_value);
-        tr.appendChild(expectedTd);
-
-        var luckTd = document.createElement("td");
-        luckTd.className =
-          "numeric explore-luck-col " +
-          (row.contact_luck_runs >= 0 ? "interval-positive" : "interval-negative");
-        luckTd.textContent = formatSigned(row.contact_luck_runs);
-        tr.appendChild(luckTd);
-
-        frag.appendChild(tr);
+        frag.appendChild(buildRow(row));
       });
       tbody.appendChild(frag);
     }
 
-    function showSelectedPlayerShell(entry) {
-      promptEl.hidden = true;
-      root.hidden = false;
-      selectedNameEl.textContent = playerLabel(entry);
-      selectedMetaEl.textContent =
-        entry.play_count + " scored play" + (entry.play_count === 1 ? "" : "s");
-      loadingEl.hidden = false;
-      emptyEl.hidden = true;
+    function showNoPublishedPlays() {
+      resultsEl.hidden = true;
       countEl.hidden = true;
-      table.hidden = true;
-      tbody.innerHTML = "";
+      emptyEl.hidden = true;
+      noPlaysEl.hidden = false;
+      noPlaysEl.textContent =
+        playerLabel(selectedEntry) +
+        "'s individual plays aren't currently available in Play Explorer.";
+    }
+
+    function clearSelection() {
+      selectedEntry = null;
+      selectedRows = [];
+      selectedRoot.hidden = true;
+      promptEl.hidden = false;
+      searchInput.value = "";
+      if (combobox) combobox.close();
     }
 
     function selectPlayer(entry) {
-      selectedBatterId = entry.batter_id;
-      searchInput.value = playerLabel(entry);
-      searchResults.hidden = true;
-      showSelectedPlayerShell(entry);
-
-      // The ONE network request this selection makes: exactly this
-      // hitter's own play index, never any other batter's file and never
-      // the full catalog again.
+      // The ONE network request a selection makes: exactly this hitter's own
+      // play index, never any other batter's file and never the catalog again.
       fetch("players/" + encodeURIComponent(String(entry.batter_id)) + ".json")
         .then(function (response) {
           if (!response.ok) throw new Error("failed to load player index: " + response.status);
           return response.json();
         })
         .then(function (rows) {
-          if (selectedBatterId !== entry.batter_id) return; // superseded by a later selection
+          if (!selectedEntry || selectedEntry.batter_id !== entry.batter_id) return;
           selectedRows = rows;
           loadingEl.hidden = true;
+          if (!rows.length) {
+            showNoPublishedPlays();
+            return;
+          }
           renderResults();
         })
         .catch(function (err) {
-          loadingEl.textContent = "This hitter's plays could not load right now.";
+          loadingEl.textContent = "These plays could not load. Try again in a moment.";
           if (window.console && window.console.error) window.console.error(err);
         });
     }
 
-    function renderSuggestions(matches) {
-      searchResults.innerHTML = "";
-      if (!matches.length) {
-        searchResults.hidden = true;
-        return;
-      }
-      matches.slice(0, MAX_SUGGESTIONS).forEach(function (entry) {
-        var item = document.createElement("button");
-        item.type = "button";
-        item.className = "search-result-item";
-        item.textContent =
-          playerLabel(entry) + " (" + entry.play_count + " play" + (entry.play_count === 1 ? "" : "s") + ")";
-        item.addEventListener("click", function () {
-          selectPlayer(entry);
-        });
-        searchResults.appendChild(item);
-      });
-      searchResults.hidden = false;
-    }
-
-    function onSearchInput() {
-      var q = normalizeSearchText(searchInput.value);
-      if (!q) {
-        renderSuggestions([]);
-        return;
-      }
-      var matches = playersCatalog.filter(function (entry) {
-        return normalizeSearchText(entry.batter_name).indexOf(q) !== -1 || String(entry.batter_id) === q;
-      });
-      renderSuggestions(matches);
-    }
-
-    searchInput.addEventListener("input", onSearchInput);
-    searchInput.addEventListener("focus", function () {
-      if (searchInput.value.trim()) onSearchInput();
-    });
-    document.addEventListener("click", function (evt) {
-      if (!searchResults.contains(evt.target) && evt.target !== searchInput) {
-        searchResults.hidden = true;
-      }
-    });
-
-    changePlayerBtn.addEventListener("click", function () {
-      selectedBatterId = null;
+    function showSelection(entry) {
+      selectedEntry = entry;
       selectedRows = [];
-      root.hidden = true;
-      promptEl.hidden = false;
-      searchInput.value = "";
-      searchInput.focus();
-    });
+      promptEl.hidden = true;
+      selectedRoot.hidden = false;
+      nameEl.textContent = playerLabel(entry);
+      metaEl.textContent = plural(entry.play_count, "published play");
+      playerLinkEl.href = "/players/" + encodeURIComponent(String(entry.batter_id)) + "/";
+      searchInput.value = playerLabel(entry);
+
+      loadingEl.hidden = false;
+      loadingEl.textContent = "Loading plays…";
+      resultsEl.hidden = true;
+      countEl.hidden = true;
+      emptyEl.hidden = true;
+      noPlaysEl.hidden = true;
+      tbody.innerHTML = "";
+
+      selectPlayer(entry);
+    }
+
+    // ── URL state ────────────────────────────────────────────────────────
+    // The address is the single source of truth. Every path into a selection
+    // goes through applyUrl(), and the only thing a click does is change the
+    // address -- which is what keeps Back and Forward honest and stops the
+    // URL from ever describing a hitter who is not on screen.
+    function batterIdInUrl() {
+      return new URLSearchParams(window.location.search).get("batter");
+    }
+
+    function findEntry(rawId) {
+      if (!rawId) return null;
+      for (var i = 0; i < playersCatalog.length; i += 1) {
+        if (String(playersCatalog[i].batter_id) === rawId) return playersCatalog[i];
+      }
+      return null;
+    }
+
+    function applyUrl() {
+      var requested = batterIdInUrl();
+      var entry = findEntry(requested);
+      if (entry) {
+        if (selectedEntry && selectedEntry.batter_id === entry.batter_id) return;
+        showSelection(entry);
+        return;
+      }
+      // An unknown or malformed id is not an error state: the normal prompt
+      // stands and no request is made. A hitter can be absent from the
+      // published catalog for ordinary reasons.
+      clearSelection();
+    }
+
+    function pushSelection(entry) {
+      var url = new URL(window.location.href);
+      url.searchParams.set("batter", String(entry.batter_id));
+      if (url.href !== window.location.href) {
+        window.history.pushState({ batter: entry.batter_id }, "", url);
+      }
+      applyUrl();
+    }
+
+    window.addEventListener("popstate", applyUrl);
 
     [outcomeSelect, luckSelect, sortSelect].forEach(function (el) {
       el.addEventListener("change", renderResults);
     });
 
+    if (resetBtn) {
+      resetBtn.addEventListener("click", function () {
+        outcomeSelect.value = "";
+        luckSelect.value = "all";
+        renderResults();
+        outcomeSelect.focus();
+      });
+    }
+
+    var factory = window.ContactLuck && window.ContactLuck.createCombobox;
+    if (factory) {
+      combobox = factory({
+        wrap: pickerWrap,
+        input: searchInput,
+        listbox: listbox,
+        statusEl: searchStatus,
+        items: [],
+        optionIdPrefix: "explore-player-option-",
+        optionClassName: "explore-picker-option",
+        emptyClassName: "explore-picker-empty",
+        emptyMessage: function (query) {
+          return "No hitter with published plays matches “" + query + "”.";
+        },
+        renderOption: function (li, entry) {
+          var name = document.createElement("span");
+          name.className = "explore-picker-option-name";
+          name.textContent = playerLabel(entry);
+          li.appendChild(name);
+          var count = document.createElement("span");
+          count.className = "explore-picker-option-count num";
+          count.textContent = plural(entry.play_count, "play");
+          li.appendChild(count);
+          return playerLabel(entry) + ", " + plural(entry.play_count, "play");
+        },
+        onSelect: pushSelection,
+      });
+    }
+
     // The ONLY fetch made on page load -- the small players catalog. No
-    // per-player file is ever fetched here or in a loop over
-    // playersCatalog; each players/<batter_id>.json fetch happens
-    // exclusively inside selectPlayer(), triggered by one user action.
+    // per-player file is ever fetched here or in a loop over the catalog;
+    // each players/<batter_id>.json fetch happens exclusively inside
+    // selectPlayer(), reached only through applyUrl().
     fetch(PLAYERS_URL)
       .then(function (response) {
         if (!response.ok) throw new Error("failed to load players catalog: " + response.status);
@@ -455,16 +583,20 @@
       })
       .then(function (players) {
         playersCatalog = players;
-        catalogLoadingEl.hidden = true;
-        promptEl.hidden = false;
+        if (combobox) combobox.setItems(players);
+        catalogStatusEl.hidden = true;
         searchInput.disabled = false;
+        applyUrl();
       })
       .catch(function (err) {
-        catalogLoadingEl.textContent = "Players could not load right now. The rest of the site is unaffected.";
+        catalogStatusEl.textContent = "Hitters could not load. The rest of the site still works.";
         if (window.console && window.console.error) window.console.error(err);
       });
   }
 
-  document.addEventListener("DOMContentLoaded", initShowcaseSection);
-  document.addEventListener("DOMContentLoaded", initExplorePage);
+  document.addEventListener("DOMContentLoaded", function () {
+    scale = shared.runValueScale ? shared.runValueScale() : null;
+    initShowcaseSection();
+    initExplorePage();
+  });
 })();

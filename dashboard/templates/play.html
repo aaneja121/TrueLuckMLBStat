@@ -1,165 +1,235 @@
 {% extends "base.html" %}
-{% block title %}Play — Contact Luck{% endblock %}
-{% block meta_description %}A single scored batted ball: recorded result, exit velocity, launch angle, frozen model probabilities, expected run value, and Contact Luck.{% endblock %}
+{% block title %}Play · Contact Luck{% endblock %}
+{% block meta_description %}One scored batted ball: what was hit, what the model expected it to be worth, what it actually produced, and the Contact Luck between them.{% endblock %}
+{% block og_title %}Play · Contact Luck{% endblock %}
+{% block og_url %}{{ site_url }}/plays/{% endblock %}
+{% block twitter_title %}Play · Contact Luck{% endblock %}
 {% block content %}
-<p><a href="{{ root_prefix }}explore/">&larr; Back to Explore Plays</a></p>
-
 {#
+  Redesign Phase 6 -- the individual play page, and the deepest evidence
+  layer in the product.
+
   Version 1.4.0 Phase 4.1: ONE static shell for every play (never one
   directory per play_id -- see dashboard/build.py's own comment on why).
-  This template embeds NOTHING play-specific -- play.js reads `?id=` from
-  the URL itself, derives game_pk from that same play_id (its stable
-  identity is `game_pk-at_bat_number-pitch_number`), and fetches only that
-  one game's already-copied per-game JSON. A shareable URL therefore looks
-  like /plays/?id=<play_id> -- the query string IS the addressable state.
+  This template embeds NOTHING play-specific: play.js reads `?id=` from the
+  URL, derives game_pk from that same play_id (its stable identity is
+  `game_pk-at_bat_number-pitch_number`), and fetches only that one game's
+  already-copied per-game JSON.
+
+  The run-value figure is drawn on the ONE snapshot-level `run_value`
+  domain, the same object /explore/ is rendered from (dashboard/build.py) --
+  so a play's mark here and its mark in the Explore results table sit at the
+  same x for the same number. The axis prints its own ticks and its own unit
+  because this is not `league_per_100`.
+
+  Zero Spine discipline: the amber rule belongs to the run-value figure and
+  nothing else on this page. Exit velocity, launch angle, batted-ball type,
+  the outcome probabilities and the field diagram are not zero-centred
+  quantities and get no spine.
 #}
 <div data-role="play-page">
-  <p class="explore-loading" data-role="play-loading">Loading play&hellip;</p>
+  <p class="play-status" data-role="play-loading">Loading play&hellip;</p>
 
-  <div data-role="play-not-found" hidden>
+  {# ── Play not found ─────────────────────────────────────────────────────
+     A malformed id, a fetch failure and a play_id absent from its game file
+     all land here. It says what happened and offers the way out; it never
+     asserts a data or model failure it cannot know about, and it never
+     shows a broken analytical component. #}
+  <div class="play-missing" data-role="play-not-found" hidden>
     <h1>Play not found</h1>
-    <p class="page-subtitle">
-      This play could not be loaded — the link may be out of date, malformed, or incorrect.
-      <a href="{{ root_prefix }}explore/">Return to Explore Plays</a>.
+    <p class="prose">
+      That link does not point at a play in the published data. It may be out of date, or the
+      id may have been altered.
+    </p>
+    <p class="play-missing-actions">
+      <a href="{{ root_prefix }}explore/">Browse plays in Play Explorer &rarr;</a>
     </p>
   </div>
 
-  <div data-role="play-body" hidden>
-    <div class="player-header">
-      <div>
-        <h1 data-role="play-batter-name"></h1>
-        <p class="player-meta" data-role="play-meta"></p>
-      </div>
-      <div>
-        <span class="demo-luck-badge" data-role="play-luck-badge">&mdash;</span>
-      </div>
+  <article class="play" data-role="play-body" hidden>
+    {# Both routes out, together and both at full target size. The back
+       link is written by play.js to `/explore/?batter=<id>` once the play is
+       loaded, so a reader who arrived from a hitter's plays returns to that
+       hitter rather than to a cold Explore. #}
+    <nav class="play-breadcrumb" aria-label="Play navigation">
+      <a data-role="play-back-link" href="{{ root_prefix }}explore/">&larr; Play Explorer</a>
+      <a class="play-player-link" data-role="play-player-link" href="#">Season page &rarr;</a>
+    </nav>
+
+    <h1 class="play-name" data-role="play-batter-name"></h1>
+    <p class="play-apparatus" data-role="play-headline"></p>
+
+    {# ── The verdict ────────────────────────────────────────────────────────
+       The number, then the figure that produces it. No box, no border, no
+       fill: the guard against this becoming a KPI panel is the same one the
+       player hero uses. #}
+    <div class="play-verdict" data-role="play-verdict">
+      <p class="play-luck num" data-role="play-luck"></p>
+      <p class="play-luck-label" data-role="play-luck-label"></p>
     </div>
 
-    <div class="demo-field" data-role="play-field-wrap">
-      <svg class="demo-field-svg" viewBox="0 0 300 280" preserveAspectRatio="xMidYMid meet"
-           focusable="false" data-role="play-field-svg"
-           data-home-x="150" data-home-y="260" data-fence-radius="215" data-max-spray-deg="45">
-        <path class="demo-field-fence"
-              d="M -65,260 A 215,215 0 0 1 365,260" data-role="play-field-fence"></path>
-        <path class="demo-field-foul-line" d="M 150,260 L -65,260" data-role="play-field-foul-left"></path>
-        <path class="demo-field-foul-line" d="M 150,260 L 365,260" data-role="play-field-foul-right"></path>
-        <path class="demo-field-infield" d="M 150,260 L 105,215 L 150,170 L 195,215 Z"></path>
-        <circle class="demo-ball" data-role="play-field-ball" cx="150" cy="260" r="6"></circle>
-      </svg>
-      <p class="demo-field-caption">
-        Illustrative landing spot from recorded spray angle and hit distance — not a
-        reconstruction of the actual ball flight or defender positioning.
-      </p>
-    </div>
+    <figure class="play-gap">
+      <div class="play-gap-plot">
+        {# Expected sits above the field, observed below, so the two labels
+           can never collide however close the marks are. Each label carries
+           its own value, so the exact numbers survive any overlap. #}
+        <div class="play-gap-caption is-expected" data-role="play-gap-expected-label">
+          <span class="play-gap-caption-name">Expected</span>
+          <span class="play-gap-caption-value num" data-role="play-expected-rv"></span>
+        </div>
 
-    <div class="stat-grid">
-      <div class="stat-card">
-        <div class="stat-label">Exit velocity</div>
-        <div class="stat-value" data-role="play-ev">&mdash;</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Launch angle</div>
-        <div class="stat-value" data-role="play-la">&mdash;</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Batted-ball type</div>
-        <div class="stat-value" data-role="play-bb-type">&mdash;</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label" title="The officially recorded contact result of this batted ball -- see the callout below for how this relates to the run-value accounting on this page.">Recorded result</div>
-        <div class="stat-value" data-role="play-outcome">&mdash;</div>
-      </div>
-    </div>
+        <div class="cl-scale-field play-gap-field" data-role="play-gap-field"
+             role="img" aria-label="">
+          <span class="play-gap-connector" data-role="play-gap-connector"></span>
+          <span class="play-gap-mark is-expected" data-role="play-gap-expected-mark"></span>
+          <span class="play-gap-mark is-observed" data-role="play-gap-observed-mark"></span>
+        </div>
 
-    <h2>Frozen model outcome probabilities</h2>
-    <p class="page-subtitle" style="margin-bottom:8px;">
-      The model's outcome distribution for this batted ball, computed before the result is known.
-    </p>
-    <div class="demo-prob-bars" data-role="play-prob-bars"></div>
+        <div class="play-gap-caption is-observed" data-role="play-gap-observed-label">
+          <span class="play-gap-caption-name">Observed</span>
+          <span class="play-gap-caption-value num" data-role="play-observed-rv"></span>
+        </div>
 
-    <h2>Run value accounting</h2>
-    <div class="demo-luck-diff">
-      <span class="demo-rv-value demo-rv-value-expected" data-role="play-expected-rv">&mdash;</span>
-      <span class="demo-luck-arrow" aria-hidden="true">&rarr;</span>
-      <span class="demo-rv-value demo-rv-value-observed" data-role="play-observed-rv">&mdash;</span>
-    </div>
-    <p class="player-meta" style="margin:2px 0 10px;">Expected RV &rarr; Final observed RV</p>
-    <p class="demo-luck-figure" data-role="play-luck-figure">&mdash;</p>
+        <div class="play-axis-row" aria-hidden="true">
+          <div class="cl-axis-ticks">
+            {% for tick in run_value.ticks %}
+            <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
 
-    <p class="callout">
-      Recorded result is the officially scored outcome of this batted ball; Final observed RV
-      reflects the complete run-value accounting, including any baserunner advancement — the two
-      are closely related but not guaranteed to be identical. Contact Luck is always
-      <code>Final observed RV &minus; Expected RV</code>, copied directly from the canonical
-      scoring record. See the <a href="{{ root_prefix }}methodology/">methodology page</a> for
-      the full accounting.
+      <figcaption class="play-gap-caption-text">
+        Run value, runs. The same scale as Play Explorer,
+        <span class="num">{{ run_value.domain_min | signed }}</span> to
+        <span class="num">{{ run_value.domain_max | signed }}</span> across all
+        <span class="num">{{ run_value.play_count }}</span> published plays.
+      </figcaption>
+    </figure>
+
+    <p class="play-equation prose" data-role="play-equation"></p>
+    <p class="play-equation-note prose">
+      Observed run value counts the whole play, baserunner advancement included, so it can
+      differ from what the recorded result alone would suggest.
     </p>
 
-    {#
-      Version 1.4.1 "What if?" sensitivity module -- ALWAYS below the real
-      play's own factual accounting above, never above it. Hidden by
-      default; shown only if dashboard/static/showcase_whatif.js
-      successfully fetches this play's showcase-sensitivity/<play_id>.json
-      (interactive_available=true showcase plays only -- see
-      demo/build_showcase_sensitivity.py's mandatory reconciliation gate).
-      A non-interactive play simply never reveals this section -- never a
-      disabled/broken simulator.
-    #}
-    <section class="simulator-section showcase-whatif-section" data-role="play-whatif-section" hidden>
-      <h2>What if the contact were different?</h2>
-      <p class="simulator-caveat">
-        Change exit velocity and launch angle to see how the frozen model's expectation changes.
-        All other model inputs are held fixed to this real play. This is a model sensitivity
-        analysis, not a reconstruction of physical ball flight.
+    {# ── The contact ────────────────────────────────────────────────────────
+       A ruled evidence line, not four bordered tiles. None of these is a
+       zero-centred quantity, so none of them gets a sign or a spine. #}
+    <section class="play-section" aria-labelledby="contact-heading">
+      <h2 id="contact-heading">The contact</h2>
+      <dl class="play-contact">
+        <div class="play-contact-item">
+          <dt>Exit velocity</dt>
+          <dd class="num" data-role="play-ev"></dd>
+        </div>
+        <div class="play-contact-item">
+          <dt>Launch angle</dt>
+          <dd class="num" data-role="play-la"></dd>
+        </div>
+        <div class="play-contact-item">
+          <dt>Batted-ball type</dt>
+          <dd data-role="play-bb-type"></dd>
+        </div>
+        <div class="play-contact-item">
+          <dt>Recorded result</dt>
+          <dd data-role="play-outcome"></dd>
+        </div>
+      </dl>
+
+      {# Hidden unless the play carries both a spray angle and a hit
+         distance. A diagram drawn from nothing would be decoration. #}
+      <figure class="play-field" data-role="play-field-wrap" hidden>
+        <svg class="play-field-svg" viewBox="-70 0 440 245" preserveAspectRatio="xMidYMid meet"
+             aria-hidden="true" focusable="false" data-role="play-field-svg">
+          <path class="play-field-fence" d="M -65,230 A 215,215 0 0 1 365,230"></path>
+          <path class="play-field-foul-line" d="M 150,230 L -65,230"></path>
+          <path class="play-field-foul-line" d="M 150,230 L 365,230"></path>
+          <path class="play-field-infield" d="M 150,230 L 105,185 L 150,140 L 195,185 Z"></path>
+          <circle class="play-field-ball" data-role="play-field-ball" cx="150" cy="230" r="6"></circle>
+        </svg>
+        <figcaption class="play-field-caption" data-role="play-field-caption"></figcaption>
+      </figure>
+    </section>
+
+    {# ── The model's expectation ────────────────────────────────────────────
+       Probabilities are bounded 0-100%, so they get a plain horizontal bar
+       and no zero spine. The observed class is marked, which is the one
+       comparison worth making here. #}
+    <section class="play-section" aria-labelledby="expectation-heading">
+      <h2 id="expectation-heading">What the model expected</h2>
+      <p class="play-section-lede prose" data-role="play-expectation-lede"></p>
+      <table class="play-probabilities">
+        <caption class="visually-hidden" data-role="play-probabilities-caption"></caption>
+        <colgroup>
+          <col class="col-prob-outcome"><col class="col-prob-bar"><col class="col-prob-pct">
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col" class="col-prob-outcome">Outcome</th>
+            <th scope="col" class="col-prob-bar"><span class="visually-hidden">Share</span></th>
+            <th scope="col" class="col-prob-pct">Chance</th>
+          </tr>
+        </thead>
+        <tbody data-role="play-prob-rows"></tbody>
+      </table>
+    </section>
+
+    {# ── Sensitivity ────────────────────────────────────────────────────────
+       Version 1.4.1's "What if?" module. Hidden unless
+       showcase-sensitivity/<play_id>.json loads; a play without it simply
+       never reveals the section, never a disabled or broken simulator. It
+       moves only the model's expectation for a hypothetical contact. The
+       real play's recorded result, observed run value and Contact Luck are
+       above and never change. #}
+    <section class="play-section play-whatif" data-role="play-whatif-section" aria-labelledby="whatif-heading" hidden>
+      <h2 id="whatif-heading">If the contact had been different</h2>
+      <p class="play-section-lede prose">
+        Move exit velocity or launch angle and the model's expectation moves with it.
+        Everything above stays as it was recorded.
       </p>
 
-      <div class="simulator-controls">
-        <div class="simulator-control">
+      <div class="play-whatif-controls">
+        <div class="play-whatif-control">
           <label for="whatif-ev-slider">Exit velocity</label>
-          <input type="range" class="simulator-slider" id="whatif-ev-slider"
+          <input type="range" class="play-whatif-slider" id="whatif-ev-slider"
                  data-role="whatif-ev-slider" min="0" max="1" value="0" step="1">
-          <span class="simulator-control-value" data-role="whatif-ev-value">&mdash;</span>
+          <span class="play-whatif-value num" data-role="whatif-ev-value"></span>
         </div>
-        <div class="simulator-control">
+        <div class="play-whatif-control">
           <label for="whatif-la-slider">Launch angle</label>
-          <input type="range" class="simulator-slider" id="whatif-la-slider"
+          <input type="range" class="play-whatif-slider" id="whatif-la-slider"
                  data-role="whatif-la-slider" min="0" max="1" value="0" step="1">
-          <span class="simulator-control-value" data-role="whatif-la-value">&mdash;</span>
+          <span class="play-whatif-value num" data-role="whatif-la-value"></span>
         </div>
+        <button type="button" class="play-whatif-reset" data-role="whatif-reset">Reset to recorded values</button>
       </div>
-      <div class="simulator-control-footer">
-        <p class="simulator-fixed-context" data-role="whatif-fixed-context"></p>
-        <button type="button" class="simulator-reset-button" data-role="whatif-reset">Reset to real play</button>
-      </div>
+      <p class="play-whatif-fixed" data-role="whatif-fixed-context"></p>
 
       <div class="demo-prob-bars" data-role="whatif-prob-bars"></div>
 
-      <div class="simulator-rv-compare">
-        <div class="simulator-rv-compare-row">
-          <span class="simulator-rv-compare-label">Actual Expected RV</span>
-          <span data-role="whatif-actual-expected-rv">&mdash;</span>
+      <dl class="play-whatif-rv">
+        <div class="play-whatif-rv-item">
+          <dt>Expected RV, real play</dt>
+          <dd class="num" data-role="whatif-actual-expected-rv"></dd>
         </div>
-        <div class="simulator-rv-compare-row">
-          <span class="simulator-rv-compare-label">Modified Expected RV</span>
-          <span data-role="whatif-modified-expected-rv">&mdash;</span>
+        <div class="play-whatif-rv-item">
+          <dt>Expected RV, this contact</dt>
+          <dd class="num" data-role="whatif-modified-expected-rv"></dd>
         </div>
-        <div class="simulator-rv-compare-row">
-          <span class="simulator-rv-compare-label">Change in Expected RV</span>
-          <span data-role="whatif-change-expected-rv">&mdash;</span>
+        <div class="play-whatif-rv-item">
+          <dt>Difference</dt>
+          <dd class="num" data-role="whatif-change-expected-rv"></dd>
         </div>
-      </div>
-
-      <p class="callout">
-        This is a model sensitivity analysis, not a reconstruction of physical ball flight. The
-        real play's recorded result, Final observed RV, and Contact Luck above never change as
-        you move these sliders — only the frozen model's expectation for a hypothetical exit
-        velocity/launch angle does.
-      </p>
+      </dl>
     </section>
-  </div>
+  </article>
 </div>
 {% endblock %}
 {% block extra_scripts %}
+{# The one `run_value` domain, computed at build time over every published
+   play and rendered here from the SAME object /explore/ receives. #}
+<script type="application/json" id="explore-run-value-scale">{{ run_value_scale_json | safe }}</script>
 <script src="{{ asset_prefix }}static/play.js"></script>
 <script src="{{ asset_prefix }}static/showcase_whatif.js"></script>
 {% endblock %}

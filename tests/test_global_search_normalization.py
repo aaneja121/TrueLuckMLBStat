@@ -177,20 +177,22 @@ class TestPlayerIdAndLinkRetained:
     normalized or otherwise mutated by the search fix."""
 
     def test_matches_filter_only_normalizes_batter_name_not_id_or_url(self) -> None:
+        """The matcher moved into the shared combobox factory in Phase 5;
+        the rule it enforces is unchanged -- fold accents on the NAME only,
+        and compare the id as an exact string."""
         source = APP_JS_PATH.read_text(encoding="utf-8")
-        init_source = _extract_js_function(source, "initGlobalPlayerSearch")
-        assert "normalizeSearchText(p.batter_name)" in init_source
-        assert "normalizeSearchText(p.url)" not in init_source
-        assert "normalizeSearchText(p.batter_id)" not in init_source
-        assert "String(p.batter_id) === q" in init_source
+        search_source = _extract_js_function(source, "search")
+        assert "normalizeSearchText(item.batter_name)" in search_source
+        assert "normalizeSearchText(item.url)" not in search_source
+        assert "normalizeSearchText(item.batter_id)" not in search_source
+        assert "String(item.batter_id) === q" in search_source
 
     def test_render_uses_original_url_and_id_verbatim(self) -> None:
         source = APP_JS_PATH.read_text(encoding="utf-8")
         init_source = _extract_js_function(source, "initGlobalPlayerSearch")
-        render_source = _extract_js_function(init_source, "render")
-        assert "a.href = p.url;" in render_source
-        assert "p.batter_id" in render_source
-        assert "normalizeSearchText" not in render_source
+        assert "a.href = p.url;" in init_source
+        assert "p.batter_id" in init_source
+        assert "normalizeSearchText" not in init_source
 
 
 class TestDisplayNameUnaffected:
@@ -201,33 +203,33 @@ class TestDisplayNameUnaffected:
     `build_player_index` already provides)."""
 
     def test_render_never_normalizes_the_display_name(self) -> None:
+        """`renderOption` is the only thing that writes a name into the DOM
+        for this surface, and it lives in `initGlobalPlayerSearch`."""
         source = APP_JS_PATH.read_text(encoding="utf-8")
         init_source = _extract_js_function(source, "initGlobalPlayerSearch")
-        render_source = _extract_js_function(init_source, "render")
-        assert "normalizeSearchText" not in render_source
-        assert "p.batter_name" in render_source
+        assert "normalizeSearchText" not in init_source
+        assert "p.batter_name" in init_source
 
     def test_normalize_search_text_defined_exactly_once(self) -> None:
         source = APP_JS_PATH.read_text(encoding="utf-8")
         assert source.count("function normalizeSearchText(") == 1
 
-    def test_global_search_input_listener_normalizes_both_the_query_and_every_candidate_name(
-        self,
-    ) -> None:
+    def test_the_matcher_normalizes_both_the_query_and_every_candidate_name(self) -> None:
         source = APP_JS_PATH.read_text(encoding="utf-8")
-        init_source = _extract_js_function(source, "initGlobalPlayerSearch")
-        assert init_source.count("normalizeSearchText(") == 2
-        assert ".toLowerCase()" not in init_source
+        search_source = _extract_js_function(source, "search")
+        assert search_source.count("normalizeSearchText(") == 2
+        assert ".toLowerCase()" not in search_source
 
-    def test_normalize_search_text_matches_explore_js_semantics_byte_for_byte(self) -> None:
-        """The two independent, unbundled <script> files intentionally
-        duplicate this pure function (see app.js's own docstring comment
-        on why) -- this pins them to stay identical rather than silently
-        drifting apart on a future edit to only one of the two files.
+    def test_explore_shares_this_implementation_rather_than_copying_it(self) -> None:
+        """Redesign Phase 5 consolidated the two player pickers onto one
+        combobox, so this function exists ONCE. It used to be duplicated in
+        explore.js and pinned byte-for-byte; a shared implementation is the
+        stronger version of the same guarantee, and this asserts the copy
+        has not crept back.
         """
         explore_js_path = APP_JS_PATH.parent / "explore.js"
         app_source = APP_JS_PATH.read_text(encoding="utf-8")
         explore_source = explore_js_path.read_text(encoding="utf-8")
-        app_fn = _extract_js_function(app_source, "normalizeSearchText")
-        explore_fn = _extract_js_function(explore_source, "normalizeSearchText")
-        assert app_fn == explore_fn, (app_fn, explore_fn)
+        assert app_source.count("function normalizeSearchText(") == 1
+        assert "function normalizeSearchText(" not in explore_source
+        assert "window.ContactLuck.normalizeSearchText = normalizeSearchText" in app_source

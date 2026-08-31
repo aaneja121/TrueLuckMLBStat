@@ -42,11 +42,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import subprocess
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -89,40 +90,156 @@ def _get_repository_commit(repo_root: Path) -> str:
     return result.stdout.strip()
 
 
+#: Redesign Phase 1 numeric primitive. Contact Luck is a SIGNED quantity, so
+#: every rendering of one carries its sign explicitly -- the sign glyph is
+#: the non-colour channel for the favorable/unfavorable pair, and it is the
+#: only channel a screen reader, a monochrome display, or a colour-blind
+#: reader receives.
+#:
+#: The minus is U+2212 MINUS SIGN, not ASCII hyphen-minus. In a tabular-figure
+#: face the true minus is drawn to the same width and at the same height as
+#: the plus, so "-6.41" and "+7.62" align in a column; the hyphen is narrower
+#: and sits lower, which is exactly the misalignment the Zero Spine's value
+#: column cannot afford. See docs/design/typography.md § Numeric typography.
+#:
+#: SCOPE: Contact Luck values and run values ONLY. Exit velocity, launch
+#: angle, probabilities, shares, counts and interval WIDTHS are not signed
+#: quantities and must never be given a "+" -- a plus on an interval width
+#: would be meaningless.
+MINUS_SIGN = "\u2212"
+
+
+def format_signed(value: float | None, digits: int = 2) -> str:
+    """`+7.62` / `\u22126.41` / `+0.00`, with a true minus."""
+    if value is None:
+        return "\u2014"
+    return f"{value:+.{digits}f}".replace("-", MINUS_SIGN)
+
+
 def _make_jinja_env() -> Environment:
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(DASHBOARD_TEMPLATES_DIR)),
         autoescape=select_autoescape(["html"]),
         trim_blocks=True,
         lstrip_blocks=True,
     )
+    env.filters["signed"] = format_signed
+    return env
+
+
+def _pct(fraction: float) -> str:
+    """A CSS percentage for the Zero Spine plot field.
+
+    Four decimals for the same reason `--cl-zero` carries four: at a ~900px
+    field, one decimal is a ~0.9px error, which is visible as a mark sitting
+    off the spine. Values are NOT clamped -- `.cl-scale-field` clips, and the
+    clip state is reported separately so the row can draw a caret.
+    """
+    return f"{fraction * 100:.4f}%"
+
+
+def _axis_ticks(scale: v.ZeroScale) -> list[dict[str, Any]]:
+    """Labelled tick positions for the leaderboard's shared axis header.
+
+    Rendered as HTML text at a real CSS size, deliberately not as SVG:
+    `docs/design/guardrails.md` anti-pattern 11 bans SVG text below 12 CSS px
+    after viewBox scaling, and a scaled axis label is exactly how the baseline
+    produced 5.5px tick text on mobile. HTML text does not scale with a
+    viewBox, so this surface cannot reproduce that defect.
+
+    Step is chosen so the axis carries roughly 5-9 ticks whatever the span,
+    always including zero. Zero is flagged so the header can mark it without
+    the template deciding what zero is.
+    """
+    span = scale.span
+    for step in (1.0, 2.0, 2.5, 5.0, 10.0, 20.0, 25.0, 50.0):
+        if span / step <= 9:
+            break
+    start = math.ceil(scale.domain_min / step) * step
+    ticks: list[dict[str, Any]] = []
+    value = start
+    while value <= scale.domain_max + 1e-9:
+        # `-0.0` formats as "-0.00"; normalise it away before it reaches a label.
+        clean = 0.0 if abs(value) < 1e-9 else value
+        ticks.append(
+            {
+                "value": clean,
+                "label": format_signed(clean, 0 if step >= 1 else 1),
+                "left": _pct(scale.fraction_of(clean)),
+                "is_zero": abs(clean) < 1e-9,
+            }
+        )
+        value += step
+    return ticks
+
+
+def _distribution_marks(
+    rows: list[c.LeaderboardRow], scale: v.ZeroScale
+) -> list[dict[str, Any]]:
+    """Every qualified hitter as one mark on the shared axis.
+
+    This is the league distribution the reader should be able to READ before
+    reading any individual row (`docs/design/information-architecture.md`, the
+    10-second budget). It is the same scale and the same percentage basis the
+    rows below use, so the shape above and the rows beneath are literally the
+    same measurement -- not an illustration of it.
+    """
+    marks = []
+    for row in rows:
+        point = row.contact_luck_runs_per_100
+        marks.append(
+            {
+                "left": _pct(scale.clamped_fraction_of(point)),
+                "favorable": point >= 0,
+                "name": row.batter_name or f"Player {row.batter_id}",
+                "score": point,
+            }
+        )
+    return sorted(marks, key=lambda m: m["score"])
 
 
 def _leaderboard_view_rows(
-    rows: list[c.LeaderboardRow], domain: tuple[float, float], root_prefix: str
+    rows: list[c.LeaderboardRow], scale: v.ZeroScale, root_prefix: str
 ) -> list[dict[str, Any]]:
+    """One dict per ranked row, carrying LAYOUT PERCENTAGES rather than an SVG.
+
+    Redesign Phase 3. The leaderboard's interval bar was 124 independent
+    inline SVGs, each scaling on its own inside a `margin: 0 auto` cell, so a
+    row's absolute zero x depended on that cell's width -- which is why the
+    baseline spine read as 124 unrelated ticks. These percentages feed the
+    `.cl-scale` CSS primitive instead: every field shares one containing block
+    and one percentage basis, so one rule at `--cl-zero` registers against all
+    124 rows by construction.
+
+    A layout percentage is not a score, rank, interval or probability, and no
+    scoring code is imported to produce it (`CLAUDE.md` rule 6).
+    """
     view_rows = []
     for row in rows:
+        point = row.contact_luck_runs_per_100
+        lower = row.lower_95_interval
+        upper = row.upper_95_interval
         view_rows.append(
             {
                 "official_rank": row.official_rank,
                 "batter_id": row.batter_id,
                 "batter_name": row.batter_name or f"Player {row.batter_id}",
                 "url": f"{root_prefix}players/{row.batter_id}/",
-                "score": row.contact_luck_runs_per_100,
-                "lower": row.lower_95_interval,
-                "upper": row.upper_95_interval,
-                "interval_width": row.upper_95_interval - row.lower_95_interval,
+                "score": point,
+                "lower": lower,
+                "upper": upper,
+                "interval_width": upper - lower,
                 "total_runs": row.total_contact_luck_runs,
                 "bbe": row.eligible_batted_balls,
                 "games": row.games,
-                "interval_svg": v.render_interval_bar_svg(
-                    point=row.contact_luck_runs_per_100,
-                    lower=row.lower_95_interval,
-                    upper=row.upper_95_interval,
-                    domain=domain,
-                    compact=True,
-                ),
+                # Sign follows the POINT ESTIMATE only, identically whether or
+                # not the interval crosses zero (preserved product invariant).
+                "favorable": point >= 0,
+                "pt_pct": _pct(scale.clamped_fraction_of(point)),
+                "lo_pct": _pct(scale.clamped_fraction_of(lower)),
+                "hi_pct": _pct(scale.clamped_fraction_of(upper)),
+                "clip_state": scale.clip_state(point=point, lower=lower, upper=upper),
+                "point_state": scale.point_state(point),
             }
         )
     return view_rows
@@ -135,44 +252,205 @@ _COMPONENT_LABELS = {
     "advancement": "Advancement",
 }
 
+#: Which model status entries belong to which DISPLAYED component value.
+#: The snapshot records status per MODEL (`contact`, `outfield_defense`,
+#: `infield_defense`, `advancement`); the decomposition a reader sees is per
+#: VALUE, and defensive execution is one value produced by two models. Phase
+#: 4 requires every displayed component value to carry its status
+#: programmatically, so the two are joined here rather than shown as the
+#: baseline's two disconnected tables -- one listing values, one listing
+#: statuses, with nothing tying a row in either to a row in the other.
+_COMPONENT_VALUE_SOURCES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Contact", ("contact",)),
+    ("Defensive execution", ("outfield_defense", "infield_defense")),
+    ("Advancement", ("advancement",)),
+    ("Unexplained residual", ()),
+)
+
+#: Why a hitter holds no official rank, per status. NOT one sentence for all
+#: of them: the baseline said "hasn't yet reached the minimum eligible
+#: batted-ball threshold" for every unqualified hitter, which is simply false
+#: for three of the four statuses -- Bobby Witt Jr. is
+#: `provisionally_qualified` with 325 eligible BBE, MORE than the #1 ranked
+#: hitter's 321. Saying "too few batted balls" there misdescribes the data.
+#:
+#: These restate `mlb_luck_score.scoring.qualification`'s own documented
+#: precedence in plain language and introduce no new rule, threshold or
+#: claim. They are duplicated here rather than imported because no module
+#: under `dashboard/` may import scoring code (`CLAUDE.md` rule 6, enforced
+#: by `tests/test_dashboard_isolation.py`) -- the same convention
+#: `content.py`'s component-status labels already follow. If the precedence
+#: in that module changes, this map changes with it.
+_QUALIFICATION_EXPLANATIONS: dict[str, str] = {
+    "small_sample": (
+        "This player is below the minimum number of eligible batted balls and scored games "
+        "the official leaderboard requires. Not enough plays to rank, however clean the ones "
+        "there are."
+    ),
+    "insufficient_component_coverage": (
+        "There are enough plays here. Too much of this player's batted-ball profile falls "
+        "outside both the defense and advancement models for the official leaderboard, which "
+        "is a different problem from a small sample."
+    ),
+    # Position-neutral on purpose: this paragraph moved below the sample line
+    # so it would stop delaying the score, and "the share printed below" was
+    # then pointing upward. It names the figure instead of its location, the
+    # same correction the leaderboard's axis caption already carries.
+    "provisionally_qualified": (
+        "This player clears the volume and coverage requirements. Too much of the value "
+        "comes through provisional or limited-evidence model pathways (the “From provisional "
+        "components” figure), or too many plays needed a fallback for a missing input. Where "
+        "the value comes from is what holds this player off the official leaderboard, not "
+        "how large the sample is."
+    ),
+    "not_reportable": (
+        "No eligible batted balls in this snapshot, so there is no rate to compute or rank."
+    ),
+}
+
+#: What the residual row says where the other rows carry a model status. It
+#: has none, and inventing one would misrepresent it: the residual is what
+#: the three modelled components do not account for, so "no model status"
+#: is the honest statement, not a gap to be filled.
+_RESIDUAL_STATUS_NOTE = "Not modelled. What the three components above leave over."
+
+
+def _component_view(
+    detail: c.PlayerDetail, zero_fraction: float
+) -> dict[str, Any]:
+    """The component decomposition, on the `component_per_100` scale.
+
+    A per-player domain (Invariant D does not reach a component breakdown --
+    see `ZeroScale.from_values`), padded so its zero lands on the SAME
+    `--cl-zero` the hero figure and the leaderboard use. Because the scale is
+    this player's own, the figure owes visible tick labels carrying its unit,
+    and the template renders them.
+    """
+    values_by_label: dict[str, float | None] = {
+        "Contact": detail.components.contact_per_100,
+        "Defensive execution": detail.components.defensive_execution_per_100,
+        "Advancement": detail.components.advancement_per_100,
+        "Unexplained residual": detail.components.unexplained_residual_per_100,
+    }
+    statuses = detail.components.component_status_reason_codes
+
+    known = [v for v in values_by_label.values() if v is not None]
+    scale = v.ZeroScale.from_values(
+        "component_per_100",
+        "Runs / 100 eligible BBE",
+        known + [detail.contact_luck_runs_per_100],
+        zero_fraction=zero_fraction,
+    )
+
+    def bar(value: float) -> dict[str, Any]:
+        """A bar runs FROM zero TO the value -- it is not an interval, and
+        it must not be drawn with the interval's vocabulary."""
+        low, high = sorted((scale.zero_fraction, scale.clamped_fraction_of(value)))
+        return {"lo_pct": _pct(low), "hi_pct": _pct(high)}
+
+    rows: list[dict[str, Any]] = []
+    for label, source_keys in _COMPONENT_VALUE_SOURCES:
+        value = values_by_label[label]
+        model_status_values: list[str] = []
+        reason_codes: list[str] = []
+        for key in source_keys:
+            entry = statuses.get(key, {})
+            model_status_values += entry.get("model_status_values", [])
+            reason_codes += entry.get("reason_codes", [])
+        rows.append(
+            {
+                "label": label,
+                "value": value,
+                "favorable": value is not None and value >= 0,
+                "status_summary": (
+                    _RESIDUAL_STATUS_NOTE
+                    if not source_keys
+                    else c.summarize_component_status(sorted(set(model_status_values)))
+                ),
+                "has_model_status": bool(source_keys),
+                "model_status_values": sorted(set(model_status_values)),
+                "reason_codes": sorted(set(reason_codes)),
+                "source_labels": [_COMPONENT_LABELS.get(k, k) for k in source_keys],
+                **(bar(value) if value is not None else {"lo_pct": None, "hi_pct": None}),
+            }
+        )
+
+    # The components sum to the headline by construction; drawing the total
+    # on the SAME scale is what makes that visible rather than asserted.
+    # `sum_of_parts` is carried so a test can hold the claim to account, and
+    # so the template never has to add anything up itself.
+    return {
+        "rows": rows,
+        "total": {
+            "label": "Total Contact Luck",
+            "value": detail.contact_luck_runs_per_100,
+            "favorable": detail.contact_luck_runs_per_100 >= 0,
+            **bar(detail.contact_luck_runs_per_100),
+        },
+        "sum_of_parts": sum(known),
+        "unit_label": scale.unit_label,
+        "ticks": _axis_ticks(scale),
+        "domain_min": scale.domain_min,
+        "domain_max": scale.domain_max,
+    }
+
 
 def _player_view(
     detail: c.PlayerDetail,
     trend_points: list[c.TrendPoint],
-    qualified_intervals: Sequence[tuple[float, float]],
+    scale: v.ZeroScale,
+    *,
+    league: dict[str, Any],
+    play_count: int | None,
+    root_prefix: str,
 ) -> dict[str, Any]:
-    # Single-pass padding over the SAME raw interval set the leaderboard
-    # domain is built from, plus this player's own raw (unpadded) interval --
-    # never re-pad an already-padded domain (that silently shifts the zero
-    # fraction and puts this page's bar on a different effective scale than
-    # the player's own leaderboard row for the identical numbers). For a
-    # qualified player, this player's interval is already inside
-    # `qualified_intervals`, so `player_domain` comes out identical to the
-    # leaderboard's shared domain; for a non-qualified player, the domain
-    # widens (still with exactly one padding pass) to fit their own interval.
-    player_domain = v.compute_interval_domain(
-        [*qualified_intervals, (detail.lower_95_interval, detail.upper_95_interval)]
-    )
-    component_value_rows = [
-        {"label": "Contact", "value": detail.components.contact_per_100},
-        {"label": "Defensive execution", "value": detail.components.defensive_execution_per_100},
-        {"label": "Advancement", "value": detail.components.advancement_per_100},
-        {"label": "Unexplained residual", "value": detail.components.unexplained_residual_per_100},
-    ]
-    component_status_rows = [
-        {
-            "label": _COMPONENT_LABELS.get(key, key),
-            "status_summary": c.summarize_component_status(value.get("model_status_values", [])),
-            "model_status_values": value.get("model_status_values", []),
-            "reason_codes": value.get("reason_codes", []),
-        }
-        for key, value in detail.components.component_status_reason_codes.items()
-    ]
+    # Redesign Phase 1, decision D1a: this page uses the ONE canonical
+    # `league_per_100` scale, built from the qualified comparison
+    # population -- the identical scale the leaderboard row for this same
+    # player is drawn on. Invariant D.
+    #
+    # This replaces a per-player domain that was widened, with one padding
+    # pass, to fit a non-qualified player's own (often very wide,
+    # small-sample) interval. That widening kept the bar from clipping, but
+    # it moved the zero line to a different fraction of the field on those
+    # pages -- so the same page could not be read against the leaderboard,
+    # and under the Zero Spine direction it is the one place the site would
+    # draw two different zeros. A value outside the canonical domain now
+    # CLIPS, with an explicit continuation caret and the true numbers intact
+    # in text; the scale never moves to accommodate it. Qualified players are
+    # unaffected: their interval was already inside this domain.
+    #
+    # Redesign Phase 4: the hero draws through the `.cl-scale` CSS primitive
+    # (renderer A), not an inline SVG, for the same reason the leaderboard
+    # does -- the axis rail, the league distribution and this hitter's own
+    # mark then share one containing block and one percentage basis, so the
+    # amber rule descending the figure registers against all three by
+    # construction rather than by arithmetic.
+    point = detail.contact_luck_runs_per_100
+    point_fraction = scale.clamped_fraction_of(point)
+
+    # Where the headline numeral sits. The plan's guard against this hero
+    # becoming a KPI panel is that the number sits AT the mark rather than in
+    # a tile of its own; near either edge, anchoring it centred would push it
+    # off the field, so the anchor -- not the position -- changes.
+    if point_fraction < 0.14:
+        value_anchor = "start"
+    elif point_fraction > 0.86:
+        value_anchor = "end"
+    else:
+        value_anchor = "center"
+
+    qualified = detail.qualification_status == "qualified"
     return {
+        "qualification_explanation": _QUALIFICATION_EXPLANATIONS.get(
+            detail.qualification_status,
+            "This player does not meet the official leaderboard's requirements, so no rank "
+            "is assigned.",
+        ),
         "player": {
             "batter_id": detail.batter_id,
             "batter_name": detail.batter_name or f"Player {detail.batter_id}",
-            "score": detail.contact_luck_runs_per_100,
+            "score": point,
             "lower": detail.lower_95_interval,
             "upper": detail.upper_95_interval,
             "interval_interpretation": detail.interval_interpretation,
@@ -180,20 +458,263 @@ def _player_view(
             "bbe": detail.eligible_batted_balls,
             "games": detail.games,
             "qualification_status": detail.qualification_status,
+            "qualified": qualified,
             "official_rank_favorable": detail.official_rank_favorable,
             "official_rank_unfavorable": detail.official_rank_unfavorable,
             "provisional_share": detail.components.share_of_value_from_provisional_components,
-            "interval_svg": v.render_interval_bar_svg(
-                point=detail.contact_luck_runs_per_100,
+            # Sign follows the POINT ESTIMATE only, identically whether or not
+            # the interval crosses zero (preserved product invariant).
+            "favorable": point >= 0,
+            "pt_pct": _pct(point_fraction),
+            "lo_pct": _pct(scale.clamped_fraction_of(detail.lower_95_interval)),
+            "hi_pct": _pct(scale.clamped_fraction_of(detail.upper_95_interval)),
+            "clip_state": scale.clip_state(
+                point=point,
                 lower=detail.lower_95_interval,
                 upper=detail.upper_95_interval,
-                domain=player_domain,
-                compact=False,
             ),
+            "point_state": scale.point_state(point),
+            "value_anchor": value_anchor,
         },
-        "component_value_rows": component_value_rows,
-        "component_status_rows": component_status_rows,
-        "trend_svg": v.render_trend_chart_svg(trend_points) if len(trend_points) >= 2 else None,
+        "league": league,
+        "components": _component_view(detail, scale.zero_fraction),
+        "trend": v.build_trend_figure(trend_points, league_scale=scale),
+        "trend_point_count": len(trend_points),
+        # The play-level path (`docs/design/information-architecture.md`
+        # question 6). A link is emitted ONLY when this hitter actually has
+        # an entry in the Play Explorer catalog, so the page never offers a
+        # route that lands on an empty selection.
+        "plays": (
+            {"url": f"{root_prefix}explore/?batter={detail.batter_id}", "count": play_count}
+            if play_count
+            else None
+        ),
+    }
+
+
+#: Snapshot-type display labels. The raw values are `snake_case` schema
+#: tokens (`snapshot_data.classify_snapshot_type`); a reader gets the words.
+#: Display only -- nothing here changes precedence or which snapshot is used.
+_SNAPSHOT_TYPE_LABELS: dict[str, str] = {
+    "genuine_prospective_snapshot": "Genuine prospective",
+    "corrected_prospective_snapshot": "Corrected prospective",
+    "retrospective_backfill": "Retrospective backfill",
+    "invalid_incomplete_snapshot": "Invalid or incomplete",
+}
+
+#: Qualification-status display labels, matching `mlb_luck_score.scoring.
+#: qualification`'s own five statuses. Duplicated rather than imported for
+#: the same reason `_QUALIFICATION_EXPLANATIONS` is (CLAUDE.md rule 6).
+_QUALIFICATION_STATUS_LABELS: dict[str, str] = {
+    "qualified": "Qualified",
+    "provisionally_qualified": "Provisionally qualified",
+    "small_sample": "Small sample",
+    "insufficient_component_coverage": "Insufficient component coverage",
+    "not_reportable": "Not reportable",
+}
+
+
+_KNOWN_STATUS_LABELS: frozenset[str] = frozenset(
+    {
+        "Calibrated",
+        "Not calibrated",
+        "Provisional",
+        "Limited subgroup evidence",
+        "Unavailable",
+    }
+)
+
+
+def _humanize_token(value: str) -> str:
+    """A `snake_case` schema token as words, first letter capitalised."""
+    words = str(value).replace("_", " ").strip()
+    return words[:1].upper() + words[1:] if words else words
+
+
+def _display_date(iso_date: str | None) -> str:
+    """`2026-08-14` -> `Aug. 14, 2026`, matching the header's own badge."""
+    if not iso_date:
+        return "\u2014"
+    try:
+        return date.fromisoformat(iso_date).strftime("%b. %-d, %Y")
+    except ValueError:
+        return iso_date
+
+
+def _display_timestamp(iso_timestamp: str | None) -> str:
+    """`2026-08-15T13:35:37.370905+00:00` -> `Aug. 15, 2026, 13:35 UTC`.
+
+    Design principle 8, *format the data rather than engineering around it*:
+    the raw value is a 32-character unbreakable token that collapsed the
+    status history table's last columns to ~31px at narrow widths. The ISO
+    value is not lost -- it stays in the `<time datetime>` attribute. This
+    reformats an already-recorded string; it derives no new fact.
+    """
+    if not iso_timestamp:
+        return "\u2014"
+    try:
+        parsed = datetime.fromisoformat(iso_timestamp)
+    except ValueError:
+        return iso_timestamp
+    if parsed.tzinfo is None:
+        return parsed.strftime("%b. %-d, %Y, %H:%M")
+    return parsed.astimezone(UTC).strftime("%b. %-d, %Y, %H:%M UTC")
+
+
+def _snapshot_type_label(snapshot_type: str) -> str:
+    return _SNAPSHOT_TYPE_LABELS.get(snapshot_type, _humanize_token(snapshot_type))
+
+
+#: The snapshot records model information under THREE key vocabularies that
+#: do not line up: `model_versions` is keyed per model
+#: (`infield_defense_expected_winner`), `component_model_status` per
+#: component (`infield`), and `model_selection_winners` per component again
+#: plus `near_wall_specialist`, which has no version entry at all. The
+#: baseline shipped them as three disconnected lists, so a reader had to do
+#: the join themselves and could not tell which status went with which
+#: version. This maps every known key onto one canonical component, in the
+#: order the score is actually built. Unknown keys are never dropped -- they
+#: fall through to their own row (see `_model_rows`), so a future schema
+#: addition appears rather than disappearing.
+_MODEL_COMPONENT_CANONICAL: dict[str, str] = {
+    "contact": "Contact",
+    "outfield": "Outfield defense",
+    "outfield_defense": "Outfield defense",
+    "infield": "Infield defense",
+    "infield_defense": "Infield defense",
+    "infield_defense_expected_winner": "Infield defense",
+    "advancement": "Advancement",
+    "advancement_expected_winner": "Advancement",
+    "near_wall_specialist": "Near-wall specialist",
+}
+_MODEL_COMPONENT_ORDER: tuple[str, ...] = (
+    "Contact",
+    "Outfield defense",
+    "Infield defense",
+    "Advancement",
+    "Near-wall specialist",
+)
+
+
+def _model_rows(status: c.StatusPageData) -> list[dict[str, Any]]:
+    """One row per component, joining version, recorded status and selection.
+
+    Display only. `summarize_component_status` is the dashboard's existing
+    fail-soft labeller: a documented status becomes its public label, and
+    anything else comes back close to verbatim, which is the honest handling
+    for a value this dashboard is not entitled to reinterpret.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+
+    def cell(key: str) -> dict[str, Any]:
+        label = _MODEL_COMPONENT_CANONICAL.get(key) or _humanize_token(key)
+        return rows.setdefault(
+            label, {"component": label, "version": None, "status": None, "selection": None}
+        )
+
+    for name, version in status.model_versions.items():
+        cell(name)["version"] = str(version)
+    for name, value in status.component_model_status.items():
+        raw = str(value)
+        entry = cell(name)
+        entry["status"] = c.summarize_component_status([raw])
+        #: True when the snapshot recorded something outside the documented
+        #: status vocabulary. It is shown in the identifier register rather
+        #: than reworded, so it never reads as a label this site chose.
+        entry["status_is_raw"] = entry["status"] not in _KNOWN_STATUS_LABELS
+    for name, winner in status.model_selection_winners.items():
+        cell(name)["selection"] = str(winner)
+
+    ordered = [rows.pop(label) for label in _MODEL_COMPONENT_ORDER if label in rows]
+    return ordered + [rows[label] for label in sorted(rows)]
+
+
+def _history_gaps(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Interleave the snapshot history with an explicit marker for any date
+    that holds no valid snapshot.
+
+    A date missing from the history is a real provenance fact, and the
+    reader cannot tell an intentional gap from a rendering bug if the list
+    simply skips from the 8th to the 6th. This states it. It never asserts
+    a cause, because the dashboard does not know one, and it never
+    interpolates: a gap is drawn as a gap.
+
+    Calendar arithmetic over dates the snapshot already recorded. No score,
+    rank, interval or probability is derived here.
+    """
+    rows: list[dict[str, Any]] = []
+    previous: date | None = None
+    for entry in history:
+        try:
+            current = date.fromisoformat(entry["data_through_date"])
+        except (TypeError, ValueError):
+            rows.append({"kind": "snapshot", "entry": entry})
+            previous = None
+            continue
+        if previous is not None and (previous - current).days > 1:
+            newest_missing = previous - timedelta(days=1)
+            oldest_missing = current + timedelta(days=1)
+            label = (
+                _display_date(oldest_missing.isoformat())
+                if newest_missing == oldest_missing
+                else f"{_display_date(oldest_missing.isoformat())} to "
+                f"{_display_date(newest_missing.isoformat())}"
+            )
+            rows.append({"kind": "gap", "label": label})
+        rows.append({"kind": "snapshot", "entry": entry})
+        previous = current
+    return rows
+
+
+def _status_view(status: c.StatusPageData) -> dict[str, Any]:
+    """Presentation-only view model for `/status/`.
+
+    Every value here is a display FORM of something already in the snapshot:
+    a date reformatted, a `snake_case` token turned into words, a dict turned
+    into an ordered list of rows. No status, count, threshold or precedence
+    decision is made here -- `content.build_status_page_data` already made
+    them, and this never disagrees with it.
+    """
+    history = [
+        {
+            "data_through_date": entry.data_through_date,
+            "data_through_display": _display_date(entry.data_through_date),
+            "snapshots": [
+                {
+                    "directory_name": snap.directory_name,
+                    "snapshot_type": snap.snapshot_type,
+                    "type_label": _snapshot_type_label(snap.snapshot_type),
+                    "generated_at": snap.generated_at,
+                    "generated_at_display": _display_timestamp(snap.generated_at),
+                    "is_displayed": bool(
+                        entry.preferred and snap.directory_name == entry.preferred.directory_name
+                    ),
+                    #: The one snapshot this build was rendered from. Amber
+                    #: means "the frozen official record", so exactly one row
+                    #: in the history carries it -- not every published row.
+                    "is_current": snap.directory_name == status.snapshot_directory_name,
+                }
+                for snap in entry.all_valid_snapshots
+            ],
+        }
+        for entry in status.snapshot_history
+    ]
+    return {
+        "data_through_display": _display_date(status.data_through_date),
+        "generated_at_display": _display_timestamp(status.generated_at),
+        "snapshot_type_label": _snapshot_type_label(status.snapshot_type),
+        "model_rows": _model_rows(status),
+        "qualification_rows": [
+            {
+                "label": _QUALIFICATION_STATUS_LABELS.get(name, _humanize_token(name)),
+                "count": count,
+            }
+            for name, count in sorted(
+                status.qualification_counts.items(), key=lambda kv: -kv[1]
+            )
+        ],
+        "history": _history_gaps(history),
+        "snapshot_count": sum(len(entry["snapshots"]) for entry in history),
     }
 
 
@@ -323,15 +844,36 @@ def build_dashboard(
     qualified_intervals = [
         (r.lower_95_interval, r.upper_95_interval) for r in (*favorable_rows, *unfavorable_rows)
     ]
-    qualified_domain = v.compute_interval_domain(qualified_intervals)
+    # Redesign Phase 1: the ONE canonical scale for Contact Luck Runs per
+    # 100, built once here and threaded to every renderer (Invariant D).
+    # `qualified_domain` is kept as its raw tuple for the call sites that
+    # still take one.
+    league_scale = v.ZeroScale.from_intervals(
+        "league_per_100",
+        "Runs / 100 eligible BBE",
+        qualified_intervals,
+    )
+    qualified_domain = league_scale.domain
 
     player_index = c.build_player_index(payloads)
+    # Redesign Phase 2: the global search marks a player it finds who holds no
+    # official rank, rather than suppressing them -- unqualified players keep a
+    # page, a score and an interval and are never de-emphasised
+    # (`docs/design/guardrails.md`, preserved product invariants). `ranked` is a
+    # verbatim read of the snapshot's own `qualification_status`, resolved here
+    # at build time so no rank semantics are ever decided in JavaScript
+    # (`CLAUDE.md` rule 6).
+    _qualification_by_id = {
+        record["batter_id"]: record.get("qualification_status")
+        for record in payloads.public_score
+    }
     player_index_json = json.dumps(
         [
             {
                 "batter_id": e.batter_id,
                 "batter_name": e.batter_name,
                 "url": f"{root_prefix}players/{e.batter_id}/",
+                "ranked": _qualification_by_id.get(e.batter_id) == "qualified",
             }
             for e in player_index
         ],
@@ -468,9 +1010,22 @@ def build_dashboard(
         "data_through_date_display": date.fromisoformat(latest.data_through_date).strftime(
             "%b. %-d, %Y"
         ),
+        # Redesign Phase 1, Invariant Z: the single zero locus, written onto
+        # <html> so CSS and Python can never disagree about where zero is.
+        # This is a LAYOUT percentage derived from already-computed snapshot
+        # values -- not a score, rank, interval or probability -- so it does
+        # not cross the "the dashboard displays, it never computes" line in
+        # PRODUCT.md #5; no scoring code is imported to produce it.
+        "cl_zero_fraction_css": f"{league_scale.zero_fraction * 100:.4f}%",
         "dashboard_version": DASHBOARD_VERSION,
         "snapshot_directory_name": latest.directory_name,
         "build_timestamp": build_timestamp,
+        # Phase 8: the footer printed this raw ISO string on every route
+        # while /status/ formatted its own timestamps for a reader -- one
+        # product, two treatments of the same kind of value. Both now go
+        # through `_display_timestamp`, and the machine value stays in
+        # `<time datetime>` exactly as it does on /status/.
+        "build_timestamp_display": _display_timestamp(build_timestamp),
         "player_index_json": player_index_json,
         "explore_available": explore_available,
     }
@@ -480,13 +1035,23 @@ def build_dashboard(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     index_template = env.get_template("index.html")
+    # Built ONCE and reused verbatim by the homepage and by every player
+    # page. The player hero draws the whole league as its ground (Phase 4),
+    # so this geometry would otherwise be recomputed ~600 times, and -- worse
+    # -- two independently computed copies of "the league" could drift.
+    league_axis_ticks = _axis_ticks(league_scale)
+    league_distribution_marks = _distribution_marks(favorable_rows, league_scale)
+
     (out_dir / "index.html").write_text(
         index_template.render(
             **base_context,
             active_page="leaderboard",
-            favorable_rows=_leaderboard_view_rows(favorable_rows, qualified_domain, root_prefix),
+            axis_ticks=league_axis_ticks,
+            axis_unit_label=league_scale.unit_label,
+            distribution_marks=league_distribution_marks,
+            favorable_rows=_leaderboard_view_rows(favorable_rows, league_scale, root_prefix),
             unfavorable_rows=_leaderboard_view_rows(
-                unfavorable_rows, qualified_domain, root_prefix
+                unfavorable_rows, league_scale, root_prefix
             ),
             qualified_count=status_data.qualified_count,
             player_count=len(player_index),
@@ -531,12 +1096,32 @@ def build_dashboard(
     status_dir.mkdir(parents=True, exist_ok=True)
     (status_dir / "index.html").write_text(
         env.get_template("status.html").render(
-            **base_context, active_page="status", status=status_data
+            **base_context,
+            active_page="status",
+            status=status_data,
+            **_status_view(status_data),
         )
     )
 
     payload_cache: dict[str, c.SnapshotPayloads] = {latest.directory_name: payloads}
     player_template = env.get_template("player.html")
+    league_context = {
+        "axis_ticks": league_axis_ticks,
+        "distribution_marks": league_distribution_marks,
+        "unit_label": league_scale.unit_label,
+        "domain_min": league_scale.domain_min,
+        "domain_max": league_scale.domain_max,
+        "qualified_count": status_data.qualified_count,
+    }
+    # `play_count` per hitter, from the already-validated Explore catalog.
+    # Empty when the Play Explorer is disabled for this build, which is the
+    # fail-closed default -- the player page then emits no plays link at all
+    # rather than one that 404s.
+    play_counts: dict[int, int] = (
+        {p.batter_id: p.play_count for p in explore_data.players}
+        if explore_available and explore_data is not None
+        else {}
+    )
     for entry in player_index:
         record = c.find_player_record(payloads, entry.batter_id)
         assert record is not None
@@ -544,7 +1129,14 @@ def build_dashboard(
         trend_points = c.build_player_trend(history, entry.batter_id, payload_cache=payload_cache)
         player_dir = out_dir / "players" / str(entry.batter_id)
         player_dir.mkdir(parents=True, exist_ok=True)
-        view = _player_view(detail, trend_points, qualified_intervals)
+        view = _player_view(
+            detail,
+            trend_points,
+            league_scale,
+            league=league_context,
+            play_count=play_counts.get(entry.batter_id),
+            root_prefix=root_prefix,
+        )
         (player_dir / "index.html").write_text(
             player_template.render(**base_context, active_page=None, **view)
         )
@@ -595,14 +1187,67 @@ def build_dashboard(
                 dirs_exist_ok=True,
             )
 
+        # Redesign Phase 5, Invariant D applied to Explore: ONE snapshot-level
+        # `run_value` domain over every published play, padded by
+        # `ZeroScale.from_values` until its zero lands on the same
+        # `--cl-zero` the leaderboard and the player hero use. Explore draws
+        # every hitter's plays on it, so two hitters' plays are comparable and
+        # a one-play hitter is not stretched across the whole field.
+        #
+        # It is NOT `league_per_100` and must never look like it: the figure
+        # prints its own ticks with its own unit (the anti-fake-alignment
+        # guard, docs/design/dataviz.md). The domain is computed here, once,
+        # and handed to the browser as data -- `explore.js` interpolates a
+        # LAYOUT PERCENTAGE against it and never derives a domain of its own.
+        run_value_scale = v.ZeroScale.from_values(
+            "run_value",
+            "Contact Luck on the play, runs",
+            [explore_data.contact_luck_min, explore_data.contact_luck_max],
+            zero_fraction=league_scale.zero_fraction,
+        )
+        # Built ONCE and rendered into BOTH routes. Redesign Phase 6 draws
+        # the play page's expected-vs-observed figure on this scale, and
+        # "the same domain" has to be true by construction rather than by
+        # two call sites agreeing: one object, one dict, two templates.
+        #
+        # `unit_label` names what EXPLORE's marks are (one Contact Luck value
+        # per play). The play page's figure carries expected and observed run
+        # value as well, so it prints its own unit on the figure. The shared
+        # thing is the DOMAIN and the zero fraction; each figure still has to
+        # say honestly what its own marks measure.
+        run_value_context = {
+            "ticks": _axis_ticks(run_value_scale),
+            "unit_label": run_value_scale.unit_label,
+            "domain_min": run_value_scale.domain_min,
+            "domain_max": run_value_scale.domain_max,
+            "play_count": explore_data.total_play_count,
+        }
+        run_value_scale_json = json.dumps(
+            {
+                "domain_min": run_value_scale.domain_min,
+                "domain_max": run_value_scale.domain_max,
+                "unit_label": run_value_scale.unit_label,
+            },
+            sort_keys=True,
+        )
         (explore_dir / "index.html").write_text(
-            env.get_template("explore.html").render(**base_context, active_page="explore")
+            env.get_template("explore.html").render(
+                **base_context,
+                active_page="explore",
+                run_value=run_value_context,
+                run_value_scale_json=run_value_scale_json,
+            )
         )
 
         plays_dir = out_dir / "plays"
         plays_dir.mkdir(parents=True, exist_ok=True)
         (plays_dir / "index.html").write_text(
-            env.get_template("play.html").render(**base_context, active_page=None)
+            env.get_template("play.html").render(
+                **base_context,
+                active_page=None,
+                run_value=run_value_context,
+                run_value_scale_json=run_value_scale_json,
+            )
         )
 
     shutil.copytree(DASHBOARD_STATIC_DIR, out_dir / "static", dirs_exist_ok=True)

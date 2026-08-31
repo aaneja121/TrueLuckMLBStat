@@ -1,137 +1,466 @@
 {% extends "base.html" %}
-{% block title %}{{ player.batter_name }} — Contact Luck{% endblock %}
+{% block title %}{{ player.batter_name }} · Contact Luck{% endblock %}
+{% block meta_description %}Contact Luck for {{ player.batter_name }}: {{ player.score | signed }} runs per 100 eligible batted balls, with its 95% interval, component decomposition and season trend.{% endblock %}
+{% block og_title %}{{ player.batter_name }} · Contact Luck{% endblock %}
+{% block og_url %}{{ site_url }}/players/{{ player.batter_id }}/{% endblock %}
+{% block twitter_title %}{{ player.batter_name }} · Contact Luck{% endblock %}
 {% block content %}
-<p><a href="{{ root_prefix }}">&larr; Back to leaderboard</a></p>
+{#
+  Redesign Phase 4 -- the player page.
 
-<div class="player-header">
-  <div>
-    <div class="player-name-row">
-      <h1>{{ player.batter_name }}</h1>
-      <div class="player-header-mark" aria-hidden="true">
-        <svg viewBox="0 0 160 50" preserveAspectRatio="xMidYMid meet" focusable="false">
-          <path d="M80,48 L14,14 M80,48 L146,14 M14,14 A66,66 0 0 1 146,14"
-                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></path>
-        </svg>
+  This page is the leaderboard row expanded into evidence, not a separate
+  analytics dashboard for one hitter. It answers, in order and without
+  needing headings for the first four: who is this, what is their Contact
+  Luck, how uncertain is it, where do they rank, why that score, how has it
+  moved, and which plays are behind it.
+
+  The hero draws through the `.cl-scale` CSS primitive rather than an inline
+  SVG. The axis rail, the league distribution and this hitter's own mark are
+  three siblings in ONE containing block, so they share one percentage basis
+  and the amber rule descending the figure registers against all three by
+  construction -- the same argument that made the leaderboard's spine land on
+  124 rows at every width. The score is printed AT the mark, not in a tile:
+  the guard against this hero becoming a KPI panel is that there is no box,
+  no border and no fill anywhere in it (zero-spine plan, Phase 4 item 13).
+#}
+<nav class="player-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ root_prefix }}">&larr; Contact Luck leaderboard</a>
+</nav>
+
+<article class="player-verdict">
+  <h1 class="player-name">{{ player.batter_name }}</h1>
+  {# `batter_id` is apparatus, not identity (information-architecture.md
+     § Player identity): footnote register, beside the data-through date. #}
+  <p class="player-apparatus">MLBAM&nbsp;<span class="num">{{ player.batter_id }}</span> · Data through {{ data_through_date_display }}</p>
+
+  {# ── Standing ───────────────────────────────────────────────────────────
+     Rank is an ANSWER, not a tag, so it is written out; and it is set below
+     the score in the visual hierarchy, because the estimate is the subject
+     of this page and the rank is a consequence of it. Amber carries its one
+     promoted meaning here: the frozen official record. #}
+  {% if player.qualified %}
+  <dl class="player-standing" aria-label="Official rank">
+    <div class="player-standing-item">
+      <dt>Most favorable realized luck</dt>
+      <dd><span class="player-rank num">#{{ player.official_rank_favorable }}</span> <span class="player-standing-of">of {{ league.qualified_count }} qualified hitters</span></dd>
+    </div>
+    <div class="player-standing-item">
+      <dt>Least favorable outcomes relative to expectation</dt>
+      <dd><span class="player-rank num">#{{ player.official_rank_unfavorable }}</span> <span class="player-standing-of">of {{ league.qualified_count }} qualified hitters</span></dd>
+    </div>
+  </dl>
+  {% else %}
+  {# Unqualified players keep a page, a score and an interval, receive no
+     rank, and are NEVER de-emphasised (preserved product invariant). The
+     status reads as a fact about the sample, not a warning about the
+     player: same ink, same weight, no fade, no amber.
+
+     Only the STATE sits above the verdict; the paragraph explaining it sits
+     below, with the sample evidence it talks about. Whether a hitter is
+     ranked is identity-level and belongs beside the rank it replaces, but
+     five lines of qualification rules ahead of the score is the explanatory
+     preamble the player page is specifically not allowed to have. #}
+  <p class="player-standing-unranked">
+    <strong>No official rank</strong>
+    <span class="player-status-code">{{ player.qualification_status | replace("_", " ") }}</span>
+  </p>
+  {% endif %}
+
+  {# ── The verdict figure ─────────────────────────────────────────────────
+     One statement: the number, where it sits among all qualified hitters,
+     and how uncertain it is. The numeral band and the plot are siblings in
+     the same block, so `--cl-pt` means the same x in both; the spine is
+     drawn on the plot only, so a near-zero player's 44px numeral is never
+     struck through by the amber rule. #}
+  <div class="player-hero {{ 'is-favorable' if player.favorable else 'is-unfavorable' }}">
+    <div class="player-hero-value" data-anchor="{{ player.value_anchor }}" style="--cl-pt: {{ player.pt_pct }}">
+      <p class="player-score num">{{ player.score | signed }}<span class="visually-hidden"> runs per 100 eligible batted balls, {{ "favorable" if player.favorable else "unfavorable" }}</span></p>
+      <p class="player-score-interval">
+        95% interval <span class="num">{{ player.lower | signed }}</span> to <span class="num">{{ player.upper | signed }}</span>
+      </p>
+    </div>
+
+    <div class="player-hero-plot">
+      <p class="player-plot-label">{{ player.batter_name }}</p>
+      <div class="player-mark-row">
+        <div class="cl-scale-field {{ 'cl-scale-favorable' if player.favorable else 'cl-scale-unfavorable' }}"
+             data-clipped="{{ player.clip_state }}" data-point-offscale="{{ player.point_state }}"
+             aria-hidden="true"
+             style="--cl-lo: {{ player.lo_pct }}; --cl-hi: {{ player.hi_pct }}; --cl-pt: {{ player.pt_pct }}">
+          <span class="cl-scale-interval"></span>
+          {# No dot when the estimate is off the scale. A dot parked on the
+             boundary would assert that the boundary IS the estimate; the
+             solid edge marker below says "the estimate lies beyond here",
+             which is a different and stronger statement. Same vocabulary
+             the SVG renderer uses: OPEN chevron = the interval continues;
+             SOLID triangle = the point estimate itself is off-scale, and it
+             wins on its edge, because an off-scale point already implies an
+             off-scale interval on that side. #}
+          {% if player.point_state == "in" %}
+          <span class="cl-scale-point"></span>
+          {% endif %}
+          {% if player.clip_state in ("low", "both") %}
+          <span class="cl-scale-edge is-low {{ 'is-point' if player.point_state == 'below' else 'is-interval' }}"></span>
+          {% endif %}
+          {% if player.clip_state in ("high", "both") %}
+          <span class="cl-scale-edge is-high {{ 'is-point' if player.point_state == 'above' else 'is-interval' }}"></span>
+          {% endif %}
+        </div>
+      </div>
+
+      <p class="player-plot-label">All {{ league.qualified_count }} qualified hitters</p>
+      <div class="player-league-row">
+        <div class="cl-distribution" role="img"
+             aria-label="Distribution of Contact Luck across all {{ league.distribution_marks | length }} qualified hitters, from {{ league.distribution_marks[0].score | signed }} to {{ league.distribution_marks[-1].score | signed }} runs per 100 eligible batted balls.">
+          {% for mark in league.distribution_marks %}
+          <span class="cl-distribution-mark {{ 'cl-scale-favorable' if mark.favorable else 'cl-scale-unfavorable' }}"
+                style="left: {{ mark.left }}"></span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="player-axis-row" aria-hidden="true">
+        <div class="cl-axis-ticks">
+          {% for tick in league.axis_ticks %}
+          <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+          {% endfor %}
+        </div>
       </div>
     </div>
-    <p class="player-meta">MLBAM ID {{ player.batter_id }} &middot; Data through {{ data_through_date }}</p>
-    <span class="badge{% if player.qualification_status == 'qualified' %} badge-qualified{% endif %}">
-      {{ player.qualification_status | replace("_", " ") | capitalize }}
-    </span>
-    {% if player.official_rank_favorable %}
-      <span class="badge">Favorable rank #{{ player.official_rank_favorable }}</span>
-    {% endif %}
-    {% if player.official_rank_unfavorable %}
-      <span class="badge">Unfavorable rank #{{ player.official_rank_unfavorable }}</span>
-    {% endif %}
-    {% if player.qualification_status != "qualified" %}
-      <p class="page-subtitle" style="margin-top:8px; max-width:32em;">
-        No official rank: this player hasn't yet reached the minimum eligible-batted-ball
-        threshold for the official leaderboard (status:
-        {{ player.qualification_status | replace("_", " ") }}). The score and interval below
-        are still computed and shown — see the
-        <a href="{{ root_prefix }}methodology/#technical-details">methodology page</a>
-        for the qualification rule.
-      </p>
-    {% endif %}
-  </div>
-  <div>
-    <div class="player-hero-figure {{ 'interval-positive' if player.score >= 0 else 'interval-negative' }}">
-      {{ "%+.2f"|format(player.score) }} runs / 100
-    </div>
-    <p class="player-meta" style="margin-top:2px;">
-      95% interval: [{{ "%+.2f"|format(player.lower) }}, {{ "%+.2f"|format(player.upper) }}]
-    </p>
-    <p class="player-orientation">
-      Runs / 100 compares the run value of this player's realized eligible batted-ball outcomes
-      with what those batted balls were expected to produce, retrospectively — here,
-      {{ "more" if player.score >= 0 else "less" }} favorable than expected.
-      <a href="{{ root_prefix }}demo/">How Contact Luck works &rarr;</a>
+
+    <p class="player-hero-unit">
+      {{ league.unit_label }} · <strong>{{ "Favorable" if player.favorable else "Unfavorable" }}</strong>:
+      {{ "more" if player.favorable else "less" }} favorable realized outcomes than expected.
+      Same scale as the leaderboard, <span class="num">{{ league.domain_min | signed }}</span>
+      to <span class="num">{{ league.domain_max | signed }}</span>.
     </p>
   </div>
-</div>
 
-{{ player.interval_svg | safe }}
-
-<div class="stat-grid">
-  <div class="stat-card">
-    <div class="stat-label">Total Contact Luck Runs</div>
-    <div class="stat-value">{{ "%+.1f"|format(player.total_runs) }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Eligible BBE</div>
-    <div class="stat-value">{{ player.bbe }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label" title="Games with at least one outcome-resolved eligible batted ball -- not official MLB games played.">Scored Games</div>
-    <div class="stat-value">{{ player.games }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Share from provisional components</div>
-    <div class="stat-value">{{ "%.0f%%"|format((player.provisional_share or 0) * 100) }}</div>
-  </div>
-</div>
-
-<p class="callout">
-  Contact Luck is a retrospective description of realized outcomes, not a measure of stable
-  batting talent and not a projection of future performance. The 95% interval reflects
-  sampling uncertainty in the estimate itself — it does not indicate whether the underlying
-  effect is "real" or "significant," and overlapping zero does not mean the observation is
-  unreliable or should be discounted.
-</p>
-
-<h2>Component decomposition</h2>
-<p class="page-subtitle">Runs per 100 eligible batted balls attributed to each stage of the play.</p>
-<table class="component-table">
-  <thead><tr><th>Component</th><th class="numeric">Runs / 100</th></tr></thead>
-  <tbody>
-    {% for row in component_value_rows %}
-    <tr>
-      <td>{{ row.label }}</td>
-      <td class="numeric">{{ "%+.2f"|format(row.value) if row.value is not none else "—" }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<h3>Component status</h3>
-<table class="component-table">
-  <thead><tr><th>Component</th><th>Status</th></tr></thead>
-  <tbody>
-    {% for row in component_status_rows %}
-    <tr>
-      <td>{{ row.label }}</td>
-      <td>{{ row.status_summary }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-
-<details class="technical-disclosure">
-  <summary>View technical reason codes</summary>
-  <table class="component-table">
-    <thead><tr><th>Component</th><th>Model status</th><th>Reason codes</th></tr></thead>
-    <tbody>
-      {% for row in component_status_rows %}
-      <tr>
-        <td>{{ row.label }}</td>
-        <td>{{ row.model_status_values | join(", ") }}</td>
-        <td>{{ row.reason_codes | join(", ") }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</details>
-
-<h2>Season-to-date trend</h2>
-{% if trend_svg %}
-  <p class="page-subtitle">
-    Contact Luck Runs / 100 across every stored historical snapshot for this player. Points are
-    plotted at their true snapshot dates — a gap between points (such as a missing snapshot day)
-    is never filled in or estimated.
+  {% if player.clip_state != "none" %}
+  {# Redesign Phase 1, decision D1a: this page is drawn on the ONE canonical
+     league scale, built from the qualified comparison population, and that
+     scale never widens for a single page -- widening it would move the zero
+     line and make this page unreadable against the leaderboard. A
+     small-sample interval wider than the league's therefore runs off the
+     edge of the drawing. The caret marks where it continues; this line
+     states, in text, what the drawing cannot: the true numbers, which are
+     printed above, are the real ones. Without it a missing point dot has no
+     explanation. #}
+  <p class="player-offscale-note">
+    {% if player.point_state != "in" %}
+      A Contact Luck of <span class="num">{{ player.score | signed }}</span> sits
+      {{ player.point_state }} the scale drawn above. The solid marker at the
+      {{ "left" if player.point_state == "below" else "right" }} edge gives the direction,
+      not the value. Small samples can land far outside the range of qualified hitters,
+      and every hitter is drawn on the same scale, so it never widens for one page.
+    {% else %}
+      The interval runs off the edge of the scale{% if player.clip_state == "both" %} on both sides{% endif %}:
+      it is wider than the range qualified hitters cover, so it continues past the drawing.
+      The point estimate itself is on the scale.
+    {% endif %}
+    The values printed above are the actual point estimate and interval.
   </p>
-  {{ trend_svg | safe }}
-{% else %}
-  <p class="page-subtitle">Only one snapshot is available for this player so far — a trend needs at least two.</p>
-{% endif %}
+  {% endif %}
+
+  {# ── Supporting sample context ──────────────────────────────────────────
+     Evidence for the verdict above, deliberately NOT four bordered tiles
+     competing with it (guardrails anti-pattern 14: a stat that belongs to a
+     stat line must not be a tile). One ruled line, footnote register. #}
+  <dl class="player-sample">
+    <div class="player-sample-item">
+      <dt>Eligible BBE</dt>
+      <dd class="num">{{ player.bbe }}</dd>
+    </div>
+    <div class="player-sample-item">
+      <dt><abbr title="Games with at least one outcome-resolved eligible batted ball, not official MLB games played.">Scored games</abbr></dt>
+      <dd class="num">{{ player.games }}</dd>
+    </div>
+    <div class="player-sample-item">
+      <dt>Total Contact Luck Runs</dt>
+      <dd class="num">{{ player.total_runs | signed(1) }}</dd>
+    </div>
+    <div class="player-sample-item">
+      <dt>From provisional components</dt>
+      <dd class="num">{{ "%.0f%%"|format((player.provisional_share or 0) * 100) }}</dd>
+    </div>
+  </dl>
+
+  {% if not player.qualified %}
+  <p class="player-unranked-detail prose">
+    {{ qualification_explanation }}
+    The score and interval above are computed the same way as for every ranked hitter, on the
+    same scale.
+    <a href="{{ root_prefix }}methodology/#qualification">How qualification works</a>.
+  </p>
+  {% endif %}
+
+  {# The retrospective limitation is the frozen `public_labels` sentence and
+     runs in the footer of this same page, so it is not repeated here. What
+     stays is the interval reading, which no other route explains. #}
+  <p class="player-limitation prose">
+    The 95% interval reflects sampling uncertainty in the estimate. It does not indicate
+    whether the underlying effect is “real” or “significant,” and an interval overlapping zero
+    is no reason to discount the number.
+  </p>
+</article>
+
+{# ══ Component decomposition ═══════════════════════════════════════════════
+   Where did this hitter's Contact Luck come from? Signed bars from zero, on
+   the `component_per_100` scale -- this hitter's own domain, padded so its
+   zero lands on the same `--cl-zero` as everything above. Because the scale
+   is NOT `league_per_100`, the figure owes visible tick labels carrying its
+   unit, and prints them: a figure that borrows the shared zero while hiding
+   its own domain is the fake alignment the guard exists to prevent. #}
+<section class="player-section" aria-labelledby="components-heading">
+  <h2 id="components-heading">Where it came from</h2>
+  <p class="player-section-lede prose">
+    The same total, split by the stage of the play it arose in. Bars run from zero on a scale
+    built for this player (<span class="num">{{ components.domain_min | signed }}</span> to
+    <span class="num">{{ components.domain_max | signed }}</span> {{ components.unit_label }}),
+    wider or narrower than the leaderboard's. Only the zero is shared.
+  </p>
+
+  <div class="component-figure">
+    <table class="component-decomposition">
+      <caption class="visually-hidden">
+        Contact Luck component decomposition for {{ player.batter_name }}, in runs per 100
+        eligible batted balls, with each component's model status.
+      </caption>
+      <colgroup>
+        <col class="col-component"><col class="col-component-plot">
+        <col class="col-component-value"><col class="col-component-status">
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col" class="col-component">Component</th>
+          <th scope="col" class="col-component-plot"><span class="visually-hidden">Bar</span></th>
+          <th scope="col" class="col-component-value">Runs / 100</th>
+          <th scope="col" class="col-component-status">Model status</th>
+        </tr>
+        {# The axis rail sits between the column heads and the first bar, so
+           the ticks are adjacent to the marks they scale. It is presentational
+           for a screen reader -- every value it labels is printed as text in
+           the value column of every row. #}
+        <tr class="component-axis-row" aria-hidden="true">
+          <td></td>
+          <td class="col-component-plot">
+            <div class="cl-axis-ticks">
+              {% for tick in components.ticks %}
+              <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+              {% endfor %}
+            </div>
+          </td>
+          <td colspan="2"></td>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in components.rows %}
+        <tr class="{{ 'is-favorable' if row.favorable else 'is-unfavorable' }}">
+          <th scope="row" class="col-component">{{ row.label }}</th>
+          <td class="col-component-plot">
+            {% if row.value is not none %}
+            <div class="cl-scale-field cl-bar-field {{ 'cl-scale-favorable' if row.favorable else 'cl-scale-unfavorable' }}"
+                 aria-hidden="true" style="--cl-lo: {{ row.lo_pct }}; --cl-hi: {{ row.hi_pct }}">
+              <span class="cl-scale-bar"></span>
+            </div>
+            {% endif %}
+          </td>
+          <td class="col-component-value num">{{ row.value | signed }}</td>
+          {# The status sits in the SAME row as the value it qualifies, so it
+             is programmatically associated with it by the table's own row
+             header -- the baseline shipped values and statuses as two
+             disconnected tables with nothing tying a row in one to a row in
+             the other. #}
+          <td class="col-component-status">{{ row.status_summary }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="component-total {{ 'is-favorable' if components.total.favorable else 'is-unfavorable' }}">
+          <th scope="row" class="col-component">{{ components.total.label }}</th>
+          <td class="col-component-plot">
+            <div class="cl-scale-field cl-bar-field {{ 'cl-scale-favorable' if components.total.favorable else 'cl-scale-unfavorable' }}"
+                 aria-hidden="true" style="--cl-lo: {{ components.total.lo_pct }}; --cl-hi: {{ components.total.hi_pct }}">
+              <span class="cl-scale-bar"></span>
+            </div>
+          </td>
+          <td class="col-component-value num">{{ components.total.value | signed }}</td>
+          <td class="col-component-status">Sum of the four components above</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <details class="player-disclosure">
+    <summary>Technical reason codes</summary>
+    <div class="player-disclosure-body">
+      <p class="prose">
+        Raw model status values and reason codes from this player's plays. “Defensive
+        execution” above combines the outfield and infield models, so it appears here as two
+        rows.
+      </p>
+      <table class="component-reasons">
+        <thead>
+          <tr><th scope="col">Model</th><th scope="col">Status values</th><th scope="col">Reason codes</th></tr>
+        </thead>
+        <tbody>
+          {% for row in components.rows %}
+          {% if row.has_model_status %}
+          <tr>
+            <th scope="row">{{ row.source_labels | join(" + ") }}</th>
+            <td>{{ row.model_status_values | join(", ") }}</td>
+            <td class="reason-codes">{{ row.reason_codes | join(", ") }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+{# ══ Season trend ══════════════════════════════════════════════════════════
+   DECLARED EXCEPTION to shared scale (decision D2, gate G2). The vertical
+   axis is this hitter's own; the figure says so, prints at least three real
+   tick values with the unit, always shows zero, and shades the part of the
+   view the leaderboard's canonical domain covers. Nothing here borrows the
+   leaderboard's spine styling.
+
+   Every label is HTML at an unscaled size. The baseline's 640x220 viewBox
+   rendered at 350x120 on a phone and put its 10px SVG labels at ~5.5 CSS px;
+   text is simply not inside a coordinate space any more. #}
+<section class="player-section" aria-labelledby="trend-heading">
+  <h2 id="trend-heading">Through the season</h2>
+  {% if trend %}
+  <p class="player-section-lede prose">
+    Every stored snapshot at its true date. A gap between points is a missing snapshot, never
+    an estimate. <strong>The vertical scale adjusts to this player</strong>, so movement through
+    the season is easier to read.
+  </p>
+
+  <figure class="trend-figure">
+    <div class="trend-grid">
+      <div class="trend-axis" aria-hidden="true">
+        {% for tick in trend.y_ticks %}
+        <span class="trend-y-tick{% if tick.is_zero %} is-zero{% endif %}" style="top: {{ tick.top }}">{{ tick.label }}</span>
+        {% endfor %}
+      </div>
+
+      <div class="trend-chart">
+        <div class="trend-plot">
+          {% if trend.league_band %}
+          {% for rule in trend.league_band.rules %}
+          <div class="trend-league-rule" aria-hidden="true" style="top: {{ rule.top }}"></div>
+          {% endfor %}
+          {% endif %}
+          {% for tick in trend.y_ticks %}
+          <div class="trend-gridline{% if tick.is_zero %} is-zero{% endif %}" aria-hidden="true" style="top: {{ tick.top }}"></div>
+          {% endfor %}
+          {{ trend.marks_svg | safe }}
+          {% for pt in trend.points %}
+          <span class="trend-dot{% if pt.is_backfill %} is-backfill{% endif %} {{ 'cl-scale-favorable' if pt.favorable else 'cl-scale-unfavorable' }}"
+                style="left: {{ pt.left }}; top: {{ pt.top }}"
+                title="{{ pt.date }}: {{ pt.value | signed }} runs / 100 (95% interval {{ pt.lower | signed }} to {{ pt.upper | signed }}); {{ pt.eligible_batted_balls }} eligible BBE, {{ pt.qualification_status | replace('_', ' ') }}"></span>
+          {% endfor %}
+        </div>
+        <div class="trend-dates" aria-hidden="true">
+          {% for label in trend.x_labels %}
+          <span class="trend-x-tick" style="left: {{ label.left }}">{{ label.label }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <figcaption class="trend-caption">
+      <p class="trend-unit">{{ trend.unit_label }}, on a vertical scale set by this player</p>
+      <p class="prose">{{ trend.summary }}</p>
+      {% if trend.league_band %}
+      {# The clause tracks how many rules were actually DRAWN, not a rounded
+         percentage: at 99.87% coverage the share prints as "100%" while one
+         rule is still on the chart, and a caption that contradicts the
+         drawing is worse than no caption. #}
+      <p class="prose trend-band-note">
+        {% if trend.league_band.rules_drawn %}
+        <span class="trend-band-key" aria-hidden="true"></span>
+        Dashed {{ "line shows" if trend.league_band.rules_drawn == 1 else "lines show" }} the
+        leaderboard's range (<span class="num">{{ trend.league_band.domain_min | signed }}</span>
+        to <span class="num">{{ trend.league_band.domain_max | signed }}</span>),
+        {{ trend.league_band.coverage_pct }} of this view.
+        {% if trend.league_band.rules_drawn == 1 %}
+          Its other edge lies beyond this view.
+        {% endif %}
+        {% else %}
+        The leaderboard's range (<span class="num">{{ trend.league_band.domain_min | signed }}</span>
+        to <span class="num">{{ trend.league_band.domain_max | signed }}</span>) covers
+        {{ trend.league_band.coverage_pct }} of this view. Neither edge falls on the chart, so
+        the whole season here sits inside it.
+        {% endif %}
+        The grey band is the 95% interval at each snapshot.
+      </p>
+      {% endif %}
+    </figcaption>
+
+    <details class="player-disclosure trend-values">
+      <summary>Snapshot values</summary>
+      <div class="player-disclosure-body">
+        <table class="component-reasons">
+          <thead>
+            <tr>
+              <th scope="col">Data through</th>
+              <th scope="col" class="numeric">Runs / 100</th>
+              <th scope="col" class="numeric">95% interval</th>
+              <th scope="col" class="numeric">Eligible BBE</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for pt in trend.points %}
+            <tr>
+              <th scope="row">{{ pt.date_label }}{% if pt.is_backfill %} <span class="trend-backfill-tag">backfilled</span>{% endif %}</th>
+              <td class="numeric num">{{ pt.value | signed }}</td>
+              <td class="numeric num">{{ pt.lower | signed }} to {{ pt.upper | signed }}</td>
+              <td class="numeric num">{{ pt.eligible_batted_balls }}</td>
+              <td>{{ pt.qualification_status | replace("_", " ") }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </figure>
+  {% else %}
+  <p class="player-section-lede prose">
+    {% if trend_point_count == 1 %}
+      Only one stored snapshot so far. A season line appears here once there is a second.
+    {% else %}
+      No stored snapshot history for this player yet.
+    {% endif %}
+  </p>
+  {% endif %}
+</section>
+
+{# ══ Down to the plays ═════════════════════════════════════════════════════
+   The product's stated value proposition is that it goes all the way down to
+   the play, and the baseline player page dead-ended: its only outbound links
+   were the leaderboard, methodology and demo. The link is emitted only when
+   this hitter is actually in the Play Explorer catalog, so it can never land
+   on an empty selection. #}
+<section class="player-section player-next" aria-labelledby="plays-heading">
+  <h2 id="plays-heading">The plays behind it</h2>
+  {% if plays %}
+  <p class="player-section-lede prose">
+    Every number on this page is summed from single batted balls. Open the
+    <span class="num">{{ plays.count }}</span> scored {{ "play" if plays.count == 1 else "plays" }}
+    and read them one at a time: what the contact was expected to be worth, and what it
+    produced.
+  </p>
+  <p class="player-next-link">
+    <a href="{{ plays.url }}">{{ player.batter_name }}'s scored plays &rarr;</a>
+  </p>
+  {% else %}
+  <p class="player-section-lede prose">
+    This player's individual plays aren't currently available in Play Explorer.
+    <a href="{{ root_prefix }}demo/">See two batted balls worked through end to end</a> for how
+    a single play becomes a Contact Luck value.
+  </p>
+  {% endif %}
+</section>
 {% endblock %}

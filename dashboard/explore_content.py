@@ -210,6 +210,16 @@ class ExploreLoadedData:
     games_dir: Path
     total_play_count: int
     game_pks: frozenset[int]
+    #: The observed range of per-play Contact Luck across EVERY published
+    #: play, in runs. This is the one snapshot-level `run_value` domain
+    #: (Invariant D): Explore draws each play against it rather than
+    #: rescaling per hitter, so two hitters' plays are comparable and a
+    #: single-play hitter is not stretched across the whole field. Read off
+    #: the shard walk below, which already loads every row -- no extra I/O
+    #: and no scoring computation, only the min and max of values the
+    #: snapshot already published.
+    contact_luck_min: float
+    contact_luck_max: float
 
 
 @dataclass(frozen=True)
@@ -483,6 +493,7 @@ def load_explore_catalog(
 
     all_play_ids: list[str] = []
     game_pks: set[int] = set()
+    luck_values: list[float] = []
     for entry in players:
         rows = load_player_play_index(players_dir, entry.batter_id)
         if len(rows) != entry.play_count:
@@ -493,6 +504,7 @@ def load_explore_catalog(
             )
         all_play_ids.extend(r.play_id for r in rows)
         game_pks.update(r.game_pk for r in rows)
+        luck_values.extend(r.contact_luck_runs for r in rows)
 
     if len(set(all_play_ids)) != len(all_play_ids):
         counts = Counter(all_play_ids)
@@ -512,6 +524,8 @@ def load_explore_catalog(
         games_dir=games_dir,
         total_play_count=len(all_play_ids),
         game_pks=frozenset(game_pks),
+        contact_luck_min=min(luck_values, default=0.0),
+        contact_luck_max=max(luck_values, default=0.0),
     )
 
 

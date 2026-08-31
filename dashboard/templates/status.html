@@ -1,86 +1,266 @@
 {% extends "base.html" %}
 {% block title %}Data &amp; status — Contact Luck{% endblock %}
+{% block meta_description %}What Contact Luck currently publishes, which snapshot it came from, and every stored snapshot behind it.{% endblock %}
 {% block content %}
-<h1>Data &amp; status</h1>
-<p class="page-subtitle">Provenance for the snapshot currently shown on this site.</p>
+{#
+  Redesign Phase 7 -- provenance and freshness, not an admin console.
 
-<table class="status-table">
-  <tbody>
-    <tr><th>Data through date</th><td>{{ status.data_through_date }}</td></tr>
-    <tr><th>Snapshot label</th><td>{{ status.snapshot_label or "(none — genuine unlabeled run)" }}</td></tr>
-    <tr><th>Snapshot type</th>
-      <td><span class="snapshot-type-{{ status.snapshot_type }}">{{ status.snapshot_type | replace("_", " ") }}</span></td></tr>
-    <tr><th>Snapshot generated at</th><td>{{ status.generated_at }}</td></tr>
-    <tr><th>Source season</th><td>{{ status.source_season }}</td></tr>
-    <tr><th>Score version</th><td>{{ status.score_version }}</td></tr>
-    <tr><th>Model versions</th>
-      <td>
-        <ul style="margin:0; padding-left: 18px;">
-        {% for component, version in status.model_versions.items() %}
-          <li>{{ component }}: {{ version }}</li>
-        {% endfor %}
-        </ul>
-      </td></tr>
-    <tr><th>Raw Statcast cache decision</th><td>{{ status.cache_decision or "unknown" }} ({{ status.cache_decision_reason or "n/a" }})</td></tr>
-    <tr><th>Coverage-validation missing dates</th>
-      <td>{{ status.final_pre_scoring_missing_dates | join(", ") if status.final_pre_scoring_missing_dates else "none" }}</td></tr>
-    <tr><th>Integrity status</th>
-      <td>{{ "Verified" if status.integrity_valid else "FAILED — see build log" }}</td></tr>
-    <tr><th>Players scored</th><td>{{ status.row_count }}</td></tr>
-    <tr><th>Qualified (officially ranked)</th><td>{{ status.qualified_count }}</td></tr>
-    <tr><th>Qualification breakdown</th>
-      <td>
-        {% for status_name, count in status.qualification_counts.items() %}
-          {{ status_name | replace("_", " ") }}: {{ count }}{% if not loop.last %} · {% endif %}
-        {% endfor %}
-      </td></tr>
-    <tr><th>Player-name source</th>
-      <td>{{ status.name_resolution_summary.source }} —
-        {{ status.name_resolution_summary.resolved_batter_count }}/{{ status.name_resolution_summary.requested_batter_count }} resolved
-        ({{ status.name_resolution_summary.unresolved_batter_count }} unresolved)</td></tr>
-    <tr id="play-data-source"><th>Play-level data source</th>
-      <td>Play-level batted-ball data: MLB Statcast / Baseball Savant, accessed via the
-        <code>pybaseball</code> Python package (the access mechanism, not the underlying data
-        source).</td></tr>
-  </tbody>
-</table>
+  Two structural changes from the baseline. First, the raw ISO timestamp
+  (`2026-08-15T13:35:37.370905+00:00`) is reformatted at the SOURCE in
+  `build.py`'s `_display_timestamp`, with the machine value kept in
+  `<time datetime>`. That 32-character unbreakable token is what collapsed
+  the history table's last two columns to ~31px and made its rows several
+  lines tall; design principle 8 says format the data rather than engineer a
+  layout that survives it.
 
-<h2>Component model status (this snapshot)</h2>
-<table class="status-table">
-  <tbody>
-    {% for component, model_status in status.component_model_status.items() %}
-    <tr><th>{{ component }}</th><td>{{ model_status }}</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-<p class="page-subtitle">
-  Model selection winners: {{ status.model_selection_winners }}
+  Second, the snapshot history is ONE dom that reads correctly at every
+  width: a record list, where each snapshot is a `<dl>` of label/value
+  pairs. At >=1024 the records become aligned grid rows under a column head
+  and the labels go visually hidden; below that the labels come back and
+  each snapshot reads as its own record. No second copy of the content, no
+  table squeezed into a phone, and the label/value pairing survives for a
+  screen reader at every width.
+
+  Amber means "the frozen official record" and is spent on exactly two
+  things here: the snapshot this build was rendered from, and its
+  data-through date. Every other published row is plain ink.
+#}
+<h1 class="route-title">Data &amp; status</h1>
+<p class="status-lede prose">
+  Data through {{ data_through_display }}, from snapshot
+  <span class="status-snapshot-name">{{ status.snapshot_directory_name }}</span>.
+  {% if status.integrity_valid %}Integrity verified.{% else %}Integrity check FAILED. See the build log.{% endif %}
+  {{ status.row_count }} players scored, {{ status.qualified_count }} officially ranked.
 </p>
 
-<h2>Snapshot history</h2>
-<p class="page-subtitle">
-  Every valid stored snapshot, newest first. A date with more than one entry shows the preferred
-  (displayed) snapshot first; superseded or backfill snapshots for the same date are listed
-  underneath and are never used as the displayed value for that date.
-</p>
-<div class="overflow-x">
-<table class="status-table">
-  <thead>
-    <tr><th>Data through</th><th>Snapshot</th><th>Type</th><th>Generated at</th><th>Displayed?</th></tr>
-  </thead>
-  <tbody>
-    {% for entry in status.snapshot_history %}
-      {% for snap in entry.all_valid_snapshots %}
+{# ── The published snapshot ───────────────────────────────────────────── #}
+<section class="status-section" aria-labelledby="published-snapshot-heading">
+  <h2 id="published-snapshot-heading">The published snapshot</h2>
+
+  <dl class="status-record status-record-current">
+    <div class="status-field">
+      <dt>Data through</dt>
+      <dd><time class="status-accent" datetime="{{ status.data_through_date }}">{{ data_through_display }}</time></dd>
+    </div>
+    <div class="status-field">
+      <dt>Snapshot</dt>
+      <dd class="status-accent status-snapshot-name">{{ status.snapshot_directory_name }}</dd>
+    </div>
+    <div class="status-field">
+      <dt>Type</dt>
+      <dd>{{ snapshot_type_label }}</dd>
+    </div>
+    <div class="status-field">
+      <dt>Label</dt>
+      <dd>{{ status.snapshot_label or "None" }}</dd>
+    </div>
+    <div class="status-field">
+      <dt>Generated</dt>
+      <dd>
+        {% if status.generated_at %}
+        <time datetime="{{ status.generated_at }}">{{ generated_at_display }}</time>
+        {% else %}Not recorded{% endif %}
+      </dd>
+    </div>
+    <div class="status-field">
+      <dt>Season</dt>
+      <dd class="num">{{ status.source_season or "—" }}</dd>
+    </div>
+    <div class="status-field">
+      <dt>Score version</dt>
+      <dd class="num">{{ status.score_version }}</dd>
+    </div>
+    <div class="status-field">
+      <dt>Integrity</dt>
+      <dd>{{ "Verified" if status.integrity_valid else "FAILED — see build log" }}</dd>
+    </div>
+  </dl>
+</section>
+
+{# ── What is published ────────────────────────────────────────────────── #}
+<section class="status-section" aria-labelledby="published-heading">
+  <h2 id="published-heading">What is published</h2>
+
+  <dl class="status-line">
+    <div class="status-line-item">
+      <dt>Players scored</dt>
+      <dd class="num">{{ status.row_count }}</dd>
+    </div>
+    <div class="status-line-item">
+      <dt>Officially ranked</dt>
+      <dd class="num">{{ status.qualified_count }}</dd>
+    </div>
+    <div class="status-line-item">
+      <dt>Stored snapshots</dt>
+      <dd class="num">{{ snapshot_count }}</dd>
+    </div>
+    <div class="status-line-item">
+      <dt>Play Explorer</dt>
+      <dd>{{ "Published" if explore_available else "Not in this build" }}</dd>
+    </div>
+  </dl>
+
+  <table class="status-table">
+    <caption>Qualification status, all {{ status.row_count }} scored players.</caption>
+    <thead>
+      <tr><th scope="col">Status</th><th scope="col" class="status-num-col">Players</th></tr>
+    </thead>
+    <tbody>
+      {% for row in qualification_rows %}
       <tr>
-        <td>{{ entry.data_through_date if loop.first else "" }}</td>
-        <td>{{ snap.directory_name }}</td>
-        <td><span class="snapshot-type-{{ snap.snapshot_type }}">{{ snap.snapshot_type | replace("_", " ") }}</span></td>
-        <td>{{ snap.generated_at }}</td>
-        <td>{{ "Yes" if entry.preferred and snap.directory_name == entry.preferred.directory_name else "No (superseded)" }}</td>
+        <th scope="row">{{ row.label }}</th>
+        <td class="status-num-col num">{{ row.count }}</td>
       </tr>
       {% endfor %}
-    {% endfor %}
-  </tbody>
-</table>
-</div>
+    </tbody>
+  </table>
+  <p class="status-note prose">
+    Only qualified players carry an official rank. Everyone else keeps a player page, a score
+    and an interval. <a href="{{ root_prefix }}methodology/#qualification">What each status means</a>.
+  </p>
+</section>
+
+{# ── Models ───────────────────────────────────────────────────────────── #}
+<section class="status-section" aria-labelledby="models-heading">
+  <h2 id="models-heading">Models in this snapshot</h2>
+  <div class="record-list status-models">
+    <div class="record-head" aria-hidden="true">
+      <span>Component</span>
+      <span>Version</span>
+      <span>Recorded status</span>
+      <span>Selection</span>
+    </div>
+
+    <ul class="record-rows">
+      {% for row in model_rows %}
+      <li class="record-row">
+        <dl>
+          <div class="record-cell">
+            <dt>Component</dt>
+            <dd>{{ row.component }}</dd>
+          </div>
+          <div class="record-cell">
+            <dt>Version</dt>
+            <dd class="status-code">{{ row.version or "—" }}</dd>
+          </div>
+          <div class="record-cell">
+            <dt>Recorded status</dt>
+            {# A status outside the documented vocabulary is shown in the
+               identifier register, exactly as the snapshot recorded it. This
+               dashboard displays; it does not reinterpret. #}
+            <dd{% if row.status_is_raw %} class="status-code"{% endif %}>{{ row.status or "—" }}</dd>
+          </div>
+          <div class="record-cell">
+            <dt>Selection</dt>
+            <dd class="status-code">{{ row.selection or "—" }}</dd>
+          </div>
+        </dl>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{# ── Sources ──────────────────────────────────────────────────────────── #}
+<section class="status-section" aria-labelledby="sources-heading">
+  <h2 id="sources-heading">Sources and coverage</h2>
+
+  <dl class="status-record">
+    <div class="status-field" id="play-data-source">
+      <dt>Batted-ball data</dt>
+      <dd>MLB Statcast / Baseball Savant, retrieved with the <code>pybaseball</code> package.
+        The package is the access mechanism, not the source.</dd>
+    </div>
+    <div class="status-field">
+      <dt>Player names</dt>
+      <dd>{{ status.name_resolution_summary.source }}.
+        {{ status.name_resolution_summary.resolved_batter_count }} of
+        {{ status.name_resolution_summary.requested_batter_count }} resolved,
+        {{ status.name_resolution_summary.unresolved_batter_count }} unresolved.</dd>
+    </div>
+    <div class="status-field">
+      <dt>Raw Statcast cache</dt>
+      <dd>{{ status.cache_decision or "Not recorded" }}<span class="status-code">{% if status.cache_decision_reason %} ({{ status.cache_decision_reason }}){% endif %}</span></dd>
+    </div>
+    <div class="status-field">
+      <dt>Missing dates</dt>
+      <dd>
+        {% if status.final_pre_scoring_missing_dates %}
+        {{ status.final_pre_scoring_missing_dates | join(", ") }}
+        {% else %}
+        None. Every completed slate through {{ data_through_display }} is in this snapshot.
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+</section>
+
+{# ── Snapshot history ─────────────────────────────────────────────────── #}
+<section class="status-section" aria-labelledby="history-heading">
+  <h2 id="history-heading">Snapshot history</h2>
+  <p class="status-note prose">
+    Every valid stored snapshot, newest first. Where a date holds more than one, only the
+    published one is ever used for that date. Snapshots are never overwritten.
+  </p>
+
+  <div class="record-list snapshot-history">
+    <div class="record-head" aria-hidden="true">
+      <span>Data through</span>
+      <span>Snapshot</span>
+      <span>Type</span>
+      <span>Generated</span>
+      <span>State</span>
+    </div>
+
+    <ul class="record-rows">
+      {% for row in history %}
+        {% if row.kind == "gap" %}
+        {# A date with no valid stored snapshot. Stated rather than skipped:
+           a reader cannot tell an intentional gap from a rendering bug if
+           the list jumps from the 8th to the 6th. No cause is asserted. #}
+        <li class="record-row is-gap">
+          <p class="record-gap">No valid snapshot for {{ row.label }}.</p>
+        </li>
+        {% else %}
+        {% set entry = row.entry %}
+        {% for snap in entry.snapshots %}
+        <li class="record-row{% if snap.is_current %} is-current{% endif %}">
+          <dl>
+            <div class="record-cell">
+              <dt>Data through</dt>
+              <dd><time datetime="{{ entry.data_through_date }}"{% if snap.is_current %} class="status-accent"{% endif %}>{{ entry.data_through_display }}</time></dd>
+            </div>
+            <div class="record-cell">
+              <dt>Snapshot</dt>
+              <dd class="status-snapshot-name{% if snap.is_current %} status-accent{% endif %}">{{ snap.directory_name }}</dd>
+            </div>
+            <div class="record-cell">
+              <dt>Type</dt>
+              <dd>{{ snap.type_label }}</dd>
+            </div>
+            <div class="record-cell">
+              <dt>Generated</dt>
+              <dd>
+                {% if snap.generated_at %}
+                <time datetime="{{ snap.generated_at }}">{{ snap.generated_at_display }}</time>
+                {% else %}Not recorded{% endif %}
+              </dd>
+            </div>
+            <div class="record-cell">
+              <dt>State</dt>
+              <dd>
+                {% if snap.is_current %}Published, current
+                {% elif snap.is_displayed %}Published
+                {% else %}Superseded
+                {% endif %}
+              </dd>
+            </div>
+          </dl>
+        </li>
+        {% endfor %}
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </div>
+</section>
 {% endblock %}

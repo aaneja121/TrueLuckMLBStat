@@ -2,90 +2,132 @@
 {% import "_macros.html" as macros %}
 {% block title %}Contact Luck Leaderboard{% endblock %}
 {% block content %}
-<div class="page-hero">
-  <div class="page-hero-top">
-    <h1>Contact Luck Leaderboard</h1>
-    <div class="page-hero-mark" aria-hidden="true">
-      <svg viewBox="0 0 400 90" preserveAspectRatio="xMidYMid meet" focusable="false">
-        <path d="M200,88 L30,14 M200,88 L370,14 M30,14 A170,170 0 0 1 370,14"
-              fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
-        <circle cx="200" cy="34" r="5" fill="var(--accent-amber)" stroke="none"></circle>
-      </svg>
-    </div>
-  </div>
+{#
+  Redesign Phase 3 -- homepage hierarchy.
 
-  <div class="callout explainer-callout">
-    <p>
-      Contact Luck compares what a batted ball was expected to be worth with the run value of what
-      actually happened. Summed across a player's eligible batted balls and normalized to
-      <strong>Runs / 100</strong>, <strong>+3.0</strong> means a hitter's realized outcomes were
-      worth roughly three more runs per 100 eligible batted balls than expected. The interval shows
-      the uncertainty around that estimate — Contact Luck describes what happened, retrospectively;
-      it is not a projection of future performance.
-    </p>
-  </div>
+  The baseline put 786px of preamble in front of the table at every desktop
+  width, so exactly one data row was above the fold at 1440x900 and none at
+  1180. Nothing explanatory was deleted to fix that: the full definition is
+  intact, one disclosure below the lede, and the axis + distribution that
+  replaced the hero band is not decoration -- it is the scale the table is
+  drawn on, so the "preamble" is now real league data.
+#}
+<div class="lede">
+  <h1 class="lede-title">Contact Luck</h1>
+  <p class="lede-line prose">
+    How much more or less favorable a hitter's batted-ball outcomes were than what that
+    contact was expected to produce. Runs per 100 eligible batted balls,
+    {{ data_through_date[:4] }} season through {{ data_through_date_display }}.
+  </p>
 
-  <div class="explainer-stats">
-    <span class="explainer-stat">Data through {{ data_through_date_display }}</span>
-    <span class="explainer-stat">{{ qualified_count }} qualified hitters</span>
-  </div>
-</div>
-
-<section class="homepage-proof" aria-label="Why Contact Luck exists">
-  <div class="homepage-proof-examples">
-    {% for ex in proof_examples %}
-    <div class="homepage-proof-card">
-      <p class="homepage-proof-name">{{ ex.batter_name }}</p>
-      <p class="homepage-proof-contact">
-        {{ "%.1f"|format(ex.exit_velocity_mph) }} mph &middot; {{ "%.0f"|format(ex.launch_angle_deg) }}&deg;
+  <details class="lede-detail">
+    <summary>What the number means</summary>
+    <div class="lede-detail-body prose">
+      <p>
+        Contact Luck compares what a batted ball was expected to be worth with the run value of
+        what actually happened. Summed across a player's eligible batted balls and normalized to
+        <strong>Runs / 100</strong>, <strong>+3.0</strong> means a hitter's realized outcomes were
+        worth roughly three more runs per 100 eligible batted balls than expected. The interval
+        shows the uncertainty around that estimate. Contact Luck describes what already happened.
+        It is not a projection of future performance.
       </p>
-      <p class="homepage-proof-outcome">Actual: {{ ex.outcome_label }}</p>
-      <div class="homepage-proof-rows">
-        <div class="homepage-proof-row">
-          <span class="homepage-proof-row-label">Expected RV</span>
-          <span class="demo-rv-value demo-rv-value-expected">{{ "%+.2f"|format(ex.expected_run_value) }}</span>
-        </div>
-        <div class="homepage-proof-row">
-          <span class="homepage-proof-row-label">Contact Luck</span>
-          <span class="demo-luck-figure homepage-proof-figure {{ 'interval-positive' if ex.favorable else 'interval-negative' }}">
-            {{ "%+.2f"|format(ex.contact_luck_runs) }}
-          </span>
-        </div>
-      </div>
-      <span class="demo-luck-badge {{ 'demo-luck-badge-favorable' if ex.favorable else 'demo-luck-badge-unfavorable' }}">
-        {{ "Favorable" if ex.favorable else "Unfavorable" }}
-      </span>
+      <p>
+        Ranked players only: {{ qualified_count }} of {{ player_count }} scored players qualify.
+        The <a href="{{ root_prefix }}methodology/">methodology page</a> has the qualification
+        rule, and <a href="{{ root_prefix }}demo/">how it works</a> walks two real batted balls
+        through end to end.
+      </p>
     </div>
-    {% endfor %}
-  </div>
-  <p class="homepage-proof-link"><a href="{{ root_prefix }}demo/">See how Contact Luck works &rarr;</a></p>
-</section>
+  </details>
+</div>
 
-<h2 class="homepage-leaderboard-heading">{{ data_through_date[:4] }} Contact Luck Leaderboard</h2>
-<p class="page-subtitle">
-  Ranked players only ({{ qualified_count }} of {{ player_count }} players qualify) — see
-  <a href="{{ root_prefix }}methodology/">methodology</a> for the qualification rule.
-</p>
+{#
+  Phase 3 mobile hierarchy correction. This wrapper exists ONLY so the three
+  leaderboard-block children can be re-ordered at <=767, where the axis rail
+  and the distribution strip are hidden and the scale caption has nothing
+  visible left to caption. It is `display: contents` at every other width,
+  so the approved desktop layout is untouched -- see docs/design/responsive.md
+  § Mobile homepage hierarchy.
+#}
+<div class="home-leaderboard">
+{{ macros.axis_caption(axis_unit_label, qualified_count) }}
 
-<div class="leaderboard-tabs">
-  <input type="radio" name="lb-tab" id="tab-favorable" class="tab-radio" checked>
-  <input type="radio" name="lb-tab" id="tab-unfavorable" class="tab-radio">
-  <div class="terminology-tabs">
-    <label for="tab-favorable" class="terminology-tab">Most favorable realized luck</label>
-    <label for="tab-unfavorable" class="terminology-tab">Least favorable outcomes relative to expectation</label>
+{#
+  The two official rankings. Real tabs: `role="tablist"` of buttons with
+  `aria-selected`, arrow-key navigation and a roving tabindex, replacing the
+  `display:none` radio pair that was absent from both the accessibility tree
+  and the tab order. Each ranking begins at #1 and carries its own frozen
+  `public_labels` string; neither is "worst."
+#}
+<div class="ranking" data-role="ranking">
+  <div class="ranking-tabs" role="tablist" aria-label="Official Contact Luck rankings">
+    {# The visible label shortens at mobile; the ACCESSIBLE NAME never does.
+       `.ranking-tab-rest` is clipped below 768 (visually hidden, not
+       `display:none`), so the button's accessible name stays the frozen
+       `public_labels` string verbatim at every width -- and the visible
+       text is a leading substring of it, which is what WCAG 2.5.3 asks. #}
+    <button type="button" class="ranking-tab" role="tab" id="tab-favorable"
+            aria-selected="true" aria-controls="panel-favorable" tabindex="0"
+       ><span class="ranking-tab-lead">Most favorable</span><span class="ranking-tab-rest"> realized luck</span></button>
+    <button type="button" class="ranking-tab" role="tab" id="tab-unfavorable"
+            aria-selected="false" aria-controls="panel-unfavorable" tabindex="-1"
+       ><span class="ranking-tab-lead">Least favorable</span><span class="ranking-tab-rest"> outcomes relative to expectation</span></button>
   </div>
 
-  <div class="tab-panel" id="panel-favorable">
-    {{ macros.render_leaderboard_table(favorable_rows, "favorable") }}
+  <div class="ranking-panel" role="tabpanel" id="panel-favorable" aria-labelledby="tab-favorable" tabindex="0">
+    {{ macros.render_leaderboard_table(favorable_rows, "favorable", axis_ticks, distribution_marks) }}
   </div>
-  <div class="tab-panel" id="panel-unfavorable">
-    {{ macros.render_leaderboard_table(unfavorable_rows, "unfavorable") }}
+  <div class="ranking-panel" role="tabpanel" id="panel-unfavorable" aria-labelledby="tab-unfavorable" tabindex="0" hidden>
+    {{ macros.render_leaderboard_table(unfavorable_rows, "unfavorable", axis_ticks, distribution_marks) }}
   </div>
 </div>
 
-<p class="callout">
-  Columns can be re-sorted for exploration, but a re-sorted table is always labeled
-  "Sorted view" and is never presented as an alternative official ranking. The Rank column
-  always shows the stored, frozen official rank — click it to return to that order.
+<p class="leaderboard-note prose">
+  Sort any column to explore. A sorted table is labeled <em>Sorted view</em> and is never an
+  alternative official ranking. The Rank column always holds the stored, frozen official rank,
+  so sorting by it returns the official order.
 </p>
+</div>
+
+{#
+  The two worked examples. They used to sit ABOVE the leaderboard as a pair of
+  bordered cards with green top rules -- two generic boxes in the position of
+  greatest prominence, ahead of the product itself. They earn their space, but
+  not there: expected-vs-actual is what makes the axis above readable, so they
+  belong after a reader has seen the thing they explain. Re-formed as a ruled
+  comparison on the run-value idea, no boxes, no decorative accent.
+#}
+<section class="worked" aria-labelledby="worked-heading">
+  <h2 id="worked-heading">Two batted balls</h2>
+  <p class="worked-lede prose">
+    Every value above is built from single batted balls like these: the gap between what the
+    contact was expected to be worth and what it produced.
+  </p>
+
+  <ol class="worked-list">
+    {% for ex in proof_examples %}
+    <li class="worked-item {{ 'is-favorable' if ex.favorable else 'is-unfavorable' }}">
+      <p class="worked-name">{{ ex.batter_name }}</p>
+      <p class="worked-contact">
+        <span class="num">{{ "%.1f"|format(ex.exit_velocity_mph) }}</span> mph ·
+        <span class="num">{{ "%.0f"|format(ex.launch_angle_deg) }}</span>° ·
+        {{ ex.outcome_label }}
+      </p>
+      <dl class="worked-ledger">
+        <div class="worked-ledger-row">
+          <dt>Expected run value</dt>
+          <dd class="num">{{ ex.expected_run_value | signed }}</dd>
+        </div>
+        <div class="worked-ledger-row is-result">
+          <dt>Contact Luck on this ball</dt>
+          <dd class="num worked-luck">{{ ex.contact_luck_runs | signed }}</dd>
+        </div>
+      </dl>
+      <p class="worked-verdict">{{ "Favorable" if ex.favorable else "Unfavorable" }}</p>
+    </li>
+    {% endfor %}
+  </ol>
+
+  <p class="worked-link"><a href="{{ root_prefix }}demo/">See both worked through, ball by ball &rarr;</a></p>
+</section>
 {% endblock %}

@@ -19,10 +19,19 @@
     return Array.prototype.slice.call((root || document).querySelectorAll(selector));
   }
 
-  function formatSigned(value) {
-    var sign = value >= 0 ? "+" : "";
-    return sign + value.toFixed(2);
-  }
+  // Redesign Phase 7: the ONE signed-number formatter, shared with the
+  // leaderboard, the player page, Explore and the play page
+  // (`window.ContactLuck.formatSigned` in static/app.js, loaded before this
+  // file by base.html). It is byte-for-byte the behaviour this module used
+  // to duplicate -- explicit `+`, U+2212 MINUS SIGN for negatives, two
+  // decimals -- and matches the build-time `signed` Jinja filter. The local
+  // fallback exists only so a missing app.js degrades to a working
+  // simulator rather than a broken one.
+  var formatSigned =
+    (window.ContactLuck && window.ContactLuck.formatSigned) ||
+    function (value) {
+      return (value >= 0 ? "+" : "") + value.toFixed(2).replace("-", "\u2212");
+    };
 
   function expectedRunValue(cell, runValueTable) {
     var total = 0;
@@ -237,7 +246,7 @@
       outcomeButtons.forEach(function (btn) {
         var selected = btn.getAttribute("data-outcome-class") === state.selectedOutcome;
         btn.setAttribute("aria-pressed", selected ? "true" : "false");
-        btn.classList.toggle("simulator-outcome-button-selected", selected);
+        btn.classList.toggle("demo-outcome-button-selected", selected);
       });
 
       var observedRv = runValueTable[state.selectedOutcome];
@@ -245,21 +254,29 @@
 
       var contactLuck = observedRv - expectedRv;
       var favorable = contactLuck >= 0;
-      luckBadgeEl.textContent = favorable ? "Favorable" : "Unfavorable";
-      luckBadgeEl.className =
-        "demo-luck-badge " + (favorable ? "demo-luck-badge-favorable" : "demo-luck-badge-unfavorable");
+      // The word carries the sign as well as the colour does, so the
+      // reading survives greyscale -- the same pairing the play page uses.
+      luckBadgeEl.textContent = favorable
+        ? "Favorable Contact Luck"
+        : "Unfavorable Contact Luck";
       luckFigureEl.textContent = formatSigned(contactLuck) + " runs";
-      luckFigureEl.className = "demo-luck-figure " + (favorable ? "interval-positive" : "interval-negative");
+      luckFigureEl.className =
+        "demo-luck-figure num " +
+        (favorable ? "cl-scale-favorable" : "cl-scale-unfavorable");
       if (luckExplanationEl) {
+        // Present tense and no "recorded": everything in this section is a
+        // hypothetical contact against a hypothetical result. The
+        // walkthrough's own explanations, which DO describe recorded plays,
+        // are server-rendered from dashboard/demo_content.py and unchanged.
         luckExplanationEl.textContent = favorable
-          ? "The recorded outcome was worth more than the contact was expected to produce."
-          : "The contact was worth more than the recorded outcome.";
+          ? "This result is worth more than the contact is expected to produce."
+          : "The contact is worth more than this result.";
       }
 
       playButtons.forEach(function (btn) {
         var selected = btn.getAttribute("data-example-id") === state.exampleId;
-        btn.setAttribute("aria-selected", selected ? "true" : "false");
-        btn.classList.toggle("simulator-play-button-selected", selected);
+        btn.setAttribute("aria-pressed", selected ? "true" : "false");
+        btn.classList.toggle("demo-play-select-selected", selected);
       });
     }
 
@@ -322,7 +339,8 @@
       .catch(function (err) {
         var loadingEl = qs('[data-role="simulator-loading"]', section);
         if (loadingEl) {
-          loadingEl.textContent = "This interactive section could not load. The rest of the page is unaffected.";
+          loadingEl.textContent =
+            "The simulator could not load. Everything else on this page still works.";
         }
         if (window.console && window.console.error) {
           window.console.error(err);

@@ -1,80 +1,409 @@
 {% extends "base.html" %}
 {% block title %}Methodology — Contact Luck{% endblock %}
+{% block meta_description %}How Contact Luck is built: the inputs, the expected and observed run values, the aggregation, the 95% interval, qualification, and the limitations.{% endblock %}
+{% block og_title %}Methodology — Contact Luck{% endblock %}
+{% block og_url %}{{ site_url }}/methodology/{% endblock %}
+{% block twitter_title %}Methodology — Contact Luck{% endblock %}
 {% block content %}
-<h1>Methodology</h1>
-<p class="page-subtitle">What Contact Luck measures, what it does not measure, and its current limitations.</p>
+{#
+  Redesign Phase 7 -- the destination for depth, never a prerequisite for
+  using the product (docs/design/information-architecture.md § Methodology).
 
-<h2>Definitions</h2>
-<dl>
-  <dt><strong>Contact Luck Runs</strong></dt>
-  <dd>The number of runs by which a batter's observed eligible batted-ball outcomes were more or
-    less favorable than the model expected.</dd>
+  A document, so it gets a document's apparatus: a section index that is
+  sticky at >=1024 and a collapsed table of contents below that
+  (docs/design/responsive.md), the prose measure throughout, and section
+  rules instead of boxes. Restraint on callouts is deliberate: the baseline
+  put the retrospective limitation in an amber-ruled aside two paragraphs
+  in, then said the same thing again in the footer.
 
-  <dt><strong>Contact Luck Runs per 100</strong></dt>
-  <dd>Contact Luck Runs normalized to 100 eligible batted balls.</dd>
-
-  <dt><strong>Scored Games</strong></dt>
-  <dd>Games with at least one outcome-resolved eligible batted ball. This is <em>not</em> the
-    same as official MLB games played -- a game where every plate appearance ended in a
-    strikeout, walk, or an outcome Contact Luck cannot resolve (for example a reached-on-error)
-    contributes no scored games, even though the player did appear in it.</dd>
-
-  <dt><strong>Positive</strong></dt>
-  <dd>More favorable realized outcomes than expected.</dd>
-
-  <dt><strong>Negative</strong></dt>
-  <dd>Less favorable realized outcomes than expected.</dd>
-</dl>
-
-<p class="callout">
-  <strong>Limitation.</strong> Contact Luck is a retrospective description of realized outcomes,
-  not a measure of stable batting talent and not a projection of future performance.
+  Every claim here restates something already recorded in the project's own
+  documentation: PRODUCT.md, CONTEXT.md, `mlb_luck_score.scoring.
+  public_labels` (the frozen definitions), and `mlb_luck_score.scoring.
+  qualification`'s documented status precedence. Nothing on this page is a
+  new methodological claim, and no number here is computed at build time.
+#}
+<h1 class="route-title">Methodology</h1>
+<p class="methodology-lede prose">
+  Contact Luck compares the run value a batted ball was expected to produce with the run value
+  it actually produced. This page is how that comparison is built, and what it will and will
+  not support.
 </p>
 
-<h2>How a score is built</h2>
-<p>
-  Each fair batted ball is compared against what the model expected given its measured contact
-  quality and the situation it occurred in. The difference between the actual outcome's run value
-  and the model's expectation, summed across a player's eligible batted balls, is their Contact
-  Luck Runs. At a high level, that expectation is built from several stages:
-</p>
-<ul>
-  <li><strong>Contact expectation</strong> — the model's prediction of the batted ball's outcome
-    from its measured launch speed/angle and situational context, before defense or baserunning
-    are involved.</li>
-  <li><strong>Outfield / infield opportunity</strong> — whether a defender had a realistic chance
-    to make the play, given where and how hard the ball was hit.</li>
-  <li><strong>Defensive execution</strong> — how the actual defensive outcome compared to what a
-    typical defender would be expected to do with that opportunity.</li>
-  <li><strong>Advancement</strong> — baserunner advancement value beyond the batted-ball outcome
-    itself.</li>
-  <li><strong>Uncertainty</strong> — a 95% interval around each score, estimated by resampling
-    games (not individual plays), to reflect sampling variability in a season-to-date sample.</li>
-  <li><strong>Qualification</strong> — only players who clear a minimum-sample threshold are
-    included in the official leaderboard ranking; others are reported as
-    <code>small_sample</code> and excluded from ranking, though they can still be looked up on
-    their own player page.</li>
-  <li><strong>Provisional near-wall treatment</strong> — batted balls near the outfield wall use a
-    specialist model that is still provisional (not yet fully calibrated across every venue); its
-    share of a player's score is reported explicitly rather than hidden.</li>
-</ul>
+<div class="methodology-layout">
+  <nav class="methodology-index" aria-labelledby="methodology-index-heading">
+    <details class="methodology-index-detail" open>
+      <summary id="methodology-index-heading">On this page</summary>
+      <ol>
+        <li><a href="#definition">Definition</a></li>
+        <li><a href="#inputs">Inputs</a></li>
+        <li><a href="#expected">Expected run value</a></li>
+        <li><a href="#observed">Observed run value</a></li>
+        <li><a href="#contact-luck">Contact Luck</a></li>
+        <li><a href="#aggregation">Aggregation</a></li>
+        <li><a href="#uncertainty">Uncertainty</a></li>
+        <li><a href="#qualification">Qualification</a></li>
+        <li><a href="#interpretation">Interpretation</a></li>
+        <li><a href="#limitations">Limitations</a></li>
+        <li><a href="#provenance">Version and provenance</a></li>
+      </ol>
+    </details>
+  </nav>
 
-<p><a href="#technical-details">Read more technical detail ↓</a></p>
+  <div class="methodology-body">
 
-<h2 id="technical-details">Technical details</h2>
-<p>
-  Every component's per-play model carries its own status (for example
-  <code>calibrated</code>, <code>calibrated_with_limited_subgroup_evidence</code>,
-  <code>provisional</code>, or <code>unavailable</code>) and, where relevant, a reason code
-  explaining why a play could not be scored by a given component (for example
-  <code>missing_geometry</code> or <code>not_outfield_air_ball_bb_type</code>). A player's own
-  page shows these directly, along with the share of their total score coming from components
-  that are still provisional rather than fully calibrated. Uncertainty intervals use a
-  game-clustered bootstrap (not a per-play bootstrap), because plays within the same game are not
-  independent observations.
-</p>
-<p>
-  For the full modeling history, versioning, and validation results behind the frozen model this
-  dashboard displays, see the project's <code>README.md</code> and <code>CLAUDE.md</code>.
-</p>
+    {# ── Definition ────────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="definition">
+      <h2 id="definition">Definition</h2>
+      <p>
+        A fair batted ball carries an expectation. Given how hard it was hit, at what angle,
+        and in what direction, the frozen model gives it a chance of each outcome, and those
+        chances carry a run value. What happened on the field carries a run value too. Contact
+        Luck is the difference.
+      </p>
+      <dl class="methodology-defs">
+        <div>
+          <dt>Contact Luck Runs</dt>
+          <dd>The number of runs by which a batter's observed eligible batted-ball outcomes were
+            more or less favorable than the model expected.</dd>
+        </div>
+        <div>
+          <dt>Contact Luck Runs per 100</dt>
+          <dd>Contact Luck Runs normalized to 100 eligible batted balls. This is the official
+            public metric and the one the leaderboard ranks.</dd>
+        </div>
+        <div>
+          <dt>Positive value</dt>
+          <dd>More favorable realized outcomes than expected.</dd>
+        </div>
+        <div>
+          <dt>Negative value</dt>
+          <dd>Less favorable realized outcomes than expected.</dd>
+        </div>
+      </dl>
+    </section>
+
+    {# ── Inputs ────────────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="inputs">
+      <h2 id="inputs">Inputs</h2>
+      <p>
+        Only fair batted balls are scored. Strikeouts, walks and hit-by-pitch never appear
+        anywhere in this metric. A batted ball also has to pass the project's eligibility rules
+        and carry the contact measurements the model needs. What clears both bars is an
+        <strong>eligible batted ball</strong>, and it is the denominator behind every "per 100"
+        figure on the site.
+      </p>
+      <p>
+        The measurements come from MLB Statcast. The contact model reads seven of them:
+      </p>
+      <ul class="methodology-list">
+        <li><strong>Exit velocity</strong>, in miles per hour.</li>
+        <li><strong>Launch angle</strong>, in degrees.</li>
+        <li><strong>Spray angle</strong>, approximate. It is derived from Statcast's
+          visualization coordinates, so it is a directional signal rather than a verified
+          measurement.</li>
+        <li><strong>Hit distance</strong>, as Statcast records it.</li>
+        <li><strong>Batted-ball type</strong>: ground ball, line drive, fly ball or popup.</li>
+        <li><strong>Batter stance</strong>, left or right.</li>
+        <li><strong>Venue</strong>.</li>
+      </ul>
+      <p>
+        The contact model has no input for who was batting. Two identical batted balls in the
+        same park, off the same side of the plate, get the same expectation whoever hit them.
+        One later stage does use a batter value: Statcast's season sprint speed, where infield
+        and baserunner modelling needs it.
+      </p>
+    </section>
+
+    {# ── Expected run value ────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="expected">
+      <h2 id="expected">Expected run value</h2>
+      <p>
+        The contact model predicts five outcome classes for every batted ball: out, single,
+        double, triple, home run. Each class carries a fixed run value from a run-value table
+        that never changes between plays or seasons. Expected run value is the model's
+        probability of each class weighted by that class's run value. A play page shows the full
+        distribution, so the expectation can be read rather than taken on trust.
+      </p>
+      <p>
+        The full expectation is built in stages, and a player page reports each one separately
+        with its own model status:
+      </p>
+      <dl class="methodology-defs">
+        <div>
+          <dt>Contact</dt>
+          <dd>What the batted ball was worth from its own measurements, before defense or
+            baserunning.</dd>
+        </div>
+        <div>
+          <dt>Defensive opportunity and execution</dt>
+          <dd>Whether a fielder had a realistic chance on the ball, and how the actual defensive
+            result compared with what a typical fielder does with that chance.</dd>
+        </div>
+        <div>
+          <dt>Advancement</dt>
+          <dd>Baserunner movement beyond the batted-ball outcome itself.</dd>
+        </div>
+        <div>
+          <dt>Unexplained residual</dt>
+          <dd>What the three modelled components leave over. It carries no model status because
+            it is not modelled.</dd>
+        </div>
+      </dl>
+      <p>
+        Components that are not yet fully calibrated are labelled as such wherever their value
+        appears, and the share of a player's score that comes through them is printed on their
+        page.
+      </p>
+    </section>
+
+    {# ── Observed run value ────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="observed">
+      <h2 id="observed">Observed run value</h2>
+      <p>
+        Observed run value is what the play actually produced, in the same run units and off the
+        same fixed table. It counts the whole play, baserunner advancement included, so it can
+        differ from what the recorded result alone would suggest. A single that moves a runner
+        from first to third is not worth the same as a single that does not.
+      </p>
+      <p>
+        The recorded result is the box-score outcome. The observed run value is the accounting.
+        A play page shows both.
+      </p>
+    </section>
+
+    {# ── Contact Luck ──────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="contact-luck">
+      <h2 id="contact-luck">Contact Luck</h2>
+      <p>On one batted ball, the whole metric is one subtraction:</p>
+
+      <div class="methodology-equation">
+        <dl>
+          <div class="methodology-equation-row">
+            <dt>Observed run value</dt>
+            <dd>what the play produced</dd>
+          </div>
+          <div class="methodology-equation-row is-operator">
+            <dt><span aria-hidden="true">&minus;</span><span class="visually-hidden">minus</span>
+              Expected run value</dt>
+            <dd>what the contact was worth</dd>
+          </div>
+          <div class="methodology-equation-row is-result">
+            <dt><span aria-hidden="true">=</span><span class="visually-hidden">equals</span>
+              Contact Luck</dt>
+            <dd>the gap, in runs</dd>
+          </div>
+        </dl>
+      </div>
+
+      <p>
+        A positive gap means the play produced more than the contact was worth. A negative gap
+        means it produced less. The sign carries the whole reading, which is why every figure on
+        this site prints it.
+      </p>
+    </section>
+
+    {# ── Aggregation ───────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="aggregation">
+      <h2 id="aggregation">Aggregation</h2>
+      <p>
+        Per-play gaps add up. Summed across a player's eligible batted balls they are that
+        player's <strong>Contact Luck Runs</strong> for the season to date, in real runs.
+      </p>
+      <p>
+        Divided by the number of eligible batted balls and multiplied by 100, they become
+        <strong>Contact Luck Runs per 100</strong>. That rate is what the leaderboard ranks, and
+        it is what makes two hitters with different playing time comparable.
+      </p>
+      <p class="methodology-warning">
+        A leaderboard figure is a rate over a whole season, not the run value of any one play.
+        A hitter at <span class="num">+7.62</span> did not gain 7.62 runs on a batted ball. They
+        gained 7.62 runs per 100 eligible batted balls across the season so far.
+      </p>
+      <p>
+        One more count appears on player pages. <strong>Scored Games</strong> counts games with
+        at least one outcome-resolved eligible batted ball. It is not the same as official MLB
+        games played. A game in which every plate appearance ended in a strikeout, a walk, or an
+        outcome this metric cannot resolve contributes no scored game, even though the player
+        was in the lineup.
+      </p>
+    </section>
+
+    {# ── Uncertainty ───────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="uncertainty">
+      <h2 id="uncertainty">Uncertainty</h2>
+      <p>
+        Every score ships with a 95% interval on the same per-100 scale, and it is drawn next to
+        the point estimate on every ranked row. At season-to-date sample sizes most players'
+        Contact Luck is not distinguishable from zero, and the site would rather say so than
+        hide it.
+      </p>
+      <p>
+        The interval comes from a bootstrap that resamples <strong>games</strong> rather than
+        individual plays. Plays within one game share a park, an opponent, a defensive
+        alignment and a set of conditions, so treating them as independent observations would
+        make every interval too narrow.
+      </p>
+      <p>
+        Each interval is also labelled by where it sits: entirely above zero, overlapping zero,
+        or entirely below zero. That label is a description of the interval and nothing more.
+        An interval that crosses zero is drawn exactly like one that does not, and it is never
+        faded, muted, dashed or marked as an error. This site makes no significance claim about
+        any individual player, and an interval crossing zero is not a finding of "no effect".
+      </p>
+    </section>
+
+    {# ── Qualification ─────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="qualification">
+      <h2 id="qualification">Qualification</h2>
+      <p>
+        Qualification decides who carries an official rank. It is decided before anyone is
+        ranked, from thresholds fixed in advance. Every scored player keeps a page, a score and
+        an interval whatever their status; only <strong>qualified</strong> players appear in the
+        two official rankings.
+      </p>
+      <p>
+        Five statuses are checked in this fixed order, and the first one that applies wins. The
+        reason a player holds no rank is specific to their status, and the reasons are genuinely
+        different. A provisionally qualified hitter can hold more eligible batted balls than the
+        top-ranked one.
+      </p>
+
+      {# The status vocabulary, precedence and volume thresholds restate
+         `mlb_luck_score.scoring.qualification`'s own module documentation in
+         plain language. Duplicated here rather than imported because no
+         module under dashboard/ may import scoring code (CLAUDE.md rule 6);
+         this is the same convention `build.py`'s own
+         `_QUALIFICATION_EXPLANATIONS` follows. If that module's precedence
+         or thresholds change, this section changes with it. #}
+      <table class="methodology-table">
+        <caption>Qualification statuses, in the order they are checked.</caption>
+        <thead>
+          <tr>
+            <th scope="col" class="methodology-col-order"><span class="visually-hidden">Order</span></th>
+            <th scope="col">Status</th>
+            <th scope="col">What it means</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="methodology-col-order num">1</td>
+            <th scope="row">Not reportable</th>
+            <td>No eligible batted balls at all, so there is no rate to compute.</td>
+          </tr>
+          <tr>
+            <td class="methodology-col-order num">2</td>
+            <th scope="row">Small sample</th>
+            <td>Below the volume bar. The official rankings require at least 200 eligible batted
+              balls and 100 scored games.</td>
+          </tr>
+          <tr>
+            <td class="methodology-col-order num">3</td>
+            <th scope="row">Insufficient component coverage</th>
+            <td>Enough plays, but too much of this player's batted-ball profile falls outside
+              both the defense and advancement models.</td>
+          </tr>
+          <tr>
+            <td class="methodology-col-order num">4</td>
+            <th scope="row">Provisionally qualified</th>
+            <td>Clears volume and coverage. Too much of the value comes through provisional or
+              limited-evidence pathways, or too many plays needed a fallback for a missing
+              input. Where the value came from is what holds these players off the rankings.</td>
+          </tr>
+          <tr>
+            <td class="methodology-col-order num">5</td>
+            <th scope="row">Qualified</th>
+            <td>Clears every threshold. Eligible for the two official rankings.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        The volume thresholds are round numbers chosen in advance, loosely following MLB's own
+        qualification conventions and scaled down because eligible batted balls are a subset of
+        plate appearances. They were not selected by looking for a cutoff that produced an
+        appealing leaderboard.
+      </p>
+      <p>
+        The current snapshot's breakdown by status is on the
+        <a href="{{ root_prefix }}status/">Data &amp; status page</a>.
+      </p>
+    </section>
+
+    {# ── Interpretation ────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="interpretation">
+      <h2 id="interpretation">Interpretation</h2>
+      <p>
+        Contact Luck describes what already happened. A high score says a hitter's results ran
+        ahead of their contact over the batted balls in this snapshot. It says nothing about
+        what those results will do next.
+      </p>
+      <p>Reasonable readings:</p>
+      <ul class="methodology-list">
+        <li>Whose realized outcomes ran ahead of or behind their contact this season.</li>
+        <li>How large that gap is in runs, and how uncertain it is.</li>
+        <li>What happened on one batted ball, and how far it landed from expectation.</li>
+        <li>Which component of the accounting a player's score came through.</li>
+      </ul>
+      <p>Readings this metric does not support:</p>
+      <ul class="methodology-list">
+        <li>That a hitter is due for a correction. Contact Luck makes no forecast.</li>
+        <li>That a hitter is good or bad. Split-half reliability is low by design, which is what
+          a description of luck should look like.</li>
+        <li>That one player's defense or baserunning is better than another's. Components are
+          shown with values and status, and no component is ever ranked.</li>
+        <li>That a player is distinguishable from average. Intervals are reported, and most of
+          them cross zero.</li>
+      </ul>
+      <p>
+        The two rankings are "Most favorable realized luck" and "Least favorable outcomes
+        relative to expectation". Neither is a list of good or bad hitters.
+      </p>
+    </section>
+
+    {# ── Limitations ───────────────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="limitations">
+      <h2 id="limitations">Limitations</h2>
+      <ul class="methodology-list">
+        <li><strong>It is retrospective.</strong> Contact Luck is a retrospective description of
+          realized outcomes, not a measure of stable batting talent and not a projection of
+          future performance.</li>
+        <li><strong>Spray angle is approximate.</strong> It is derived from Statcast
+          visualization coordinates through a community approximation. Treat it as direction,
+          not as a measured angle.</li>
+        <li><strong>Near-wall contact is the weakest area.</strong> Batted balls near the
+          outfield wall use a specialist model that remains provisional. Its share of a player's
+          score is reported rather than absorbed silently.</li>
+        <li><strong>Weather is not modelled.</strong> Weather and air density were tested against
+          the frozen model and not adopted. The gain was real but very small, and the per-play
+          effects did not hold up as physically plausible.</li>
+        <li><strong>Coverage is partial by construction.</strong> Only eligible fair batted balls
+          are scored. A play the metric cannot resolve is excluded rather than guessed.</li>
+        <li><strong>The data is daily, not live.</strong> Snapshots cover completed slates only.
+          The date the site is current through is in the header and on the
+          <a href="{{ root_prefix }}status/">Data &amp; status page</a>.</li>
+      </ul>
+    </section>
+
+    {# ── Version and provenance ────────────────────────────────────────── #}
+    <section class="methodology-section" aria-labelledby="provenance">
+      <h2 id="provenance">Version and provenance</h2>
+      <p>
+        The model is frozen. It is fit on earlier seasons and is never refit on the season it
+        scores, so a score cannot move because the model learned from the plays it is scoring.
+      </p>
+      <p>
+        Scoring runs offline into dated snapshots that are never overwritten. This site is a set
+        of static files built from one of them, and every number on it was computed before the
+        page was built. Nothing is scored, trained or fetched when you load a page.
+      </p>
+      <p>
+        This build reads snapshot <span class="status-snapshot-name">{{ snapshot_directory_name }}</span>,
+        data through {{ data_through_date_display }}. Model versions, component status, coverage
+        checks and the full snapshot history are on the
+        <a href="{{ root_prefix }}status/">Data &amp; status page</a>.
+      </p>
+    </section>
+
+  </div>
+</div>
 {% endblock %}

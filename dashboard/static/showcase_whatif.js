@@ -25,22 +25,23 @@
   "use strict";
 
   var CLASS_ORDER = ["out", "single", "double", "triple", "home_run"];
-  var CLASS_LABELS = { out: "Out", single: "1B", double: "2B", triple: "3B", home_run: "HR" };
-
-  // Mirrors dashboard/static/play.js's own PLAY_ID_PATTERN exactly
-  // (duplicated, not shared -- these are separate script files with no
-  // module system between them, same convention as demo.js/demo_simulator.js).
-  var PLAY_ID_PATTERN = /^(\d+)-\d+-\d+$/;
+  // The same outcome names the play page's own probability table uses --
+  // one quantity, one vocabulary, on one page.
+  var CLASS_LABELS = {
+    out: "Out",
+    single: "Single",
+    double: "Double",
+    triple: "Triple",
+    home_run: "Home run",
+  };
 
   function qs(selector, root) {
     return (root || document).querySelector(selector);
   }
 
-  function formatSigned(value) {
-    if (value === null || value === undefined) return "—";
-    var sign = value >= 0 ? "+" : "";
-    return sign + value.toFixed(2);
-  }
+  // Phase 6 consolidation: the signed-number primitive lives once, in
+  // app.js, on `window.ContactLuck`.
+  var formatSigned = (window.ContactLuck || {}).formatSigned;
 
   function humanizeBbType(bbType) {
     return String(bbType).replace(/_/g, " ");
@@ -164,8 +165,12 @@
     var params = new URLSearchParams(window.location.search);
     var playId = params.get("id");
     if (!playId) return;
-    var match = PLAY_ID_PATTERN.exec(playId);
-    if (!match) return; // Malformed id -- never even attempt a fetch.
+    // Phase 8: the play-id contract lives once, in app.js, alongside the
+    // signed-number primitive this file already shares from there.
+    var validated = window.ContactLuck && window.ContactLuck.gamePkFromPlayId
+      ? window.ContactLuck.gamePkFromPlayId(playId)
+      : (/^(\d+)-\d+-\d+$/.exec(playId) || [])[1] || null;
+    if (!validated) return; // Malformed id -- never even attempt a fetch.
 
     fetch("/explore/showcase-sensitivity/" + encodeURIComponent(playId) + ".json")
       .then(function (response) {

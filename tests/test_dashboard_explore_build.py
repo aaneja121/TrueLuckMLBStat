@@ -713,9 +713,13 @@ class TestPlayPageRouting:
         # A play_id format guard exists and is checked BEFORE the fetch --
         # i.e. the regex-match code appears earlier in source order than
         # the fetch() call that reaches the network.
-        match_pos = js.index("PLAY_ID_PATTERN.exec")
-        fetch_pos = js.index("fetch(")
-        assert match_pos < fetch_pos
+        # Phase 8: the play-id contract moved into app.js
+        # (`window.ContactLuck.gamePkFromPlayId`) so the two /plays/ scripts
+        # stop carrying two copies of the same regex. These assertions now
+        # pin the CONTRACT -- derive game_pk, then bail before any fetch --
+        # rather than the identifier that used to implement it.
+        assert js.index("gamePkFromPlayId") < js.index("fetch(")
+        assert js.index("if (!gamePk)") < js.index("fetch(")
 
     def test_play_js_never_fetches_full_players_catalog_or_player_index(
         self, tmp_path: Path
@@ -762,7 +766,9 @@ class TestPlayPageRouting:
         )
         js = (tmp_path / "dist" / "static" / "play.js").read_text()
         collapsed = re.sub(r"\s+", " ", js)
-        assert re.search(r"if \(!match\)\s*\{.*?showNotFound\(page\);\s*return;", collapsed)
+        # Phase 8: `if (!match)` became `if (!gamePk)` when the play-id
+        # contract moved to app.js. Same guard, same landing state.
+        assert re.search(r"if \(!gamePk\)\s*\{.*?showNotFound\(page\);\s*return;", collapsed)
 
 
 class TestExplorerNetworkBehavior:
@@ -874,7 +880,14 @@ class TestTerminology:
             showcase_path,
         )
         html = (tmp_path / "dist" / "plays" / "index.html").read_text()
-        assert "Final observed RV" in html
+        # Phase 6 renamed the DISPLAY label to "Observed", which pairs
+        # with "Expected" on the run-value figure. The quantity and its
+        # definition are unchanged, and the "final / whole play" part of the
+        # meaning is carried by the note below the figure (see the next
+        # test) rather than by a longer label.
+        assert 'data-role="play-observed-rv"' in html
+        assert "Observed" in html
+        assert "Expected" in html
 
     def test_play_page_explains_recorded_result_vs_final_rv_are_not_guaranteed_identical(
         self, tmp_path: Path
@@ -899,7 +912,9 @@ class TestTerminology:
         # before matching rather than requiring one exact contiguous
         # substring.
         collapsed = re.sub(r"\s+", " ", html)
-        assert "not always identical" in collapsed or "not guaranteed" in collapsed.lower()
+        # Same guarantee, one sentence instead of a two-sentence callout.
+        assert "baserunner advancement" in collapsed
+        assert "differ from what the recorded result alone would suggest" in collapsed
 
     def test_explore_page_uses_recorded_result_column_label(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)
@@ -1233,11 +1248,22 @@ class TestShowcaseSection:
             showcase_path,
         )
         html = (tmp_path / "dist" / "explore" / "index.html").read_text()
-        assert "Showcase Plays" in html
+        # Renamed in Phase 5 from "Showcase Plays" -- the heading now says
+        # what the set IS rather than naming the module.
+        assert "Biggest breaks of the season" in html
         assert 'data-role="showcase-section"' in html
-        # Showcase markup appears BEFORE the player-search markup in source order.
-        assert html.index('data-role="showcase-section"') < html.index(
-            'data-role="explore-player-search"'
+        # Phase 5 INVERTED this. The picker comes first and the showcase
+        # follows the results, because a large share of arrivals now come
+        # from a player page's `/explore/?batter=<id>` link with a hitter
+        # already chosen -- for them a twelve-play editorial set above the
+        # results is obstruction. With nothing selected the prompt is one
+        # line, so the showcase is still the first substantive content.
+        # DOM order, visual order and tab order stay the same.
+        assert html.index('data-role="explore-player-search"') < html.index(
+            'data-role="showcase-section"'
+        )
+        assert html.index('data-role="explore-selected"') < html.index(
+            'data-role="showcase-section"'
         )
 
 
@@ -1302,9 +1328,7 @@ class TestShowcaseAndWhatIfClientBehavior:
             showcase_path,
         )
         html = (tmp_path / "dist" / "plays" / "index.html").read_text()
-        assert html.index('data-role="play-luck-figure"') < html.index(
-            'data-role="play-whatif-section"'
-        )
+        assert html.index('data-role="play-luck"') < html.index('data-role="play-whatif-section"')
 
     def test_whatif_js_fetches_sensitivity_json_not_players_or_games(self, tmp_path: Path) -> None:
         out_root, art_root = _seed_snapshot(tmp_path)

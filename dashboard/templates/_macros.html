@@ -1,40 +1,183 @@
-{% macro render_leaderboard_table(rows, table_id) %}
-<div class="leaderboard-controls">
-  <input type="text" class="leaderboard-search" placeholder="Filter this table by name…"
-         data-role="leaderboard-filter" data-target-table="#lb-{{ table_id }}">
-  <span class="sorted-view-label" id="sorted-label-{{ table_id }}"></span>
+{#
+  Redesign Phase 3 -- the Zero Spine leaderboard.
+
+  COLUMN TIERS (`docs/design/tables.md`). Identity (Rank, Player) never sheds.
+  Verdict is ONE cell: the point estimate and the interval that qualifies it
+  are one statement, drawn on the league-wide shared axis. Evidence (total
+  runs, BBE, scored games) compresses to a single sample cell before it sheds.
+  Derived ("Interval width") is gone -- it is recoverable by eye from the
+  interval already drawn, and it was the column silently clipped at every
+  desktop width in the baseline.
+
+  The verdict cell holds no SVG. Positions arrive as build-computed
+  percentages on `.cl-scale-field`, so every field on the page shares one
+  containing block and one percentage basis and the spine at `--cl-zero`
+  registers against all 124 rows by construction.
+#}
+
+{% macro axis_caption(unit_label, qualified_count) %}
+<div class="cl-axis-head">
+  <p class="cl-axis-unit">{{ unit_label }}</p>
+  {# Position-neutral on purpose: at <=767 this caption sits BELOW the table
+     (docs/design/responsive.md § Mobile homepage hierarchy), so "every row
+     below" would have been false there. The claim is unchanged. #}
+  <p class="cl-axis-caption">
+    All {{ qualified_count }} qualified hitters on one scale. Every row in this table is drawn on it.
+  </p>
 </div>
-<div class="overflow-x">
-<table class="leaderboard" id="lb-{{ table_id }}" data-sortable data-sorted-label-target="#sorted-label-{{ table_id }}">
+{% endmacro %}
+
+
+{% macro render_leaderboard_table(rows, table_id, ticks, marks) %}
+<div class="leaderboard-controls">
+  <div class="leaderboard-filter">
+    {# A real, associated label. The baseline shipped two identical inputs
+       whose only name was a placeholder (accessibility.md #5). #}
+    <label class="leaderboard-filter-label" for="filter-{{ table_id }}">Filter by name</label>
+    <input type="text" id="filter-{{ table_id }}" class="leaderboard-filter-input"
+           autocomplete="off" placeholder="Any part of a name"
+           data-role="leaderboard-filter" data-target-table="#lb-{{ table_id }}"
+           data-status-target="#filter-status-{{ table_id }}">
+  </div>
+  <p class="sorted-view-label" id="sorted-label-{{ table_id }}" data-role="sorted-label"></p>
+  <p class="visually-hidden" role="status" id="filter-status-{{ table_id }}"></p>
+</div>
+
+<div class="leaderboard-scroll overflow-x">
+<table class="leaderboard" id="lb-{{ table_id }}"
+       data-sortable data-sorted-label-target="#sorted-label-{{ table_id }}"
+       data-sort-status-target="#sort-status-{{ table_id }}">
+  <caption class="visually-hidden">
+    Contact Luck, runs per 100 eligible batted balls. Each row's verdict shows the point
+    estimate and its 95% interval on one shared zero axis.
+  </caption>
+  <colgroup>
+    <col class="col-rank">
+    <col class="col-player">
+    <col class="col-verdict">
+    <col class="col-evidence">
+  </colgroup>
   <thead>
+    {# ── The shared axis, INSIDE the table ────────────────────────────────
+       Registration by construction, not by arithmetic. An earlier build put
+       the axis in a sibling <div> and derived its offset from the column
+       widths; it rendered 0.2px off, which was luck -- the calculation was
+       26px wrong and the error happened to cancel at this zero fraction.
+       Here the ticks, the distribution and every row's plot field are the
+       same table column laid out by the same grid tracks, so they cannot
+       disagree at any width, for any domain. #}
+    <tr class="cl-axis-row" aria-hidden="true">
+      <td colspan="2"></td>
+      <td class="col-verdict">
+        <div class="verdict-inner">
+          <div class="cl-axis-figure">
+            <div class="cl-axis-ticks">
+              {% for tick in ticks %}
+              <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td></td>
+    </tr>
+    <tr class="cl-distribution-row">
+      <td colspan="2" class="cl-distribution-label">League</td>
+      <td class="col-verdict">
+        <div class="verdict-inner">
+          <div class="cl-axis-figure">
+            <div class="cl-distribution" role="img"
+                 aria-label="Distribution of Contact Luck across all {{ marks | length }} qualified hitters, from {{ marks[0].score | signed }} to {{ marks[-1].score | signed }} runs per 100 eligible batted balls.">
+              {% for mark in marks %}
+              <span class="cl-distribution-mark {{ 'cl-scale-favorable' if mark.favorable else 'cl-scale-unfavorable' }}"
+                    style="left: {{ mark.left }}"></span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td></td>
+    </tr>
     <tr>
-      <th data-sort-key="officialRank" data-sort-type="number">Rank</th>
-      <th data-sort-key="playerName" data-sort-type="text">Player</th>
-      <th class="numeric" data-sort-key="score" data-sort-type="number">Runs / 100</th>
-      <th class="interval-col">95% interval</th>
-      <th class="numeric hide-mobile" data-sort-key="totalRuns" data-sort-type="number">Total runs</th>
-      <th class="numeric hide-mobile" data-sort-key="bbe" data-sort-type="number">Eligible BBE</th>
-      <th class="numeric hide-mobile" data-sort-key="games" data-sort-type="number"
-          title="Games with at least one outcome-resolved eligible batted ball -- not official MLB games played.">Scored Games</th>
-      <th class="numeric hide-mobile" data-sort-key="intervalWidth" data-sort-type="number">Interval width</th>
+      {# Rank is a RESTORE action, not a two-way sort. Toggling its direction
+         produced a reverse-rank order that looks like a ranking but is not
+         the official one -- the direction ambiguity flagged in the audit.
+         One direction, one meaning: this is the way back to official order. #}
+      <th scope="col" class="col-rank" aria-sort="ascending" data-sort-key="officialRank"
+          data-sort-type="number" data-sort-restores="official">
+        <button type="button" class="sort-button" data-role="sort">
+          Rank<span class="sort-indicator" aria-hidden="true"></span>
+        </button>
+      </th>
+      <th scope="col" class="col-player" aria-sort="none" data-sort-key="playerName" data-sort-type="text">
+        <button type="button" class="sort-button" data-role="sort">
+          Player<span class="sort-indicator" aria-hidden="true"></span>
+        </button>
+      </th>
+      <th scope="col" class="col-verdict" aria-sort="none" data-sort-key="score" data-sort-type="number">
+        <button type="button" class="sort-button" data-role="sort">
+          Contact Luck<span class="sort-indicator" aria-hidden="true"></span>
+        </button>
+        <span class="col-verdict-sub">runs / 100, with 95% interval</span>
+      </th>
+      <th scope="col" class="col-evidence" aria-sort="none" data-sort-key="bbe" data-sort-type="number">
+        <button type="button" class="sort-button" data-role="sort">
+          Sample<span class="sort-indicator" aria-hidden="true"></span>
+        </button>
+        <span class="col-evidence-sub">eligible BBE · scored games · total runs</span>
+      </th>
     </tr>
   </thead>
   <tbody>
     {% for row in rows %}
     <tr data-official-rank="{{ row.official_rank }}" data-player-name="{{ row.batter_name }}"
         data-score="{{ row.score }}" data-total-runs="{{ row.total_runs }}"
-        data-bbe="{{ row.bbe }}" data-games="{{ row.games }}" data-interval-width="{{ row.interval_width }}">
-      <td class="rank-cell numeric">{{ row.official_rank }}</td>
-      <td><a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a></td>
-      <td class="numeric">{{ "%.2f"|format(row.score) }}</td>
-      <td class="interval-col">{{ row.interval_svg | safe }}</td>
-      <td class="numeric hide-mobile">{{ "%.1f"|format(row.total_runs) }}</td>
-      <td class="numeric hide-mobile">{{ row.bbe }}</td>
-      <td class="numeric hide-mobile">{{ row.games }}</td>
-      <td class="numeric hide-mobile">{{ "%.1f"|format(row.interval_width) }}</td>
+        data-bbe="{{ row.bbe }}" data-games="{{ row.games }}"
+        data-interval-width="{{ row.interval_width }}">
+      <td class="rank-cell col-rank">{{ row.official_rank }}</td>
+      <td class="col-player">
+        <a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a>
+      </td>
+
+      {# ── The verdict cell ──────────────────────────────────────────────
+         One cell, one statement. The numeral and the mark are grid siblings
+         in the same cell -- one value node, no duplicated text for a screen
+         reader, and a numeral at a constant x however the table is sorted
+         (value placement V1, settled at gate G3). #}
+      <td class="col-verdict verdict {{ 'is-favorable' if row.favorable else 'is-unfavorable' }}">
+        <div class="verdict-inner">
+          <span class="verdict-value num">{{ row.score | signed }}</span>
+          <div class="cl-scale-field {{ 'cl-scale-favorable' if row.favorable else 'cl-scale-unfavorable' }}"
+               data-clipped="{{ row.clip_state }}" data-point-offscale="{{ row.point_state }}"
+               style="--cl-lo: {{ row.lo_pct }}; --cl-hi: {{ row.hi_pct }}; --cl-pt: {{ row.pt_pct }}">
+            <span class="cl-scale-interval"></span>
+            <span class="cl-scale-point"></span>
+          </div>
+          {# The exact interval is text, always present, never behind a
+             toggle. Visible at the widths that can hold it; always in the
+             accessibility tree. #}
+          <span class="verdict-interval num">[{{ row.lower | signed }}, {{ row.upper | signed }}]</span>
+        </div>
+      </td>
+
+      {# Evidence, compressed to one sample cell. The abbreviations are
+         visual only: each carries its full words for assistive technology,
+         which also preserves the product's standing disambiguation that
+         "Scored Games" is not official MLB games played. #}
+      <td class="col-evidence evidence">
+        <span class="evidence-primary num">{{ row.bbe }}</span><span class="evidence-unit" aria-hidden="true">&nbsp;BBE</span><span class="visually-hidden"> eligible batted balls</span>
+        <span class="evidence-sep" aria-hidden="true">·</span>
+        <span class="num">{{ row.games }}</span><span class="evidence-unit" aria-hidden="true">&nbsp;G</span><span class="visually-hidden"> Scored Games</span>
+        <span class="evidence-sep" aria-hidden="true">·</span>
+        <span class="num">{{ row.total_runs | signed(1) }}</span><span class="evidence-unit">&nbsp;runs</span>
+      </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
+<p class="visually-hidden" role="status" id="sort-status-{{ table_id }}"></p>
+<p class="leaderboard-empty" data-role="filter-empty" data-for-table="#lb-{{ table_id }}" hidden>
+  No qualified hitter matches that name. Clear the filter to see all {{ rows | length }} again.
+</p>
 {% endmacro %}

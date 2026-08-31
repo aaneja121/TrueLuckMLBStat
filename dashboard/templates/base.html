@@ -1,5 +1,11 @@
 <!doctype html>
-<html lang="en">
+{# `--cl-zero` is the Zero Spine's single zero locus (Invariant Z): the
+   fraction of a plot field at which the canonical `league_per_100` scale
+   places zero, computed once per build in `dashboard/build.py` from the
+   qualified comparison population. Every zero-centred instrument registers
+   against it, so CSS and the build-time SVG can never disagree about where
+   zero is. It is a layout percentage, not a derived statistic. #}
+<html lang="en" style="--cl-zero: {{ cl_zero_fraction_css }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,40 +26,96 @@
   <link rel="stylesheet" href="{{ asset_prefix }}static/style.css">
 </head>
 <body>
+  {# Redesign Phase 2. First focusable element on every route -- the
+     leaderboard has 135 focusables before the footer, so without this a
+     keyboard reader pays the whole header on every page. Styled in Phase 1
+     (`.skip-link`): off-canvas by transform, never `display:none`, so it
+     stays reachable. #}
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
   <header class="site-header">
-    <div class="site-header-inner">
-      <div>
-        <a class="site-title" href="{{ root_prefix }}"><span class="seam-mark" aria-hidden="true"></span>Contact Luck</a>
-      </div>
-      <nav class="site-nav">
-        <a href="{{ root_prefix }}"{% if active_page == 'leaderboard' %} class="active"{% endif %}>Leaderboard</a>
-        {% if explore_available %}
-        <a href="{{ root_prefix }}explore/"{% if active_page == 'explore' %} class="active"{% endif %}>Explore Plays</a>
-        {% endif %}
-        <a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="active"{% endif %}>How It Works</a>
-        <a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="active"{% endif %}>Methodology</a>
-        <a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="active"{% endif %}>Data &amp; status</a>
+    <div class="site-header-inner page-shell">
+      {# Wordmark is type, not a logo lockup. The amber seam ornament that
+         used to sit here was retired in Phase 2: amber means "the frozen
+         official record" (docs/design/color.md), and spending it on brand
+         decoration is exactly the dilution that makes the data-through
+         badge and the active route stop meaning anything. #}
+      <a class="site-wordmark" href="{{ root_prefix }}">Contact&nbsp;Luck</a>
+
+      <nav class="site-nav" aria-label="Primary">
+        {# Mobile disclosure. A text control, not a hamburger glyph: the
+           routes have names and the header has room for the word. The list
+           ships with `hidden`, which the >=640 media query overrides, so
+           the desktop nav needs no JavaScript; `<noscript>` below restores
+           it at mobile too. #}
+        <button class="site-nav-toggle" type="button"
+                data-role="site-nav-toggle"
+                aria-expanded="false" aria-controls="site-nav-list">Menu</button>
+        <ul class="site-nav-list" id="site-nav-list" data-role="site-nav-list" hidden>
+          <li><a href="{{ root_prefix }}"{% if active_page == 'leaderboard' %} class="is-active" aria-current="page"{% endif %}>Leaderboard</a></li>
+          {% if explore_available %}
+          <li><a href="{{ root_prefix }}explore/"{% if active_page == 'explore' %} class="is-active" aria-current="page"{% endif %}>Explore Plays</a></li>
+          {% endif %}
+          <li><a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="is-active" aria-current="page"{% endif %}>How It Works</a></li>
+          <li><a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="is-active" aria-current="page"{% endif %}>Methodology</a></li>
+          <li><a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="is-active" aria-current="page"{% endif %}>Data &amp; status</a></li>
+        </ul>
       </nav>
-      <div class="global-search-wrap">
-        <input type="text" placeholder="Find a player…" autocomplete="off"
-               data-role="global-player-search" aria-label="Find a player by name">
-        <div class="search-results-dropdown" data-role="global-player-search-results" hidden></div>
+
+      {# ARIA 1.2 combobox-with-listbox. One implementation; Explore's
+         hitter picker adopts it in Phase 5 (docs/design/information-
+         architecture.md § Navigation and search). #}
+      <div class="global-search" data-role="global-search">
+        <label class="global-search-label" for="global-player-search">Find a player</label>
+        <input class="global-search-input" id="global-player-search" type="text"
+               role="combobox" aria-expanded="false"
+               aria-controls="global-player-search-listbox"
+               aria-autocomplete="list" autocomplete="off"
+               placeholder="Name or MLBAM ID"
+               data-role="global-player-search">
+        <button class="global-search-close" type="button"
+                data-role="global-search-close" hidden>Close</button>
+        <ul class="global-search-listbox" id="global-player-search-listbox"
+            role="listbox" aria-label="Player search results"
+            data-role="global-player-search-results" hidden></ul>
+        <p class="visually-hidden" role="status" data-role="global-player-search-status"></p>
       </div>
-      <span class="data-through-badge">Data through {{ data_through_date }}</span>
+
+      {# Provenance, in the one accent that means "the frozen official
+         record." Machine-readable ISO in `datetime`, reader-facing display
+         form in the text (design principle 8). #}
+      <p class="data-through">
+        <span class="data-through-label">Data through</span>
+        <time class="data-through-value" datetime="{{ data_through_date }}">{{ data_through_date_display }}</time>
+      </p>
     </div>
   </header>
 
-  <main>
+  <noscript>
+    <style>
+      .site-nav-toggle { display: none; }
+      .site-nav-list[hidden] { display: flex; }
+      .global-search { display: none; }
+    </style>
+  </noscript>
+
+  <main class="page-shell" id="main-content" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
 
   <footer class="site-footer">
-    <p>
-      Contact Luck is a retrospective description of realized outcomes, not a measure of
-      stable batting talent and not a projection of future performance. See the
-      <a href="{{ root_prefix }}methodology/">methodology page</a> for definitions and limitations.
-    </p>
-    <p>Dashboard v{{ dashboard_version }} · built from snapshot {{ snapshot_directory_name }} · generated {{ build_timestamp }}</p>
+    <div class="site-footer-inner page-shell">
+      <p class="site-footer-framing prose">
+        Contact Luck is a retrospective description of realized outcomes, not a measure of
+        stable batting talent and not a projection of future performance. See the
+        <a href="{{ root_prefix }}methodology/">methodology page</a> for definitions and limitations.
+      </p>
+      <p class="site-footer-provenance">
+        <a href="{{ root_prefix }}methodology/">Methodology</a>
+        <a href="{{ root_prefix }}status/">Data &amp; status</a>
+        <span class="site-footer-build">Dashboard v{{ dashboard_version }} · snapshot {{ snapshot_directory_name }} · generated <time datetime="{{ build_timestamp }}">{{ build_timestamp_display }}</time></span>
+      </p>
+    </div>
   </footer>
 
   <script type="application/json" id="player-index-data">{{ player_index_json | safe }}</script>
