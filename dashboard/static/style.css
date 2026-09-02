@@ -138,7 +138,13 @@
      The plot field is the FIRST track of the verdict cell at every width,
      so nothing to its left can move it off the shared basis. */
   --lb-rank: 3.5rem;
-  --lb-player: 15rem;
+  /* 15rem of name + 2.625rem of portrait (34px box + an 8px gap). The
+     identity column pays for the portrait itself: the name keeps EXACTLY
+     the width it had before portraits existed, at every width, so nothing
+     that fit on one line before wraps to two now. The verdict column is
+     `width: auto` and absorbs the difference; the spine is a percentage of
+     that cell, so zero stays registered (Invariant Z). */
+  --lb-player: 17.625rem;
   --lb-evidence: 16rem;
   --lb-cell-pad: var(--sp-3);
   --lb-value: 6ch;
@@ -1169,12 +1175,85 @@ table.leaderboard tbody tr:hover { background: var(--surface-recessed); }
 table.leaderboard tbody tr[hidden] { display: none; }
 
 .leaderboard .col-player { overflow: hidden; }
+
+/* ── Identity: portrait + name, one centred unit ─────────────────────────
+   The portrait is a FIXED RESERVATION, not a content-sized image: the box
+   is declared here, so the row's height, the name's x, and the column
+   contract are identical whether the portrait loads, fails, or is a player
+   with no photo at all. That is what keeps `DESIGN.md` rule 9 true --
+   identity is name-first and no layout depends on imagery. */
+.player-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 34x38, and the source is a 213x213 square, so `contain` renders it at
+   34x34 with 4px of vertical slack -- CLIPPING IS IMPOSSIBLE by
+   construction, at any width, for any head shape. `cover` is what cropped
+   chins and jaws before; it is not a tuning of this value, it is the
+   opposite fit.
+
+   `center bottom` spends the slack ABOVE the hairline (the asset's own
+   framing puts 6-10px of clearance over the cap and runs the shoulders
+   flush to the frame's bottom edge), so the portraits sit on a common
+   shoulder line down the column rather than floating at 154 different
+   heights.
+
+   The negative block margins are the DENSITY GUARD: 34px of art in a row
+   whose content box is 28px would have grown every row by 6px. Top bleeds
+   into the contain slack, which is empty; bottom bleeds 3px into the cell's
+   4px padding, so the shoulder line still clears the row rule and the row
+   grows by 3px, not 6. 44px remains the ceiling
+   (`docs/design/tables.md`). */
+.player-portrait {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 38px;
+  margin-block: -4px -3px;
+}
+
+.player-portrait-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+/* Third fallback, behind the CDN's own neutral silhouette: initials, set as
+   type in the same box. No plate, no circle, no fill -- a portrait cropped
+   into a circle is exactly what this component does not do, and a decorated
+   chip would make the missing state louder than the present one.
+   `app.js` sets `.is-missing` on a load error. */
+.player-portrait::after {
+  content: attr(data-initials);
+  position: absolute;
+  inset: 0;
+  display: none;
+  /* Centred in the BOX, not aligned to the portrait's shoulder line: with
+     no art to sit on, initials pinned to the bottom read as having fallen
+     off the name they belong to. Centred, they share the name's line. */
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-200);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  color: var(--text-muted);
+}
+.player-portrait.is-missing::after { display: flex; }
+.player-portrait.is-missing .player-portrait-img { display: none; }
+
 .player-link {
   color: var(--text-primary);
   font-weight: 500;
   text-decoration: none;
   display: block;
   padding: 0;
+  min-width: 0;
 }
 .player-link:hover { color: var(--accent-amber-text); text-decoration: underline; }
 
@@ -1395,7 +1474,8 @@ td.evidence {
    for the layout. */
 @media (max-width: 1023px) {
   :root {
-    --lb-player: 11rem;
+    /* 11rem of name + the same 2.625rem of portrait. */
+    --lb-player: 13.625rem;
     --lb-evidence: 11rem;
     --lb-interval-col: 0px;
   }
@@ -1577,6 +1657,14 @@ td.evidence {
     align-self: start;
   }
   .leaderboard td.col-player { grid-area: name; overflow: visible; }
+  /* The portrait stays paired with the name -- same unit, same order, same
+     framing as every other width (identity is presented identically across
+     surfaces, `docs/design/information-architecture.md`). Only the bleed
+     changes: the mobile row has 8px of padding rather than 4px and three
+     lines of content, so the portrait fits inside the name's line box with
+     no negative margin and adds nothing to the row's height. */
+  .leaderboard .player-identity { align-items: center; }
+  .leaderboard .player-portrait { margin-block: -5px; }
   /* 16px/600 on its own full line. Measured against the full 628-player
      set: "Christian Encarnacion-Strand" is the longest name at 28
      characters and ~224px, against ~310px available at 390. */

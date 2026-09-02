@@ -135,8 +135,27 @@
         data-bbe="{{ row.bbe }}" data-games="{{ row.games }}"
         data-interval-width="{{ row.interval_width }}">
       <td class="rank-cell col-rank">{{ row.official_rank }}</td>
+      {# ── Identity ─────────────────────────────────────────────────────
+         Portrait and name are ONE unit, centred together. The portrait is
+         `object-fit: contain` in a fixed transparent box, never `cover` and
+         never a circle: a square source contained in a 34x38 box renders at
+         34x34 with slack, so hairline, face, chin and jaw CANNOT be clipped
+         at any width -- the framing is a property of the fit, not of a
+         hand-tuned crop.
+
+         Name-first still holds (`DESIGN.md` rule 9): the box is a fixed
+         reservation, so a missing, failed or slow portrait changes nothing
+         about the row's height, alignment or column contract. `aria-hidden`
+         + empty `alt`: the name is right there, and a portrait that
+         announced itself would double every row for a screen reader. #}
       <td class="col-player">
-        <a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a>
+        <span class="player-identity">
+          <span class="player-portrait" aria-hidden="true" data-initials="{{ row.initials }}">
+            <img class="player-portrait-img" src="{{ row.portrait_url }}" alt=""
+                 width="34" height="34" loading="lazy" decoding="async">
+          </span>
+          <a class="player-link" href="{{ row.url }}">{{ row.batter_name }}</a>
+        </span>
       </td>
 
       {# ── The verdict cell ──────────────────────────────────────────────

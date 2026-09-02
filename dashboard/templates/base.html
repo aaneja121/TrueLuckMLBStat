@@ -24,6 +24,9 @@
   <meta name="twitter:description" content="{% block twitter_description %}Measuring how MLB batted-ball outcomes compare with what was expected.{% endblock %}">
   <meta name="twitter:image" content="{{ site_url }}/og-image.png">
   <link rel="stylesheet" href="{{ asset_prefix }}static/style.css">
+  {# Per-route head additions. Empty on every route that does not opt in --
+     the site makes no third-party request unless a page says it does. #}
+  {% block head_extra %}{% endblock %}
 </head>
 <body>
   {# Redesign Phase 2. First focusable element on every route -- the

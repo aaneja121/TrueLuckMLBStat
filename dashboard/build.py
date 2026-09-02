@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -198,6 +199,57 @@ def _distribution_marks(
     return sorted(marks, key=lambda m: m["score"])
 
 
+#: The standardized MLB "silo" headshot, keyed by MLBAM id: a square,
+#: transparent-background head-and-shoulders portrait, framed identically for
+#: every player (measured across 31 ids: content is flush to the frame's
+#: bottom, with 6-10px of clearance above the cap at w_213).
+#:
+#: `d_people:generic:headshot:silo:current.png` is the CDN's OWN neutral
+#: silhouette, served whenever a player has no photo -- so "no headshot" is a
+#: portrait-shaped placeholder in the same framing, never a 404 or a broken
+#: image. `app.js` adds a second, offline fallback (the player's initials) for
+#: the case where the request itself fails.
+#:
+#: `f_auto` negotiates WebP where the browser accepts it (~2.9 KB per
+#: portrait against ~14 KB of PNG) and serves PNG where it does not; both keep
+#: the alpha channel, which is what lets the portrait sit on the page with no
+#: plate, box, or circle behind it.
+#:
+#: This is the site's FIRST third-party request and first external dependency
+#: -- the product/privacy decision `docs/design/information-architecture.md`
+#: § "Imagery and team context" says must be raised explicitly rather than
+#: made silently. It is a display asset only: no score, rank, interval or
+#: probability depends on it, and every row is complete and correct with the
+#: name alone (`DESIGN.md` rule 9 -- identity is name-first).
+HEADSHOT_ORIGIN = "https://img.mlbstatic.com"
+HEADSHOT_URL_TEMPLATE = (
+    HEADSHOT_ORIGIN + "/mlb-photos/image/upload"
+    "/d_people:generic:headshot:silo:current.png"
+    "/w_120,q_auto:best,f_auto"
+    "/v1/people/{batter_id}/headshot/silo/current"
+)
+
+#: Generational suffixes are not a surname: "Vladimir Guerrero Jr." initials
+#: to VG, not VJ.
+_NAME_SUFFIXES = frozenset({"jr", "sr", "ii", "iii", "iv", "v"})
+
+
+def player_initials(name: str) -> str:
+    """One or two letters for the offline portrait fallback.
+
+    Never more than two, and never empty for a non-empty name -- this is the
+    last thing standing where both the photo and the CDN's own silhouette are
+    unavailable.
+    """
+    tokens = [t for t in re.split(r"[\s.]+", name or "") if t]
+    tokens = [t for t in tokens if t.rstrip(".").lower() not in _NAME_SUFFIXES] or tokens
+    if not tokens:
+        return ""
+    if len(tokens) == 1:
+        return tokens[0][0].upper()
+    return (tokens[0][0] + tokens[-1][0]).upper()
+
+
 def _leaderboard_view_rows(
     rows: list[c.LeaderboardRow], scale: v.ZeroScale, root_prefix: str
 ) -> list[dict[str, Any]]:
@@ -225,6 +277,8 @@ def _leaderboard_view_rows(
                 "batter_id": row.batter_id,
                 "batter_name": row.batter_name or f"Player {row.batter_id}",
                 "url": f"{root_prefix}players/{row.batter_id}/",
+                "portrait_url": HEADSHOT_URL_TEMPLATE.format(batter_id=row.batter_id),
+                "initials": player_initials(row.batter_name or ""),
                 "score": point,
                 "lower": lower,
                 "upper": upper,
@@ -1046,6 +1100,7 @@ def build_dashboard(
         index_template.render(
             **base_context,
             active_page="leaderboard",
+            headshot_origin=HEADSHOT_ORIGIN,
             axis_ticks=league_axis_ticks,
             axis_unit_label=league_scale.unit_label,
             distribution_marks=league_distribution_marks,

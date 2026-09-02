@@ -145,6 +145,40 @@
   // ══ Filter ═══════════════════════════════════════════════════════════════
   // Same matching behaviour as the baseline, now with a real label, a result
   // count in a polite live region, and an empty state that says what to do.
+  // ── Portrait fallback ──────────────────────────────────────────────────
+  // Two fallbacks already sit in front of this one: the row is complete and
+  // correct with the name alone, and the CDN serves its own neutral
+  // silhouette for a player it has no photo of. This handles the third case
+  // -- the request itself failing (offline, blocked, DNS) -- by revealing the
+  // initials the markup already carries. No layout moves either way: the
+  // portrait box is a fixed reservation.
+  //
+  // ONE delegated listener in the capture phase, because `error` does not
+  // bubble and these are 300+ lazy images that load long after this runs.
+  function initPortraitFallback() {
+    function markMissing(img) {
+      var box = img.parentNode;
+      if (box && box.classList) box.classList.add("is-missing");
+    }
+
+    document.addEventListener(
+      "error",
+      function (event) {
+        var target = event.target;
+        if (target && target.classList && target.classList.contains("player-portrait-img")) {
+          markMissing(target);
+        }
+      },
+      true
+    );
+
+    // Anything that already failed before this script ran.
+    var loaded = document.querySelectorAll(".player-portrait-img");
+    Array.prototype.forEach.call(loaded, function (img) {
+      if (img.complete && img.naturalWidth === 0) markMissing(img);
+    });
+  }
+
   function initLeaderboardFilter() {
     var inputs = document.querySelectorAll("input[data-role='leaderboard-filter']");
     Array.prototype.forEach.call(inputs, function (input) {
@@ -631,6 +665,7 @@
     initRankingTabs();
     initLeaderboardSort();
     initLeaderboardFilter();
+    initPortraitFallback();
     initSiteNavDisclosure();
     initGlobalPlayerSearch();
   });

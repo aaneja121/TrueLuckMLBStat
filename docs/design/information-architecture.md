@@ -200,11 +200,10 @@ Headshots, team, and position are **permitted if and when the data model support
 and must degrade cleanly to name-only: adding or removing one changes what is inside a
 row or hero, never the row's structure, height, alignment, or column contract.
 
-Current state (verified): the snapshot content model and the Explore shards carry only
-`batter_id` and `batter_name`. `CONTEXT.md` notes `batter_id` is the key for "headshot
-lookups," but no headshot code, asset, or request exists, and the site makes **zero**
-external requests today. So anyone adding imagery is also making two decisions that this
-design system does not make for them, and that must be raised explicitly at that time:
+Current state: the snapshot content model and the Explore shards carry only `batter_id`
+and `batter_name`. `CONTEXT.md` notes `batter_id` is the key for "headshot lookups."
+Anyone adding imagery is also making two decisions that this design system does not make
+for them, and that must be raised explicitly at that time:
 
 - a headshot CDN would be the site's **first external request and first third-party
   dependency** — a product and privacy decision with a real cost;
@@ -212,8 +211,32 @@ design system does not make for them, and that must be raised explicitly at that
   half change, not a dashboard change (`RESEARCH_RULES.md`, and `CLAUDE.md` rule 6 —
   the dashboard displays, it never computes).
 
-Neither of those blocks any design work. Design to the name-first rule and the question
-stays open without holding anything up.
+### Decision on record: leaderboard portraits (owner-requested)
+
+The first of those two was **taken**, at the owner's request, for the leaderboard's Player
+column only. What it means and what it does not:
+
+- **The request.** `img.mlbstatic.com`, the standardized MLB "silo" headshot keyed by
+  `batter_id` (a square, transparent-background head-and-shoulders portrait, framed
+  identically for every player). This is the site's **first and only third-party request**;
+  it is `preconnect`ed and declared on the leaderboard route alone, so no other page pays
+  for it, and it is lazy, so a reader who never scrolls fetches a handful of images.
+- **Still name-first.** The portrait box is a fixed 34×38 px reservation. A missing, failed
+  or slow portrait changes no row height, no name x, and no column width, and every row is
+  complete and correct with `batter_name` alone.
+- **Framing is a property of the fit, not a crop.** `object-fit: contain` with
+  `object-position: center bottom` on a square source: hairline, face, chin and jaw cannot
+  be clipped on any axis, at any width. `cover` is prohibited here — it fills by cropping,
+  and on this source it takes the chin first. No circle mask.
+- **Three fallbacks, in order.** The CDN's own neutral silhouette for a player it has no
+  photo of; the player's initials, set as type in the same box, if the request fails; and
+  the name itself, which was never dependent on either.
+- **Density held.** Rows grew 37 → 40 px at 1440 and 104 → 111 px at 390, both inside the
+  44 px desktop ceiling `tables.md` sets.
+- **Nowhere else.** The player page, Explore, and the play page still make no external
+  request and still contain no `<img>`; their tests assert it.
+
+The second decision (team/position) remains open and still blocks nothing.
 
 ---
 

@@ -1044,6 +1044,12 @@ grade on all three dark surfaces.
 
 ## 17. Player imagery
 
+> **Superseded in part.** The owner asked for portraits in the leaderboard's Player
+> column, which this direction recommended against. They shipped there — 34×38 px,
+> `object-fit: contain`, never in the player entry head. The recommendation's *reasons*
+> were kept: fixed reservation, no schema change, and a row that is complete without the
+> image. See `information-architecture.md` § "Decision on record: leaderboard portraits".
+
 **Recommendation: restrained headshots — 48 px square, in the player entry head only.** This
 is the one direction where a portrait is native to the reference: a biographical entry in a
 statistical annual carries a plate. Constraints: never on the leaderboard, never in a table

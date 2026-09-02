@@ -48,7 +48,7 @@ build time in Python.
 | `demo_content.py`, `demo_counterfactual_content.py` | View-models for `/demo/` and its counterfactual grid. |
 | `visuals.py` | The `ZeroScale` domain object, hand-rolled inline SVG (interval bars), and `build_trend_figure`, which returns the season trend as CSS **percentages** plus a marks-only SVG — the trend's text is HTML, never inside a scaled viewBox. Emits CSS classes only — **never a hex color**. |
 | `templates/` | `base.html` (shell, header nav, global search, footer), `_macros.html` (leaderboard table), `index.html`, `player.html`, `explore.html`, `play.html`, `demo.html`, `methodology.html`, `status.html`. |
-| `static/style.css` | ~1760 lines, single stylesheet. `:root` tokens + a `prefers-color-scheme: dark` block. Breakpoints: 640 / 800 / 900 / 1440. |
+| `static/style.css` | ~4800 lines, single stylesheet. `:root` tokens + a `prefers-color-scheme: dark` block. Breakpoints: 640 / 800 / 900 / 1440. |
 | `static/*.js` | `app.js` (leaderboard sort/filter + global player search), `explore.js`, `play.js`, `demo.js`, `demo_simulator.js`, `showcase_whatif.js`. All presentational; each is an independent IIFE with no shared state. |
 | `explore_fixture/`, `demo_fixture.json`, `demo_counterfactual_grid.json` | Committed development fixtures. |
 | `dist/` | Build output. **Gitignored** — may be stale relative to source. |

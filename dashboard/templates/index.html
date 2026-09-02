@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
 {% block title %}Contact Luck Leaderboard{% endblock %}
+{# The leaderboard's player portraits are the site's only third-party
+   request. Opening the connection early costs one DNS+TLS handshake and is
+   declared on THIS route alone, so no other page pays for it. #}
+{% block head_extra %}
+  <link rel="preconnect" href="{{ headshot_origin }}" crossorigin>
+{% endblock %}
 {% block content %}
 {#
   Redesign Phase 3 -- homepage hierarchy.

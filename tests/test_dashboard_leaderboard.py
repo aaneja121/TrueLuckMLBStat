@@ -629,3 +629,130 @@ class TestColourCleanup:
         assert "var(--accent-amber-text)" in rank
         spine = css.split(".leaderboard .cl-scale-field::before {", 1)[1].split("}", 1)[0]
         assert "var(--accent-amber-mark)" in spine
+
+
+class TestPlayerPortrait:
+    """The leaderboard's player portraits.
+
+    The acceptance requirement is FRAMING, not presence: a portrait that
+    renders but clips a chin is a failure. The framing here is a property of
+    the fit rather than of a tuned crop -- a square source under
+    `object-fit: contain` cannot be cropped on any axis -- so what is
+    assertable offline is exactly the set of declarations that guarantee it.
+    Rendered proof at 1440 / 1280 / 390 is Playwright's job, per this file's
+    header.
+    """
+
+    def _portrait_css(self) -> str:
+        return _css().split(".player-portrait {", 1)[1].split("}", 1)[0]
+
+    def test_every_ranked_row_carries_its_own_mlbam_portrait(self, home: str) -> None:
+        for table_id in ("favorable", "unfavorable"):
+            body = home.split(f'id="lb-{table_id}"', 1)[1].split("</table>", 1)[0]
+            body = body.split("<tbody>", 1)[1]
+            rows = body.count("<tr ")
+            srcs = re.findall(r'class="player-portrait-img" src="([^"]+)"', body)
+            assert len(srcs) == rows
+            # Keyed by MLBAM id -- the same key the player page is keyed on.
+            assert all(re.search(r"/v1/people/\d+/headshot/silo/current$", s) for s in srcs)
+
+    def test_the_fit_is_contain_and_the_portrait_is_never_cropped(self) -> None:
+        """`cover` crops to fill -- on a head-and-shoulders source that takes
+        the chin and jaw first. `contain` cannot crop on either axis."""
+        img = _css().split(".player-portrait-img {", 1)[1].split("}", 1)[0]
+        assert "object-fit: contain" in img
+        assert "cover" not in img
+        assert "object-position: center bottom" in img
+        assert "object-fit: cover" not in _css()
+
+    def test_the_portrait_is_not_cropped_into_a_circle(self) -> None:
+        assert "border-radius" not in self._portrait_css()
+        assert "border-radius" not in _css().split(".player-portrait-img {", 1)[1].split("}", 1)[0]
+
+    def test_the_box_is_a_fixed_reservation_so_no_layout_depends_on_it(self) -> None:
+        """`DESIGN.md` rule 9: identity is name-first and imagery may never
+        move the layout. A declared box means a missing, failed or slow
+        portrait changes no row height, no name x, and no column width."""
+        block = self._portrait_css()
+        assert "width: 34px" in block
+        assert "height: 38px" in block
+        assert "flex: 0 0 auto" in block
+
+    def test_portraits_are_lazy_and_carry_intrinsic_dimensions(self, home: str) -> None:
+        imgs = re.findall(r"<img class=\"player-portrait-img\".*?>", home, flags=re.DOTALL)
+        assert imgs
+        for img in imgs:
+            assert 'loading="lazy"' in img
+            assert 'decoding="async"' in img
+            assert 'width="34"' in img and 'height="34"' in img
+
+    def test_the_portrait_is_decorative_in_the_accessibility_tree(self, home: str) -> None:
+        """The name is right beside it: a portrait that announced itself
+        would double every row for a screen reader."""
+        cell = home.split('<td class="col-player">', 1)[1].split("</td>", 1)[0]
+        assert 'aria-hidden="true"' in cell
+        assert 'alt=""' in cell
+        assert not re.search(r'alt="[^"]+"', cell)
+
+    def test_a_missing_portrait_falls_back_to_initials_not_a_broken_image(self, home: str) -> None:
+        """Three layers: the row is complete with the name alone, the CDN
+        serves its own neutral silhouette for a player it has no photo of,
+        and a failed REQUEST reveals the initials the markup already
+        carries."""
+        assert "d_people:generic:headshot:silo:current.png" in home
+        cell = home.split('<td class="col-player">', 1)[1].split("</td>", 1)[0]
+        assert 'data-initials="PC"' in cell
+        css = _css()
+        assert ".player-portrait.is-missing::after { display: flex; }" in css
+        assert "content: attr(data-initials)" in css
+        js = APP_JS.read_text()
+        assert "initPortraitFallback" in js
+        assert "player-portrait-img" in js
+
+    def test_initials_never_exceed_two_letters_and_skip_generational_suffixes(self) -> None:
+        assert dashboard_build.player_initials("Vladimir Guerrero Jr.") == "VG"
+        assert dashboard_build.player_initials("Pete Crow-Armstrong") == "PC"
+        assert dashboard_build.player_initials("Ronald Acuña Jr.") == "RA"
+        assert dashboard_build.player_initials("Ichiro") == "I"
+        assert dashboard_build.player_initials("") == ""
+
+    def test_the_third_party_request_is_declared_on_this_route_only(self, site: Path) -> None:
+        """The site's first external dependency, opted into by the one page
+        that uses it (docs/design/information-architecture.md § Imagery)."""
+        home = (site / "index.html").read_text()
+        assert f'rel="preconnect" href="{dashboard_build.HEADSHOT_ORIGIN}"' in home
+        for route in ("methodology", "status", "demo"):
+            other = (site / route / "index.html").read_text()
+            assert "preconnect" not in other
+            assert dashboard_build.HEADSHOT_ORIGIN not in other
+
+    def test_the_portrait_never_grows_a_row_past_the_density_ceiling(self) -> None:
+        """34px of art in a 28px content box would have added 6px to every
+        row. The negative block margins spend the contain slack instead, so
+        the row grows 3px and stays under the 44px ceiling
+        (`docs/design/tables.md`); measured at 1440: 37px -> 40px."""
+        assert "margin-block: -4px -3px" in self._portrait_css()
+
+    def test_portrait_and_name_are_one_vertically_centred_unit(self, home: str) -> None:
+        cell = home.split('<td class="col-player">', 1)[1].split("</td>", 1)[0]
+        assert cell.index("player-portrait") < cell.index("player-link")
+        identity = _css().split(".player-identity {", 1)[1].split("}", 1)[0]
+        assert "display: flex" in identity
+        assert "align-items: center" in identity
+
+    def test_the_identity_column_pays_for_the_portrait_not_the_name(self) -> None:
+        """`--lb-player` grew by exactly the portrait's footprint (34px box +
+        an 8px gap = 2.625rem) at both table bands, so the NAME keeps the
+        width it had before portraits existed. Without that compensation, 26
+        of 154 names wrapped to a second line at 800 and rows went to 50.5px
+        -- past the 44px ceiling."""
+        css = _css()
+        root = css.split(":root {", 1)[1].split("}", 1)[0]
+        assert "--lb-player: 17.625rem" in root  # was 15rem
+        narrow = css.split("@media (max-width: 1023px) {", 1)[1].split("}", 1)[0]
+        assert "--lb-player: 13.625rem" in narrow  # was 11rem
+
+    def test_the_identity_unit_survives_the_mobile_transformation(self) -> None:
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        assert ".leaderboard .player-portrait {" in mobile
+        assert ".leaderboard .player-identity { align-items: center; }" in mobile
