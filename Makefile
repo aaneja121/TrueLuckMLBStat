@@ -17,7 +17,8 @@
 	verify-forecast-ridge-freeze run-forecast-hgb freeze-forecast-hgb \
 	verify-forecast-hgb-freeze verify-forecast-freezes run-forecast-phase2-2026 \
 	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports \
-	freeze-forecast-resolution-spec run-forecast-resolution-2026
+	freeze-forecast-resolution-spec run-forecast-resolution-2026 \
+	freeze-preflight $(addprefix freeze-preflight,-$(FREEZE_STAGES))
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -457,7 +458,7 @@ run-forecast-r1:
 # writes forecast_spec.json (written ONCE -- a differing specification is
 # refused without --force-respecify) plus r1_freeze_manifest.json and
 # r1_frozen_conclusion.md. Run after `make run-forecast-r1`.
-freeze-forecast-r1:
+freeze-forecast-r1: freeze-preflight-r1
 	$(PY) -m forecast.freeze_r1
 
 # Re-hashes the frozen R1 package and names anything that drifted. Exits
@@ -477,7 +478,7 @@ run-forecast-ridge:
 # Seals the ridge stage: hashes its artifacts and source, checks the recorded
 # conclusion against the numbers it describes (including the preserved negative
 # ablation), and chains provenance back to the R1 freeze.
-freeze-forecast-ridge:
+freeze-forecast-ridge: freeze-preflight-ridge
 	$(PY) -m forecast.freeze_ridge
 
 verify-forecast-ridge-freeze:
@@ -492,7 +493,7 @@ run-forecast-hgb:
 	$(PY) -m forecast.run_hgb_forecast
 
 # Seals the nonlinear stage, chaining provenance through ridge back to R1.
-freeze-forecast-hgb:
+freeze-forecast-hgb: freeze-preflight-hgb
 	$(PY) -m forecast.freeze_hgb
 
 verify-forecast-hgb-freeze:
@@ -521,7 +522,7 @@ run-forecast-phase2-2026:
 # reproduces the frozen coefficients exactly. Fits nothing on 2026, tunes
 # nothing, deploys nothing, never reads 2025. Writes to
 # outputs/forecast_phase2_h200/.
-freeze-forecast-h200-spec:
+freeze-forecast-h200-spec: freeze-preflight-h200_spec
 	$(PY) -m forecast.phase2.h200_spec
 
 run-forecast-h200-2026:
@@ -542,7 +543,7 @@ regenerate-forecast-phase2-reports:
 # interval and classification are fixed here, before any end-of-season outcome
 # exists. Opens no outcome, fits nothing, reads no snapshot, never touches
 # 2025. Writes to outputs/forecast_phase2_resolution/.
-freeze-forecast-resolution-spec:
+freeze-forecast-resolution-spec: freeze-preflight-resolution_spec
 	$(PY) -m forecast.phase2.resolution_spec
 
 # Contact Forecast: the END-OF-SEASON RESOLUTION PASS. Executes the frozen
@@ -557,3 +558,19 @@ run-forecast-resolution-2026:
 	@test -n "$(AUTHORIZED_BY)" || \
 		{ echo "Refusing: set AUTHORIZED_BY=\"your name\" to authorize this second look."; exit 1; }
 	$(PY) -m forecast.phase2.run_resolution_evaluation --authorized-by "$(AUTHORIZED_BY)"
+
+# Pre-freeze formatting guard: format -> review if changed -> freeze. Runs the
+# canonical formatter over exactly the source files a stage's freeze will hash.
+# If anything changed it STOPS and names the files; nothing is sealed and no
+# manifest is written. Review the diff, then rerun the freeze target -- the
+# second run formats to a no-op and the freeze proceeds.
+#
+# These are prerequisites of the freeze targets, so make halts before the
+# freeze command runs. A freeze never seals a rewrite in the same operation
+# that made it.
+FREEZE_STAGES := r1 ridge hgb h200_spec resolution_spec
+
+$(addprefix freeze-preflight-,$(FREEZE_STAGES)): freeze-preflight-%:
+	$(PY) -m forecast.freeze_preflight --stage $*
+
+freeze-preflight: $(addprefix freeze-preflight-,$(FREEZE_STAGES))
