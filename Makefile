@@ -17,7 +17,7 @@
 	verify-forecast-ridge-freeze run-forecast-hgb freeze-forecast-hgb \
 	verify-forecast-hgb-freeze verify-forecast-freezes run-forecast-phase2-2026 \
 	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports \
-	freeze-forecast-resolution-spec
+	freeze-forecast-resolution-spec run-forecast-resolution-2026
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -544,3 +544,16 @@ regenerate-forecast-phase2-reports:
 # 2025. Writes to outputs/forecast_phase2_resolution/.
 freeze-forecast-resolution-spec:
 	$(PY) -m forecast.phase2.resolution_spec
+
+# Contact Forecast: the END-OF-SEASON RESOLUTION PASS. Executes the frozen
+# resolution specification ONCE, after the verified 2026 regular-season end
+# date (2026-09-27). Attaches outcomes to predictions sealed at the 2026-09-01
+# first look; never regenerates a forecast, never refits, never trims, never
+# deploys. Refuses to run early, refuses a snapshot short of the season end,
+# and requires AUTHORIZED_BY -- a second unadjusted look is not a cron job.
+#
+#   make run-forecast-resolution-2026 AUTHORIZED_BY="your name"
+run-forecast-resolution-2026:
+	@test -n "$(AUTHORIZED_BY)" || \
+		{ echo "Refusing: set AUTHORIZED_BY=\"your name\" to authorize this second look."; exit 1; }
+	$(PY) -m forecast.phase2.run_resolution_evaluation --authorized-by "$(AUTHORIZED_BY)"
