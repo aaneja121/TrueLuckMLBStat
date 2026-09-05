@@ -12,7 +12,11 @@
 	notebook-infield-opportunity compare-advancement-models notebook-advancement \
 	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation \
 	run-public-score notebook-public-score run-prospective-scoring notebook-prospective-review \
-	build-demo-fixture
+	build-demo-fixture score-forecast-seasons run-forecast-r1 freeze-forecast-r1 \
+	verify-forecast-r1-freeze run-forecast-ridge freeze-forecast-ridge \
+	verify-forecast-ridge-freeze run-forecast-hgb freeze-forecast-hgb \
+	verify-forecast-hgb-freeze verify-forecast-freezes run-forecast-phase2-2026 \
+	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -24,13 +28,13 @@ setup:
 	$(PIP) install -e ".[dev]"
 
 format:
-	$(PY) -m ruff format src tests
+	$(PY) -m ruff format src tests forecast
 
 lint:
-	$(PY) -m ruff check src tests
+	$(PY) -m ruff check src tests forecast
 
 typecheck:
-	$(PY) -m mypy src
+	$(PY) -m mypy src forecast
 
 test:
 	$(PY) -m pytest
@@ -429,3 +433,103 @@ notebook-prospective-review:
 # network access.
 build-demo-fixture:
 	$(PY) demo/build_demo_fixture.py
+
+# Contact Forecast R1 (research layer, `forecast/`): walk-forward scoring of the
+# 2022-2024 development seasons with the FROZEN contact model refit on strictly
+# earlier seasons. Writes per-season ledgers + manifests to data/forecast/
+# (gitignored). Never touches 2025 (sealed) or 2026 (Phase 2). Changes nothing
+# in src/mlb_luck_score/ and produces no public score.
+score-forecast-seasons:
+	$(PY) -m forecast.score_development_seasons
+
+# Contact Forecast R1 descriptive analysis over the ledgers above: the frozen
+# baseline ladder, the paired globally-batter-clustered bootstrap, the
+# batter-balanced sensitivity, and the regression-direction experiment with its
+# permutation placebo. Fits NO forecasting model. Writes the prediction table,
+# three JSON artifacts and the report to outputs/forecast_research/ (gitignored).
+# Requires `make score-forecast-seasons` to have been run first.
+run-forecast-r1:
+	$(PY) -m forecast.run_r1_analysis
+
+# Seals the R1 baseline package: hashes every artifact, source module and input
+# ledger, checks the recorded conclusion against the numbers it describes, and
+# writes forecast_spec.json (written ONCE -- a differing specification is
+# refused without --force-respecify) plus r1_freeze_manifest.json and
+# r1_frozen_conclusion.md. Run after `make run-forecast-r1`.
+freeze-forecast-r1:
+	$(PY) -m forecast.freeze_r1
+
+# Re-hashes the frozen R1 package and names anything that drifted. Exits
+# non-zero on drift, so it is safe to wire into a pre-flight check.
+verify-forecast-r1-freeze:
+	$(PY) -m forecast.freeze_r1 --verify
+
+# The ridge forecasting experiment over the FROZEN R1 package: four prespecified
+# nested ablations, season-forward alpha and model selection (train 2022 ->
+# validate 2023, then train 2022-2023 -> evaluate 2024), measured against
+# league_mean / shrunk_realized / shrunk_deserved with batter-clustered
+# bootstrap intervals. Ridge only -- no nonlinear candidate. Refuses to run if
+# the R1 prediction table has drifted from its freeze.
+run-forecast-ridge:
+	$(PY) -m forecast.run_ridge_forecast
+
+# Seals the ridge stage: hashes its artifacts and source, checks the recorded
+# conclusion against the numbers it describes (including the preserved negative
+# ablation), and chains provenance back to the R1 freeze.
+freeze-forecast-ridge:
+	$(PY) -m forecast.freeze_ridge
+
+verify-forecast-ridge-freeze:
+	$(PY) -m forecast.freeze_ridge --verify
+
+# The single nonlinear experiment over the FROZEN R1 + ridge packages:
+# HistGradientBoosting only, two prespecified formulations, a 16-candidate grid
+# recorded before evaluation, season-forward selection (fit 2022 -> select 2023),
+# then one evaluation on 2024. Refuses to run unless both upstream stages are
+# sealed and the prediction table matches its freeze.
+run-forecast-hgb:
+	$(PY) -m forecast.run_hgb_forecast
+
+# Seals the nonlinear stage, chaining provenance through ridge back to R1.
+freeze-forecast-hgb:
+	$(PY) -m forecast.freeze_hgb
+
+verify-forecast-hgb-freeze:
+	$(PY) -m forecast.freeze_hgb --verify
+
+# Verifies all three frozen stages in dependency order. Exits non-zero on any
+# drift, so it is safe to wire into a pre-flight check.
+verify-forecast-freezes: verify-forecast-r1-freeze verify-forecast-ridge-freeze \
+	verify-forecast-hgb-freeze
+
+# Contact Forecast PHASE 2: the first held-out evaluation, on 2026. Verifies the
+# R1/ridge/HGB freeze chain and refuses to proceed on any drift, records and
+# hashes the Phase 2 authorization, pins ONE immutable 2026 prospective snapshot
+# and verifies its integrity hashes, then evaluates the already-frozen Model D
+# ridge against the frozen benchmarks. Fits nothing on 2026, tunes nothing,
+# deploys nothing, and never reads 2025. Writes to outputs/forecast_phase2/.
+run-forecast-phase2-2026:
+	$(PY) -m forecast.phase2.run_phase2_evaluation
+
+# Contact Forecast H=200: freeze the SEPARATE H=200 specification on development
+# data (`freeze-forecast-h200-spec`), then run its single held-out 2026
+# evaluation (`run-forecast-h200-2026`). The H=200 model is a REFIT, not the
+# frozen H=100 Contact Forecast measured over a longer window; the two results
+# are never pooled and the H=100 Phase 2 result is never modified. The
+# evaluation re-derives the sealed fit and refuses to proceed unless it
+# reproduces the frozen coefficients exactly. Fits nothing on 2026, tunes
+# nothing, deploys nothing, never reads 2025. Writes to
+# outputs/forecast_phase2_h200/.
+freeze-forecast-h200-spec:
+	$(PY) -m forecast.phase2.h200_spec
+
+run-forecast-h200-2026:
+	$(PY) -m forecast.phase2.run_h200_evaluation
+
+# Re-render the Phase 2 reports (H=100 and H=200) from the FROZEN numerical
+# artifacts. Presentation only: runs no evaluation, opens no snapshot, fits
+# nothing, and never rewrites a result manifest. Refuses to run if any
+# numerical artifact has moved since its freeze, and records each re-render as
+# an erratum carrying the original and corrected report hashes.
+regenerate-forecast-phase2-reports:
+	$(PY) -m forecast.phase2.regenerate_reports
