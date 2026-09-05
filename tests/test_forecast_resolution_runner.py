@@ -296,10 +296,29 @@ def test_an_empty_cohort_is_reported_not_crashed() -> None:
     assert record["n_windows"] == 0
 
 
-def test_the_spec_contradiction_is_recorded_and_resolved_strictly() -> None:
-    conflict = rr.COHORT_CLASSIFICATION_CONFLICT
-    assert conflict["resolved_as"] == "the incremental cohort only"
-    assert conflict["should_be_amended"] is True
+def test_the_spec_contradiction_is_recorded_as_resolved() -> None:
+    history = rr.COHORT_CLASSIFICATION_HISTORY
+    assert history["was_a_contradiction"] is True
+    assert history["resolved_by"] == "resolution_spec amendment 2"
+    assert history["resolved_as"] == "the incremental cohort only"
+    assert history["amended_before_any_outcome_was_opened"] is True
+    assert history["runner_reads_the_flag_from_the_specification"] is True
+
+
+def test_the_runner_reads_the_classification_flags_from_the_frozen_spec() -> None:
+    from forecast.phase2.resolution_spec import build_resolution_specification
+
+    flags = rr.assert_cohort_classification_is_consistent(build_resolution_specification())
+    assert flags == {"incremental": True, "full_season": False, "never_completed": False}
+
+
+def test_an_inconsistent_specification_stops_the_pass() -> None:
+    from forecast.phase2.resolution_spec import build_resolution_specification
+
+    spec = build_resolution_specification()
+    spec["cohorts"]["full_season"]["four_way_classification_applied"] = True
+    with pytest.raises(rr.ResolutionGateError, match="must not carry a classification"):
+        rr.assert_cohort_classification_is_consistent(spec)
 
 
 # --------------------------------------------------------------------------
@@ -313,7 +332,7 @@ def _report(incremental: pd.DataFrame) -> str:
         "horizon": HORIZON,
         "primary_cohort": "incremental",
         "classification_applies_to": "the incremental cohort only",
-        "cohort_classification_conflict": rr.COHORT_CLASSIFICATION_CONFLICT,
+        "cohort_classification_history": rr.COHORT_CLASSIFICATION_HISTORY,
         "incremental": _evaluate(incremental, classify=True, cohort="incremental"),
         "full_season": _evaluate(
             _cohort_frame(range(0, 50), seed=9), classify=False, cohort="full_season"

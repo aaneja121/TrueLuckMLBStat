@@ -37,7 +37,7 @@ season's end. Their outcomes have never been examined.
 FULL_SEASON is secondary and carries a mandatory NOT INDEPENDENT label. It
 reuses every already-observed window, so it is reported as an estimate with an
 interval and is NEVER classified -- see `classification_applies_to` in the
-frozen specification, and the note in `COHORT_CLASSIFICATION_CONFLICT`.
+frozen specification (amendment 2), and `COHORT_CLASSIFICATION_HISTORY`.
 
 NEVER_COMPLETED is reported and never evaluated: no partial windows, no
 imputation, no removal from the ledger.
@@ -100,29 +100,53 @@ logger = logging.getLogger(__name__)
 #: these is READ from the frozen parquet and never recomputed.
 SEALED_PREDICTION_COLUMNS: tuple[str, ...] = (FORECAST_COLUMN, *BENCHMARKS)
 
-#: A contradiction in the frozen specification, recorded rather than resolved
-#: silently. `classification_applies_to` says "the incremental cohort only",
-#: while `cohorts.full_season.four_way_classification_applied` says True. This
-#: runner follows the STRICTER reading -- the classification is applied to the
-#: incremental cohort alone -- because that is what `classification_applies_to`
-#: states, what `assert_resolution_specification` enforces, and what the
-#: maintainer directed. The full-season cohort gets its delta and interval with
-#: the NOT INDEPENDENT label, and no classification label at all.
-COHORT_CLASSIFICATION_CONFLICT: dict[str, Any] = {
-    "conflict": (
-        "The frozen specification says both `classification_applies_to = 'the "
-        "incremental cohort only'` and `cohorts.full_season."
-        "four_way_classification_applied = True`."
-    ),
+#: Amendment 2 resolved a contradiction this runner surfaced: the frozen
+#: specification said both `classification_applies_to = 'the incremental cohort
+#: only'` and `cohorts.full_season.four_way_classification_applied = True`.
+#: Kept as a historical record. The runner no longer hardcodes the resolution --
+#: it reads each cohort's flag from the frozen specification, and
+#: `assert_cohort_classification_is_consistent` refuses to proceed if the two
+#: fields ever disagree again.
+COHORT_CLASSIFICATION_HISTORY: dict[str, Any] = {
+    "was_a_contradiction": True,
+    "resolved_by": "resolution_spec amendment 2",
     "resolved_as": "the incremental cohort only",
-    "why": (
-        "It is the stricter reading, it is what `classification_applies_to` states, it "
-        "is what the freeze check enforces, and a classification label on a cohort that "
-        "may not decide the conclusion is exactly the thing a reader would misquote."
+    "amended_before_any_outcome_was_opened": True,
+    "runner_reads_the_flag_from_the_specification": True,
+    "full_season_receives": (
+        "a delta and a paired interval under the NOT INDEPENDENT label, and no classification label"
     ),
-    "full_season_receives": "delta, interval, and the NOT INDEPENDENT label -- no class",
-    "should_be_amended": True,
 }
+
+
+def assert_cohort_classification_is_consistent(spec: dict[str, Any]) -> dict[str, bool]:
+    """Read which cohorts may be classified, and refuse an inconsistent spec.
+
+    The classification may only be applied to the primary cohort. If
+    `classification_applies_to` and the per-cohort flags ever disagree again,
+    the pass stops rather than picking a reading at run time.
+
+    Raises:
+        ResolutionGateError: If the specification is internally inconsistent.
+    """
+    flags = {
+        name: bool(cohort["four_way_classification_applied"])
+        for name, cohort in spec["cohorts"].items()
+    }
+    classified = sorted(name for name, on in flags.items() if on)
+    if classified != [spec["primary_cohort"]]:
+        raise ResolutionGateError(
+            f"The frozen specification says the classification applies to "
+            f"{spec['classification_applies_to']!r}, but flags it for {classified}. "
+            "A cohort that may not decide the conclusion must not carry a "
+            "classification label."
+        )
+    for name, cohort in spec["cohorts"].items():
+        if flags[name] and not cohort["may_decide_the_conclusion"]:
+            raise ResolutionGateError(
+                f"Cohort {name!r} is flagged for classification but may not decide the conclusion."
+            )
+    return flags
 
 
 class ResolutionGateError(RuntimeError):
@@ -679,6 +703,8 @@ def run(
     # --- gates 1, 3, 4, 5: before a single outcome is read ----------------
     season = assert_season_has_ended(today=today)
     chain = verify_full_chain(research_dir=research_dir, resolution_dir=outputs_dir)
+    frozen_spec = json.loads((outputs_dir / "resolution_specification.json").read_text())
+    classification_flags = assert_cohort_classification_is_consistent(frozen_spec)
     sealed = load_sealed_predictions(horizon_key)
 
     # --- gates 2, 6: pin exactly one end-of-season snapshot ---------------
@@ -706,7 +732,8 @@ def run(
             "single_snapshot": True,
             "snapshot_refreshed_during_analysis": False,
         },
-        "cohort_classification_conflict": COHORT_CLASSIFICATION_CONFLICT,
+        "cohort_classification_history": COHORT_CLASSIFICATION_HISTORY,
+        "cohort_classification_flags": classification_flags,
         "predictions_regenerated": False,
         "first_look_results_modified": False,
         "deployed": False,
@@ -755,15 +782,15 @@ def run(
         "cutoff": sealed["cutoff"],
         "horizon": sealed["horizon"],
         "primary_cohort": "incremental",
-        "classification_applies_to": "the incremental cohort only",
-        "cohort_classification_conflict": COHORT_CLASSIFICATION_CONFLICT,
+        "classification_applies_to": frozen_spec["classification_applies_to"],
+        "cohort_classification_history": COHORT_CLASSIFICATION_HISTORY,
         "incremental": evaluate_cohort(
             cohorts["incremental"],
             cohort="incremental",
             cutoff=sealed["cutoff"],
             horizon=sealed["horizon"],
             design=design,
-            classify=True,
+            classify=classification_flags["incremental"],
         ),
         "full_season": evaluate_cohort(
             cohorts["full_season"],
@@ -771,7 +798,7 @@ def run(
             cutoff=sealed["cutoff"],
             horizon=sealed["horizon"],
             design=design,
-            classify=False,
+            classify=classification_flags["full_season"],
         ),
         "never_completed": {
             "cohort": "never_completed",

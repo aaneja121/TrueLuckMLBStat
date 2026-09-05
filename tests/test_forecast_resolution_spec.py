@@ -39,7 +39,8 @@ def base_key_results(**overrides: Any) -> dict[str, Any]:
         "gate_requirements": 7,
         "season_end_date": "2026-09-27",
         "season_end_verified": True,
-        "n_amendments": 1,
+        "cohorts_receiving_the_classification": ["incremental"],
+        "n_amendments": 2,
         "re_frozen_before_any_incremental_outcome": True,
         "amendment_cohort_outcomes_opened": [],
     }
@@ -374,3 +375,46 @@ def test_no_resolution_outcome_artifact_exists_yet() -> None:
     if not rs.RESOLUTION_OUTPUTS_DIR.exists():
         pytest.skip("resolution namespace has not been generated in this environment")
     assert not list(rs.RESOLUTION_OUTPUTS_DIR.glob("*.parquet"))
+
+
+# --------------------------------------------------------------------------
+# Amendment 2: the classification flags may never disagree again
+# --------------------------------------------------------------------------
+
+
+def test_only_the_primary_cohort_is_flagged_for_classification() -> None:
+    spec = rs.build_resolution_specification()
+    flagged = sorted(
+        name for name, c in spec["cohorts"].items() if c["four_way_classification_applied"]
+    )
+    assert flagged == [spec["primary_cohort"]] == ["incremental"]
+    assert spec["classification_applies_to"] == "the incremental cohort only"
+
+
+def test_the_pooled_cohort_gets_an_interval_instead_of_a_class() -> None:
+    full_season = rs.build_resolution_specification()["cohorts"]["full_season"]
+    assert full_season["four_way_classification_applied"] is False
+    assert "no classification label" in full_season["receives_instead"]
+
+
+def test_a_specification_that_classifies_a_non_deciding_cohort_is_refused() -> None:
+    with pytest.raises(rs.ResolutionSpecError, match="may never disagree"):
+        rs.assert_resolution_specification(
+            base_key_results(cohorts_receiving_the_classification=["full_season", "incremental"])
+        )
+
+
+def test_amendment_two_records_that_no_outcome_was_open() -> None:
+    amendment = rs.RESOLUTION_AMENDMENTS[1]
+    assert amendment["amendment"] == 2
+    assert amendment["re_freeze_occurred_before_any_incremental_cohort_outcome_was_opened"] is True
+    assert not any(amendment["cohort_outcomes_opened_at_amendment_time"].values())
+    assert amendment["resolved_toward"].startswith("the stricter reading")
+    assert amendment["content_otherwise_unchanged"] is True
+
+
+def test_amendment_two_chains_to_the_manifest_it_replaced() -> None:
+    assert (
+        rs.RESOLUTION_AMENDMENTS[1]["previous_freeze_manifest_sha256"]
+        == "52da1f6f33556e8cb9f05acd430aa12a8e1662118b4311316a41c5629aa0e91e"
+    )

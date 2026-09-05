@@ -212,7 +212,7 @@ def _render_survivorship(survivorship: dict[str, Any]) -> list[str]:
 
 def _render_provenance(authorization: dict[str, Any], metrics: dict[str, Any]) -> list[str]:
     provenance = metrics["provenance"]
-    conflict = metrics["cohort_classification_conflict"]
+    history = metrics["cohort_classification_history"]
     return [
         "## Provenance and separation",
         "",
@@ -226,9 +226,15 @@ def _render_provenance(authorization: dict[str, Any], metrics: dict[str, Any]) -
         "- Predictions regenerated: no. Refit on 2026: no. Hitters removed: none.",
         "- 2025 read: never. First-look results modified: no. Deployed: no.",
         "",
-        "### A recorded contradiction in the frozen specification",
+        "### Specification history",
         "",
-        f"{conflict['conflict']} This pass resolved it as **{conflict['resolved_as']}**: "
-        f"{conflict['why']}",
+        f"The frozen specification once flagged the full-season cohort for the four-way "
+        f"classification while also stating it applied to "
+        f"**{history['resolved_as']}**. That contradiction was resolved by "
+        f"{history['resolved_by']}, before any outcome was opened "
+        f"({history['amended_before_any_outcome_was_opened']}). This pass reads each "
+        f"cohort's flag from the frozen specification rather than deciding at run time.",
+        "",
+        f"The full-season cohort receives {history['full_season_receives']}.",
         "",
     ]

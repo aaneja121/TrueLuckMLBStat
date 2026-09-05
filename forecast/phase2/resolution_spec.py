@@ -46,6 +46,7 @@ shrinkage benchmarks remain fitted on 2022-2024 only, exactly as frozen.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from pathlib import Path
@@ -189,8 +190,17 @@ COHORTS: dict[str, dict[str, Any]] = {
             "is not an independent test of the same hypothesis. It is the most precise "
             "estimate of the effect and the least valid significance test of it."
         ),
-        "four_way_classification_applied": True,
+        # Corrected by amendment 2. This originally read True, contradicting
+        # `classification_applies_to`. A classification label on a cohort that
+        # may not decide the conclusion is precisely what a reader would quote
+        # as a result, so the cohort now receives a delta and an interval and
+        # no class at all.
+        "four_way_classification_applied": False,
         "may_decide_the_conclusion": False,
+        "receives_instead": (
+            "a delta_MAE and a paired interval under the NOT INDEPENDENT label, with no "
+            "classification label"
+        ),
         "independent_of_the_first_look": False,
         "mandatory_label": (
             "NOT INDEPENDENT -- contains windows already observed at the first look"
@@ -354,7 +364,18 @@ RESOLUTION_GATE: tuple[str, ...] = (
 
 
 def build_resolution_specification() -> dict[str, Any]:
-    """The complete end-of-season resolution specification, frozen before 2026 ends."""
+    """The complete end-of-season resolution specification, frozen before 2026 ends.
+
+    Returns a DEEP COPY. The specification is assembled from module-level
+    constants, and handing out references to them would let any caller that
+    edits the result -- a test probing a guard, a report renderer normalising a
+    field -- silently mutate the frozen constants for the rest of the process.
+    """
+    return copy.deepcopy(_build_resolution_specification())
+
+
+def _build_resolution_specification() -> dict[str, Any]:
+    """Assemble the specification from the frozen constants."""
     return {
         "spec_version": RESOLUTION_SPEC_VERSION,
         "status": "FROZEN before any end-of-season 2026 outcome was opened",
@@ -602,6 +623,54 @@ RESOLUTION_AMENDMENTS: tuple[dict[str, Any], ...] = (
             "the final 2026 regular-season resolution pass, after 2026-09-27; it is not run early"
         ),
     },
+    {
+        "amendment": 2,
+        "change": (
+            "Corrected cohorts.full_season.four_way_classification_applied from True to "
+            "False, and recorded what that cohort receives instead."
+        ),
+        "why": (
+            "The frozen specification contradicted itself: `classification_applies_to` "
+            "read 'the incremental cohort only' while the full-season cohort was marked "
+            "as receiving the four-way classification. Building the runner surfaced it. "
+            "A classification label on a cohort that may not decide the conclusion is "
+            "exactly what a reader would quote as a result, so the contradiction is "
+            "resolved toward the stricter reading rather than left to prose at "
+            "reporting time."
+        ),
+        "what_did_not_change": (
+            "the primary cohort, the deciding metric, the interval procedure, the "
+            "four-way rule itself, and the full-season cohort's "
+            "may_decide_the_conclusion flag, which was already False"
+        ),
+        "resolved_toward": "the stricter reading -- the incremental cohort only",
+        "invariant_added": (
+            "assert_resolution_specification now requires classification_applies_to and "
+            "the per-cohort four_way_classification_applied flags to agree, so the two "
+            "cannot drift apart again"
+        ),
+        "previous_freeze_manifest_sha256": (
+            "52da1f6f33556e8cb9f05acd430aa12a8e1662118b4311316a41c5629aa0e91e"
+        ),
+        "content_otherwise_unchanged": True,
+        "verified_by": (
+            "a leaf-by-leaf diff of the specification before and after: only the "
+            "full-season cohort's classification flag changed, plus the added "
+            "receives_instead note"
+        ),
+        "cohort_outcomes_opened_at_amendment_time": {
+            "incremental": False,
+            "full_season": False,
+            "h200_pending": False,
+            "h100_pending": False,
+        },
+        "re_freeze_occurred_before_any_incremental_cohort_outcome_was_opened": True,
+        "first_look_results_modified": False,
+        "evaluation_run_early": False,
+        "next_evaluation": (
+            "the final 2026 regular-season resolution pass, after 2026-09-27; it is not run early"
+        ),
+    },
 )
 
 
@@ -624,6 +693,11 @@ def extract_resolution_key_results(outputs_dir: Path) -> dict[str, Any]:
         "gate_requirements": len(spec["gate"]),
         "season_end_date": spec["season_end_verification"]["regular_season_end_date"],
         "season_end_verified": spec["season_end_verification"]["verified"],
+        "cohorts_receiving_the_classification": sorted(
+            name
+            for name, cohort in spec["cohorts"].items()
+            if cohort["four_way_classification_applied"]
+        ),
         "n_amendments": len(RESOLUTION_AMENDMENTS),
         "re_frozen_before_any_incremental_outcome": all(
             item["re_freeze_occurred_before_any_incremental_cohort_outcome_was_opened"]
@@ -679,6 +753,14 @@ def assert_resolution_specification(key_results: dict[str, Any]) -> None:
     if key_results["success_classification_keys"] != sorted(SUCCESS_CLASSIFICATION):
         raise ResolutionSpecError(
             "The four-way classification no longer matches the prespecified rule."
+        )
+    classified = key_results["cohorts_receiving_the_classification"]
+    if classified != [key_results["primary_cohort"]]:
+        raise ResolutionSpecError(
+            f"`classification_applies_to` is {key_results['classification_applies_to']!r} "
+            f"but the cohorts flagged as receiving it are {classified}. A cohort that may "
+            "not decide the conclusion must not carry a classification label, and these "
+            "two fields may never disagree."
         )
     if not key_results["season_end_verified"]:
         raise ResolutionSpecError(
