@@ -16,7 +16,8 @@
 	verify-forecast-r1-freeze run-forecast-ridge freeze-forecast-ridge \
 	verify-forecast-ridge-freeze run-forecast-hgb freeze-forecast-hgb \
 	verify-forecast-hgb-freeze verify-forecast-freezes run-forecast-phase2-2026 \
-	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports
+	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports \
+	freeze-forecast-resolution-spec
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -533,3 +534,13 @@ run-forecast-h200-2026:
 # an erratum carrying the original and corrected report hashes.
 regenerate-forecast-phase2-reports:
 	$(PY) -m forecast.phase2.regenerate_reports
+
+# Contact Forecast: freeze the END-OF-SEASON RESOLUTION PASS specification.
+# Prespecifies what may be done with the PENDING predictions the Phase 2
+# evaluations sealed, once the 2026 regular season is over. The pass is a
+# SECOND unadjusted look at 2026, so its primary cohort, deciding metric,
+# interval and classification are fixed here, before any end-of-season outcome
+# exists. Opens no outcome, fits nothing, reads no snapshot, never touches
+# 2025. Writes to outputs/forecast_phase2_resolution/.
+freeze-forecast-resolution-spec:
+	$(PY) -m forecast.phase2.resolution_spec

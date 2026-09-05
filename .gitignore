@@ -105,3 +105,6 @@ outputs/forecast_horizon_scope/
 
 # Contact Forecast Phase 2 H=200 specification namespace.
 outputs/forecast_phase2_h200/
+
+# Contact Forecast end-of-season 2026 resolution pass namespace.
+outputs/forecast_phase2_resolution/
