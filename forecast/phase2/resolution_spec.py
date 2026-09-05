@@ -51,6 +51,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from prospective.prospective_config import (
+    PROSPECTIVE_2026_SEASON_END_DATE,
+    PROSPECTIVE_2026_SEASON_END_SOURCE,
+    PROSPECTIVE_2026_SEASON_END_VERIFIED,
+    PROSPECTIVE_2026_SEASON_END_VERIFIED_AT,
+)
+
 from forecast.forecast_config import (
     DEFAULT_BOOTSTRAP_ALPHA,
     DEFAULT_BOOTSTRAP_REPS,
@@ -112,6 +119,29 @@ FROZEN_PREDICTION_LEDGERS: dict[str, dict[str, Any]] = {
         "n_completed_at_first_look": 128,
     },
 }
+
+#: The verified close of the season this pass resolves. Read from
+#: `prospective.prospective_config`, which records it by the same four-constant
+#: mechanism as the verified season START date -- the date, its source
+#: citation, when it was verified, and the verified flag. It is loaded here
+#: rather than restated so the specification cannot drift from the record.
+SEASON_END_VERIFICATION: dict[str, Any] = {
+    "season": 2026,
+    "regular_season_end_date": PROSPECTIVE_2026_SEASON_END_DATE.isoformat(),
+    "source": PROSPECTIVE_2026_SEASON_END_SOURCE,
+    "verified": PROSPECTIVE_2026_SEASON_END_VERIFIED,
+    "verified_at": PROSPECTIVE_2026_SEASON_END_VERIFIED_AT,
+    "recorded_by": (
+        "prospective.prospective_config.PROSPECTIVE_2026_SEASON_END_DATE, the same "
+        "mechanism that records PROSPECTIVE_2026_SEASON_START_DATE"
+    ),
+    "independently_fetched_by_tooling": False,
+    "gates": (
+        "the resolution pass may not open a single outcome before this date has "
+        "passed and a snapshot whose data-through date is on or after it exists"
+    ),
+}
+
 
 #: The one snapshot the pass may read, and the conditions it must satisfy.
 PINNED_SNAPSHOT_RULE: dict[str, Any] = {
@@ -305,8 +335,10 @@ NOT_AUTHORIZED: tuple[str, ...] = (
 
 #: Conditions that must ALL hold before the pass may open a single outcome.
 RESOLUTION_GATE: tuple[str, ...] = (
-    "the 2026 regular season has ended, and its final date is recorded and verified "
-    "the way the season START date was -- with a citation, not an assumption",
+    "the 2026 regular season has ended -- its final date is now recorded and "
+    "verified the way the season START date was, with a citation rather than an "
+    "assumption: see SEASON_END_VERIFICATION",
+    "the pinned snapshot's data-through date is on or after the verified regular-season end date",
     "this specification is frozen and verifies with zero drift",
     "the R1, ridge, HGB and h200_spec freezes verify with zero drift",
     "both frozen result manifests verify, and both pending ledgers re-hash to what they recorded",
@@ -341,6 +373,7 @@ def build_resolution_specification() -> dict[str, Any]:
             "resolved batted balls. The frozen prediction columns are carried through "
             "unchanged and are never recomputed."
         ),
+        "season_end_verification": SEASON_END_VERIFICATION,
         "pinned_snapshot": PINNED_SNAPSHOT_RULE,
         "cohorts": COHORTS,
         "cohort_disagreement_rule": COHORT_DISAGREEMENT_RULE,
@@ -442,6 +475,7 @@ def assert_no_resolution_outcome(specification: dict[str, Any]) -> None:
 RESOLUTION_ARTIFACTS: tuple[str, ...] = (
     "resolution_specification.json",
     "resolution_multiplicity_disclosure.json",
+    "resolution_amendment_record.json",
     "resolution_specification_report.md",
 )
 
@@ -529,6 +563,48 @@ RESOLUTION_LIMITATIONS: tuple[dict[str, str], ...] = (
 )
 
 
+#: The one anticipated amendment to the frozen specification: inserting the
+#: externally verified season end date the original gate REQUIRED rather than
+#: assumed. Recorded as an artifact so the re-freeze carries its own account of
+#: why it happened and what was true when it did.
+RESOLUTION_AMENDMENTS: tuple[dict[str, Any], ...] = (
+    {
+        "amendment": 1,
+        "change": (
+            "Inserted the externally verified 2026 regular-season end date "
+            "(2026-09-27) and the gate condition that the pinned snapshot's "
+            "data-through date fall on or after it."
+        ),
+        "why_this_was_not_a_specification_change": (
+            "The original freeze deliberately left the date absent and made recording "
+            "a verified one a GATE CONDITION. Supplying it is the step that gate "
+            "anticipated, not a revision of what is tested."
+        ),
+        "previous_freeze_manifest_sha256": (
+            "4e16f0ee987545e40983565353a381d98c5fd898b31d9e0b23bad7cbbc8b8d66"
+        ),
+        "content_otherwise_unchanged": True,
+        "verified_by": (
+            "a leaf-by-leaf diff of the specification before and after: nothing was "
+            "removed, and every value outside the new season_end_verification block "
+            "and the gate list is identical"
+        ),
+        "cohort_outcomes_opened_at_amendment_time": {
+            "incremental": False,
+            "full_season": False,
+            "h200_pending": False,
+            "h100_pending": False,
+        },
+        "re_freeze_occurred_before_any_incremental_cohort_outcome_was_opened": True,
+        "first_look_results_modified": False,
+        "evaluation_run_early": False,
+        "next_evaluation": (
+            "the final 2026 regular-season resolution pass, after 2026-09-27; it is not run early"
+        ),
+    },
+)
+
+
 def extract_resolution_key_results(outputs_dir: Path) -> dict[str, Any]:
     """The specification's own key facts, read back from its artifacts."""
     spec = json.loads((outputs_dir / "resolution_specification.json").read_text())
@@ -546,6 +622,21 @@ def extract_resolution_key_results(outputs_dir: Path) -> dict[str, Any]:
         "success_classification_keys": sorted(spec["success_classification"]),
         "n_frozen_ledgers": len(spec["frozen_prediction_ledgers"]),
         "gate_requirements": len(spec["gate"]),
+        "season_end_date": spec["season_end_verification"]["regular_season_end_date"],
+        "season_end_verified": spec["season_end_verification"]["verified"],
+        "n_amendments": len(RESOLUTION_AMENDMENTS),
+        "re_frozen_before_any_incremental_outcome": all(
+            item["re_freeze_occurred_before_any_incremental_cohort_outcome_was_opened"]
+            for item in RESOLUTION_AMENDMENTS
+        ),
+        "amendment_cohort_outcomes_opened": sorted(
+            {
+                cohort
+                for item in RESOLUTION_AMENDMENTS
+                for cohort, opened in item["cohort_outcomes_opened_at_amendment_time"].items()
+                if opened
+            }
+        ),
     }
 
 
@@ -589,6 +680,30 @@ def assert_resolution_specification(key_results: dict[str, Any]) -> None:
         raise ResolutionSpecError(
             "The four-way classification no longer matches the prespecified rule."
         )
+    if not key_results["season_end_verified"]:
+        raise ResolutionSpecError(
+            "The season end date is not marked verified. The pass may not open an "
+            "outcome against an assumed season boundary."
+        )
+    if key_results["season_end_date"] != PROSPECTIVE_2026_SEASON_END_DATE.isoformat():
+        raise ResolutionSpecError(
+            f"The frozen season end date {key_results['season_end_date']!r} no longer "
+            f"matches the recorded {PROSPECTIVE_2026_SEASON_END_DATE.isoformat()!r}. "
+            "The date, its citation and its verification date move together or not at "
+            "all."
+        )
+    if not key_results["re_frozen_before_any_incremental_outcome"]:
+        raise ResolutionSpecError(
+            "An amendment does not record that it was made before any incremental "
+            "cohort outcome was opened. A specification may not be amended after the "
+            "data it governs has been seen."
+        )
+    if key_results["amendment_cohort_outcomes_opened"]:
+        raise ResolutionSpecError(
+            f"Outcomes were already open for "
+            f"{key_results['amendment_cohort_outcomes_opened']} when the specification "
+            "was amended."
+        )
     if not key_results["is_a_second_look"]:
         raise ResolutionSpecError(
             "The specification no longer records the pass as a second look, which is "
@@ -625,6 +740,7 @@ def resolution_freeze_spec() -> Any:
 
 def render_specification_report(spec: dict[str, Any]) -> str:
     """The frozen specification as prose, written before the second look."""
+    verification = spec["season_end_verification"]
     lines: list[str] = [
         "# Contact Forecast -- end-of-season 2026 resolution pass (PRESPECIFIED)",
         "",
@@ -737,9 +853,19 @@ def render_specification_report(spec: dict[str, Any]) -> str:
     lines += [f"{i}. {item}" for i, item in enumerate(spec["gate"], start=1)]
     lines += [
         "",
-        "The 2026 season END date is deliberately not hardcoded here. The season START",
-        "date is recorded as VERIFIED with a citation; the end date has had no such",
-        "verification, and this specification requires one rather than assuming a date.",
+        "",
+        "## The verified season end date",
+        "",
+        f"- 2026 regular season ended: **{verification['regular_season_end_date']}**",
+        f"- Verified: **{verification['verified']}** (recorded {verification['verified_at']})",
+        f"- Source: {verification['source']}",
+        f"- Recorded by: `{verification['recorded_by']}`",
+        f"- Independently fetched by this repository's tooling: "
+        f"**{verification['independently_fetched_by_tooling']}**",
+        "",
+        "The original freeze deliberately left this date absent and required it as a",
+        "gate condition rather than assuming one. Inserting it is that anticipated",
+        "step, and nothing else in the specification changed with it.",
         "",
         "## Season discipline",
         "",
@@ -776,6 +902,14 @@ def run(
     )
     (outputs_dir / "resolution_multiplicity_disclosure.json").write_text(
         json.dumps(MULTIPLICITY_DISCLOSURE, indent=2, sort_keys=True, default=_json_default)
+    )
+    (outputs_dir / "resolution_amendment_record.json").write_text(
+        json.dumps(
+            {"amendments": list(RESOLUTION_AMENDMENTS)},
+            indent=2,
+            sort_keys=True,
+            default=_json_default,
+        )
     )
     (outputs_dir / "resolution_specification_report.md").write_text(
         render_specification_report(specification)

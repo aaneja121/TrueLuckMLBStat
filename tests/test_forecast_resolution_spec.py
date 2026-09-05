@@ -36,7 +36,12 @@ def base_key_results(**overrides: Any) -> dict[str, Any]:
         "secondary_may_reclassify": False,
         "success_classification_keys": sorted(SUCCESS_CLASSIFICATION),
         "n_frozen_ledgers": 2,
-        "gate_requirements": 6,
+        "gate_requirements": 7,
+        "season_end_date": "2026-09-27",
+        "season_end_verified": True,
+        "n_amendments": 1,
+        "re_frozen_before_any_incremental_outcome": True,
+        "amendment_cohort_outcomes_opened": [],
     }
     record.update(overrides)
     return record
@@ -272,3 +277,100 @@ def test_the_report_leads_with_the_second_look_warning() -> None:
     assert "No end-of-season outcome has been opened. Nothing below is a result." in report
     assert "second look" in report.lower()
     assert "may never be claimed" in report.lower()
+
+
+# --------------------------------------------------------------------------
+# The externally verified season end date
+# --------------------------------------------------------------------------
+
+
+def test_the_season_end_date_is_verified_and_loaded_not_restated() -> None:
+    from prospective.prospective_config import (
+        PROSPECTIVE_2026_SEASON_END_DATE,
+        PROSPECTIVE_2026_SEASON_END_SOURCE,
+        PROSPECTIVE_2026_SEASON_END_VERIFIED,
+    )
+
+    verification = rs.build_resolution_specification()["season_end_verification"]
+    assert verification["regular_season_end_date"] == PROSPECTIVE_2026_SEASON_END_DATE.isoformat()
+    assert verification["regular_season_end_date"] == "2026-09-27"
+    assert verification["verified"] is PROSPECTIVE_2026_SEASON_END_VERIFIED is True
+    assert verification["source"] == PROSPECTIVE_2026_SEASON_END_SOURCE
+    assert "MLB official 2026 schedule announcement" in verification["source"]
+
+
+def test_the_end_date_records_that_tooling_did_not_fetch_it() -> None:
+    """The same honesty the verified START date carries."""
+    verification = rs.build_resolution_specification()["season_end_verification"]
+    assert verification["independently_fetched_by_tooling"] is False
+    assert "maintainer-provided citation" in verification["source"]
+    assert verification["verified_at"]
+
+
+def test_the_end_date_uses_the_same_mechanism_as_the_start_date() -> None:
+    """Four parallel constants: date, source, verified-at, verified flag."""
+    from prospective import prospective_config as pc
+
+    for suffix in ("_DATE", "_SOURCE", "_VERIFIED_AT", "_VERIFIED"):
+        assert hasattr(pc, f"PROSPECTIVE_2026_SEASON_START{suffix}")
+        assert hasattr(pc, f"PROSPECTIVE_2026_SEASON_END{suffix}")
+    assert pc.PROSPECTIVE_2026_SEASON_END_DATE > pc.PROSPECTIVE_2026_SEASON_START_DATE
+
+
+def test_an_unverified_season_end_is_refused() -> None:
+    with pytest.raises(rs.ResolutionSpecError, match="not marked verified"):
+        rs.assert_resolution_specification(base_key_results(season_end_verified=False))
+
+
+def test_a_drifted_season_end_date_is_refused() -> None:
+    with pytest.raises(rs.ResolutionSpecError, match="no longer"):
+        rs.assert_resolution_specification(base_key_results(season_end_date="2026-10-05"))
+
+
+def test_the_gate_requires_the_snapshot_to_reach_the_verified_end_date() -> None:
+    gate = rs.build_resolution_specification()["gate"]
+    assert any("data-through date is on or after" in item for item in gate)
+
+
+# --------------------------------------------------------------------------
+# The amendment, and when it happened
+# --------------------------------------------------------------------------
+
+
+def test_the_amendment_records_that_no_outcome_was_open() -> None:
+    amendment = rs.RESOLUTION_AMENDMENTS[0]
+    assert amendment["re_freeze_occurred_before_any_incremental_cohort_outcome_was_opened"] is True
+    assert not any(amendment["cohort_outcomes_opened_at_amendment_time"].values())
+    assert amendment["content_otherwise_unchanged"] is True
+    assert amendment["first_look_results_modified"] is False
+    assert amendment["evaluation_run_early"] is False
+
+
+def test_the_amendment_chains_to_the_manifest_it_replaced() -> None:
+    amendment = rs.RESOLUTION_AMENDMENTS[0]
+    assert len(amendment["previous_freeze_manifest_sha256"]) == 64
+    assert "GATE CONDITION" in amendment["why_this_was_not_a_specification_change"]
+
+
+def test_amending_after_an_outcome_was_opened_is_refused() -> None:
+    with pytest.raises(rs.ResolutionSpecError, match="before any incremental"):
+        rs.assert_resolution_specification(
+            base_key_results(re_frozen_before_any_incremental_outcome=False)
+        )
+    with pytest.raises(rs.ResolutionSpecError, match="already open"):
+        rs.assert_resolution_specification(
+            base_key_results(amendment_cohort_outcomes_opened=["incremental"])
+        )
+
+
+def test_the_next_evaluation_is_not_run_early() -> None:
+    amendment = rs.RESOLUTION_AMENDMENTS[0]
+    assert "after 2026-09-27" in amendment["next_evaluation"]
+    assert "not run early" in amendment["next_evaluation"]
+
+
+def test_no_resolution_outcome_artifact_exists_yet() -> None:
+    """The amendment must not have opened anything."""
+    if not rs.RESOLUTION_OUTPUTS_DIR.exists():
+        pytest.skip("resolution namespace has not been generated in this environment")
+    assert not list(rs.RESOLUTION_OUTPUTS_DIR.glob("*.parquet"))

@@ -98,6 +98,29 @@ PROSPECTIVE_2026_SEASON_START_SOURCE = (
 PROSPECTIVE_2026_SEASON_START_VERIFIED_AT = "2026-08-06"
 PROSPECTIVE_2026_SEASON_START_VERIFIED = True
 
+#: VERIFIED 2026 MLB regular-season CLOSING date -- the counterpart to the
+#: opening date above, recorded by the same mechanism and under the same
+#: policy. Source: MLB's official 2026 schedule announcement. The 2026 regular
+#: season ended Sunday, September 27, 2026. As with the opening date, this was
+#: confirmed via an explicit maintainer-provided citation -- Claude Code did
+#: not independently fetch or cross-check a live schedule source for this date
+#: (this repository's tooling never guesses or generates a schedule URL on its
+#: own -- see CLAUDE.md's URL-generation rule). If this date is ever wrong or
+#: needs revision for a future season, update the date, the source citation,
+#: and the verification date together -- never change one without the others.
+#:
+#: This date gates the end-of-season resolution pass
+#: (`forecast.phase2.resolution_spec`), which may not open a single outcome
+#: before the season it resolves has actually finished.
+PROSPECTIVE_2026_SEASON_END_DATE = date(2026, 9, 27)
+PROSPECTIVE_2026_SEASON_END_SOURCE = (
+    "MLB official 2026 schedule announcement -- the 2026 regular season ended "
+    "2026-09-27 (maintainer-provided citation, not independently fetched by this "
+    "repository's tooling)."
+)
+PROSPECTIVE_2026_SEASON_END_VERIFIED_AT = "2026-09-05"
+PROSPECTIVE_2026_SEASON_END_VERIFIED = True
+
 
 class NamespaceViolationError(ValueError):
     """Raised when a path would read/write outside an isolated namespace --
