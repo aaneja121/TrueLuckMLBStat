@@ -1674,6 +1674,23 @@ td.evidence {
     font-weight: 600;
     line-height: 1.3;
   }
+  /* Touch target. The name is the row's primary action, and at 16px/1.3 its
+     box is ~21px tall -- half the 44x44 `docs/design/accessibility.md` rule 9
+     requires of anything tapped. The hit area is extended with a
+     pseudo-element rather than padding so the row keeps the height the rule
+     above deliberately protects: padding would add ~23px to each of 164 rows,
+     roughly 3,800px of page. The band is anchored to `.player-identity`, so
+     the portrait becomes part of the target too, and nothing else inside the
+     row is interactive for it to capture. */
+  .leaderboard .player-identity { position: relative; }
+  .leaderboard .player-link::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 50%;
+    height: 44px;
+    transform: translateY(-50%);
+  }
 
   .leaderboard td.verdict { grid-area: verdict; }
   .verdict-inner {
