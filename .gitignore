@@ -83,3 +83,28 @@ outputs/explorer_build/*
 # untracked-but-not-ignored path as a dirty tree and HARD-BLOCKS every real
 # snapshot run, so a leftover scratch dir stops production scoring.
 .playwright-mcp/
+
+# Contact Forecast research layer (forecast/). Derived walk-forward play
+# ledgers and every result artifact the study writes. Research outputs, not
+# canonical scoring artifacts -- and gitignored for the same reason as the
+# prospective namespace above: a prior run's own output must never dirty the
+# working tree and block a later production snapshot.
+data/forecast/*
+!data/forecast/.gitkeep
+outputs/forecast_research/*
+!outputs/forecast_research/.gitkeep
+
+# Contact Forecast Phase 2 (forecast/phase2/): the held-out 2026 evaluation's
+# artifacts. Research outputs, gitignored for the same reason as the
+# development namespace above -- a prior run's own output must never dirty the
+# working tree and block a later production snapshot.
+outputs/forecast_phase2/
+
+# Contact Forecast horizon scoping study (exploratory, development-only).
+outputs/forecast_horizon_scope/
+
+# Contact Forecast Phase 2 H=200 specification namespace.
+outputs/forecast_phase2_h200/
+
+# Contact Forecast end-of-season 2026 resolution pass namespace.
+outputs/forecast_phase2_resolution/
