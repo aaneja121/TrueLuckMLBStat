@@ -2155,6 +2155,199 @@ guards, 2025 never read):
   -- per the task's explicit instruction, the review tables above are development
   diagnostics only.
 
+## Pitching Contact Luck (Version 0.13, research spike)
+
+Freezes Versions 0.2-0.12 completely. **This version trains nothing, predicts nothing,
+and redefines nothing.** Contact Luck is `observed run value - expected run value` on a
+batted ball, and that quantity is a property of the contact, not of the batter -- so the
+pitcher-side metric needs no new model. It re-groups the frozen play-level attribution
+ledger by `pitcher` instead of `batter` and flips the sign.
+
+Status: **provisional research spike.** It produces a 2024 development table and the
+findings below. It is not wired into Version 1.1 prospective scoring, the public-score
+schema, or the dashboard, and no public-facing language for it exists in
+`public_labels`.
+
+### Why no new model was needed
+
+`SeasonAggregationArtifacts` (`mlb_luck_score.scoring.run_season_aggregation`) already
+exposes `scoring_df`/`ledger`/`confidence`, explicitly so a second re-aggregation can be
+built "from the SAME scored plays without retraining a second copy of the four component
+models" -- `mlb_luck_score.models.evaluate_aggregation_stability` was the first consumer
+of that contract, and `run_pitching_contact_luck` is the second. `pitcher` was already
+carried through `clean_batted_balls` and `build_contact_features` as an ID column (never
+a model feature), and both aggregation entry points were already parameterized by their
+grouping key (`aggregate_to_batter_season(..., batter_column=...)`,
+`bootstrap_batter_season_intervals(..., batter_column=...)`).
+
+Verified on real 2021-2024 data: `pitcher` is non-null on all 494,173 rows, covering
+1,567 distinct pitchers across 3,494 pitcher-seasons.
+
+A useful accident: raw Statcast's `player_name` column is the PITCHER's name (see
+"`batter_name` is not populated"), so pitcher names resolve locally with no API join --
+61 of 61 qualified 2024 pitchers named, against `batter_name` being permanently null.
+
+### Sign convention
+
+`DEFAULT_RUN_VALUE_MAP` is stated from the batter's perspective: a home run is positive,
+an out is negative. The same batted ball means the opposite for the pitcher who allowed
+it, so
+
+    pitching_contact_luck = -1 x batting_contact_luck
+
+Positive pitching Contact Luck means outcomes more favorable to the PITCHER than the
+contact predicted -- the same sentence the batter metric makes about the batter. The flip
+is applied once, to a named list (`SIGNED_VALUE_COLUMNS`), and never inside a component
+computation, so the season accounting identity survives it: if `a+b+c+d = T` then
+`-a-b-c-d = -T`. Verified on the real 2024 table: max absolute reconstruction error
+1.0e-10 across all 61 qualified rows.
+
+Two failure modes this design avoids, both caught by tests written before the code:
+
+- **Negating the total without its components** leaves the four-way decomposition summing
+  to the exact negative of its own headline number. No existing identity check covers a
+  new code path, so this would have been silent.
+- **Negating an interval in place.** `[lo, hi]` negated is `[-hi, -lo]`, not `[-lo, -hi]`.
+  Negating both endpoints where they sit leaves every interval reading `low > high`.
+
+### Why the batter qualification thresholds cannot be reused
+
+`QUALIFICATION_THRESHOLD_SETS["primary"]` requires >=200 eligible BBE **and >=100 games**,
+mirroring a batting-title convention. Measured on real 2021-2024 data: **0 of 3,494
+pitcher-seasons reach 100 games** (max 80, median 19). Reused unchanged it disqualifies
+every pitcher who has ever thrown a pitch, including a 674-BBE workhorse starter.
+
+### How `pitcher_primary` was derived (exposure only, fixed before any luck value)
+
+The batter set mirrors MLB's batting-title rule; the pitcher analogue is the ERA-title
+rule (1 IP per team game, 162 IP), which qualifies roughly 40-60 pitchers a season.
+Innings pitched **cannot** be reconstructed from this project's batted-ball-only table
+(strikeouts and walks are not rows), so the bar is set on the project's own unit at the
+value whose qualifying COUNT matches what MLB's rule admits:
+
+| BBE bar | 2021 | 2022 | 2023 | 2024 | mean/season |
+|---|---|---|---|---|---|
+| 400 | 70 | 82 | 76 | 85 | 78.2 -- looser than the ERA title |
+| **450** | 41 | 51 | 57 | 62 | **52.8 -- matches it** |
+| 500 | 25 | 34 | 31 | 32 | 30.5 -- stricter than it |
+
+`pitcher_primary` = 450 eligible BBE, 15 games. `pitcher_inclusive` = 300 BBE, 10 games,
+as a sensitivity cut. Component-quality thresholds are inherited unchanged from the
+batter set: they describe how well the four component models covered a set of plays,
+which is a property of the plays, not of who threw them. `min_games` is a low guard well
+under the 27-game 10th percentile of the >=450 BBE population -- it never binds for the
+intended population and exists only to reject a pathological row.
+
+**Only exposure was examined to set these** -- eligible batted balls and games, never a
+luck value, rank, or leaderboard shape, per CLAUDE.md's rule against tuning a threshold
+to what a result looks like. The counts above were computed before the first pitcher
+Contact Luck value was produced.
+
+### This is a starting-pitcher metric
+
+No reliever reaches a starter-scale bar. Across 2021-2024 the highest-volume
+pitcher-season with >=50 appearances faced **311** eligible batted balls, and 309 of the
+313 pitcher-seasons at >=400 BBE came in <=35 games. The 2024 qualified population is 61
+pitchers at 456-610 BBE and 28-35 games.
+
+Relievers are excluded **by exposure, not by choice**, and that must be stated wherever
+this metric is shown rather than left as a silent filter. A reliever-scale threshold set
+is deliberately deferred rather than guessed: a per-100 rate over ~160 batted balls is a
+materially different precision claim, and picking a bar that admits relievers would mean
+choosing one without the external anchor the ERA-title rule provides here.
+
+### Every run self-checks against the frozen batter pipeline
+
+`verify_batter_side_reproduction` re-runs the pitcher code path on the `batter` key,
+undoes the sign flip, and compares every component total against
+`aggregate_to_batter_season`'s own output on identical inputs. On the real 2024 data it
+reports `max_abs_difference: 0.0` across all 647 batter-seasons -- exact, not merely
+within tolerance -- which is the evidence that re-grouping introduces no arithmetic of
+its own.
+
+`pitcher_values_trustworthy` in the report is gated on this check, and the CLI exits
+non-zero when it fails. A failed self-check invalidates the run rather than appearing as
+a footnote under an otherwise healthy-looking summary.
+
+### 2024 results (development validation season)
+
+854 pitcher-seasons; 61 qualified under `pitcher_primary`. Runs per 100 eligible BBE
+among qualified: mean +0.54, sd 1.82, range -2.60 to +4.16. Zero intervals read
+backwards; zero nulls; max absolute identity error 1.0e-10. Five of 61 intervals sit entirely above
+zero and none entirely below.
+
+### Finding: zero is not the neutral point of a qualified board
+
+Qualified pitchers average **+0.54** runs/100, not ~0. This is a **selection effect, not
+a modelling defect**: clearing a starter-scale exposure bar requires having kept a
+rotation spot all season, and favorable realized outcomes are part of why a pitcher keeps
+one.
+
+The control is that the same conditioning moves the BATTER mean the same direction on the
+same plays, so this is a property of qualification rather than of the pitcher side:
+
+| population | all rows | qualified only |
+|---|---|---|
+| pitchers | -0.520 (n=854) | **+0.544** (n=61) |
+| batters | -1.033 (n=647) | **-0.138** (n=216) |
+
+`corr(exposure, luck per 100)` is positive on both sides (+0.080 pitchers, +0.164
+batters). The 5-above-zero / 0-below-zero interval split is consistent with the whole
+distribution being shifted, not with pitchers having a skill at contact luck.
+
+`qualified_population_reference` in the report records this explicitly --
+`mean_runs_per_100`, `median_runs_per_100`, `sd_runs_per_100`, computed on qualified rows
+only, so a reader is never left inferring that zero is the neutral point of the board in
+front of them. **The score is never recentred** (`score_is_recentered` is always False):
+subtracting the reference would redefine Contact Luck, break comparability with every
+batter number, and turn a descriptive fact into a different metric. It is context
+recorded alongside the score, exactly as the confidence report is descriptive and never
+dampens it.
+
+Any future user-facing pitcher surface must carry this. A leaderboard that implies zero
+is average would misrepresent every row on it.
+
+### Finding: the contact/residual split is not a pitcher artifact
+
+Component means among qualified pitchers looked alarming in isolation -- contact -1.591,
+unexplained residual +1.983, nearly cancelling. Running the batter side on the same plays
+gives the near mirror image (contact +1.681, residual -2.038). This is a pre-existing
+property of the Version 0.10 decomposition on a qualified population, not something the
+pitcher path introduced, and it is recorded here so it is not rediscovered as a
+pitcher-side bug.
+
+### What Version 0.13 does NOT do
+
+- No prospective (2026) pitcher scoring, no snapshot integration, no dashboard surface,
+  and no `public_labels` entry. `BANNED_PHRASES` already forbids "defense-independent",
+  which is the phrase this metric sits nearest to and must not adopt.
+- **The `defensive_execution_component` is KEPT in the pitcher total.** It is the defense
+  playing behind that pitcher, which he does not control. Excluding it would produce a
+  different quantity this project has not defined or validated, and would make the
+  pitcher metric non-comparable with the batter metric.
+- No reliever threshold set, no role (SP/RP) split, and no per-pitcher name overlay
+  beyond the raw `player_name` column used for local review.
+- No claim that any pitcher's value reflects talent, or that it will persist. Contact
+  Luck is retrospective on both sides.
+
+### Files
+
+| Module | Role |
+|---|---|
+| `mlb_luck_score.scoring.pitching_contact_luck` | Sign convention, interval swap, pitcher threshold sets, season table, self-check, report |
+| `mlb_luck_score.scoring.run_pitching_contact_luck` | CLI. Calls `build_player_season_report` unchanged, then re-aggregates its exposed artifacts |
+| `tests/test_pitching_contact_luck.py` | 9 tests |
+
+```bash
+.venv/bin/python -m mlb_luck_score.scoring.run_pitching_contact_luck
+```
+
+Writes `outputs/tables/pitcher_season_pitching_contact_luck_v013.json` and
+`pitching_contact_luck_v013_report.json`. 2025 protection is inherited from
+`build_player_season_report` (which calls `assert_seasons_allowed` and independently
+re-checks every season present in the input); this script exposes no flag that could
+reach a final-test season.
+
 ## Version 1.1: prospective 2026 scoring
 
 Version 1.0 (`evaluation/run_v1_final_evaluation.py`) is the sealed, one-time final
@@ -2862,6 +3055,16 @@ than `available_near_wall_calibrated`.
   `mlb_luck_score.scoring.aggregation` -- but no minimum-eligible-events threshold is
   defined yet)
 - Rare-play rule expansion (the eligible-event list is a v0.1 starting point, not final)
+- A reliever-scale pitcher qualification threshold set, and a role (SP/RP) split, for
+  Pitching Contact Luck (Version 0.13) -- deferred rather than guessed, because a
+  per-100 rate over ~160 batted balls is a different precision claim and no external
+  anchor comparable to the ERA-title rule was identified for relievers
+- Whether the qualified-population selection effect documented in Version 0.13 ("zero is
+  not the neutral point of a qualified board") warrants a reported reference point on the
+  BATTER side too -- it is present there as well (-1.033 all rows -> -0.138 qualified),
+  and is currently recorded only in the pitcher report
+- Prospective (2026) pitcher scoring, a pitcher public-score contract, and pitcher
+  `public_labels` copy -- none exist; Version 0.13 is a development-season spike only
 
 ---
 

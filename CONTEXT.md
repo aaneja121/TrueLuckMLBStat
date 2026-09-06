@@ -28,6 +28,18 @@ was worth, from the contact's own physical characteristics.
 **Run value** — Runs above/below average credited to an outcome, from a fixed run-value
 table (`DEFAULT_RUN_VALUE_MAP`). Not recomputed anywhere in the dashboard.
 
+**Pitching Contact Luck** — The same quantity re-grouped by the pitcher who allowed the
+batted ball, with the sign flipped: `pitching_contact_luck = −1 × batting_contact_luck`.
+Positive = outcomes more favorable to the **pitcher** than the contact predicted. Trains
+no new model — it re-aggregates the same frozen ledger. **Research only (Version 0.13):
+not scored for 2026, not in the public-score schema, and nothing under `dashboard/`
+displays it.** See README "Pitching Contact Luck (Version 0.13, research spike)".
+
+**Starter-only scope** — Pitching Contact Luck's `pitcher_primary`
+threshold set (≥450 eligible BBE) describes **starting pitchers**. No reliever-season in
+2021–2024 reached it (highest with ≥50 appearances: 311 BBE). Relievers are excluded by
+exposure, not by choice, and any surface showing this metric must say so.
+
 ## Baseball / data terms
 
 **Batted ball / ball in play** — A pitch put in fair play. Strikeouts, walks, HBP and
@@ -59,6 +71,11 @@ contact measurements here.
 **`batter_id`** — MLBAM player id. The stable key for player pages, player JSON shards,
 and headshot lookups.
 
+**`pitcher`** — MLBAM player id of the pitcher who allowed the batted ball. Carried
+through cleaning and feature-building as an identifier and **never a model feature**.
+Unlike `batter_name`, pitcher names need no join: raw Statcast's `player_name` column is
+the *pitcher's* name.
+
 **`play_id`** — `<game_pk>-<at_bat_number>-<pitch_number>`. Stable per-play identity; the
 play page derives `game_pk` from it rather than needing an index.
 
@@ -80,7 +97,18 @@ to suppress, fade, or de-emphasize a row.
 **Qualification** (`qualification_status`) — `qualified` vs. `small_sample` etc., from the
 `"primary"` threshold set (≥200 eligible BBE, ≥100 games, plus component-coverage,
 provisional-share, and missing-input limits). Only `qualified` rows carry an official
-rank; non-qualified players keep their own page.
+rank; non-qualified players keep their own page. Pitching Contact Luck uses its own
+sets (`pitcher_primary`, `pitcher_inclusive`) because the batter set's ≥100-games bar
+disqualifies every pitcher who has ever thrown a pitch.
+
+**Qualified-population reference point** (`qualified_population_reference`) — The mean
+score among *qualified* players. **Zero is not the neutral point of a qualified board:**
+zero means a batted ball matched its expectation, not that a player matched his peers.
+Clearing an exposure bar selects for favorable realized outcomes, which shifts the
+qualified mean off zero (2024 pitchers: +0.54 runs/100; the same conditioning shifts the
+batter mean too). Recorded alongside the score for reading a row in context — **the score
+is never recentred by it** (`score_is_recentered` is always `False`). Currently reported
+on the pitcher side only.
 
 **Official rank** — Competition ranking (`method="min"`: ties share a rank, the next
 distinct value skips ahead) on `contact_luck_runs_per_100` alone. Interval endpoints
