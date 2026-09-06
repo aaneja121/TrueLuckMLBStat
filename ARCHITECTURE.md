@@ -89,7 +89,7 @@ so it can be rebuilt with uncommitted docs present.
 `scripts/publish_snapshot.sh`; no snapshot generation, no archive, no deploy, no network):
 
 ```bash
-SNAP=2026-08-14   # newest local snapshot
+SNAP=2026-09-01   # newest local snapshot
 .venv/bin/python scripts/generate_production_explorer_artifacts.py \
     --data-through "$SNAP" \
     --output-dir "outputs/explorer_build/$SNAP" \
@@ -107,7 +107,10 @@ flag only when you actually need that module, and say so first.
 development fixture data, fine for structural work, not representative of production scale.
 A bare `build.py` with no flag builds the Play Explorer **disabled**.
 
-Local snapshots are present through **2026-08-14**.
+Local snapshots run from **2026-08-05** through **2026-09-01** — 27 dated snapshots
+under `artifacts/prospective/v1_1/`, plus a `2026-08-08__refreshed` variant beside the
+2026-08-08 one. 2026-08-07 is absent by design and shows on `/status/` as a gap row, so
+the set is 27 snapshots over 28 dates.
 
 ### Check on Explore after a production build
 
@@ -166,7 +169,7 @@ in the templates. **Do not change scoring or renderer behaviour to make either g
 
 ### Check on the supporting routes after a production build (Phase 7)
 
-3. **The snapshot history at real length.** The local set is 10 snapshots. Confirm the
+3. **The snapshot history at real length.** The local set is 27 snapshots. Confirm the
    record list stays readable at production length, and that the `is-current` marker still
    lands on exactly one row.
 4. **Snapshot-type coverage.** No `retrospective_backfill` and no

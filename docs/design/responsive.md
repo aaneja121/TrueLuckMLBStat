@@ -14,7 +14,7 @@ inside them — see § Content-driven component breakpoints.
 | Element | Desktop | Laptop | Narrow | Mobile |
 |---|---|---|---|---|
 | **Navigation** (application header — **switches at 1100, not 1024**; see below) | Inline row, search inline | Inline row, search inline — field narrows, zone rules tighten, field label goes visually hidden | Identity + provenance / routes in one row / full-width search, as three ruled lines | Disclosure menu, 44 px targets, search as a full-screen sheet. **Never a two-row wrap.** |
-| **Leaderboard** | 6 columns, merged verdict cell | Evidence tier merges to one sample cell | Three-line ruled row; spine segmented (`docs/design/tables.md`) | Three-line ruled row; axis rail and distribution strip drop below 768 |
+| **Leaderboard** (**switches at 768 and 1280, not 640/1024**; see below) | 6 columns, merged verdict cell, 40 px rows | **Compact**: same table, 45 px rows, 44 px name target — desktop columns, touch-sized rows | **Compact** down to 768: same table, 45 px rows, 44 px name target; Evidence tier merges to one sample cell and the interval numerals go visually hidden | Below 768 only: three-line ruled row; spine segmented (`docs/design/tables.md`); axis rail and distribution strip drop |
 | **Tables (general)** | `min-width` contract + visible scroll affordance | same | same | Re-authored form, not a squeeze |
 | **Player header** | 8/4 split; score and interval share a baseline | same | Stacked; interval stays attached to the score | same |
 | **Charts** | Full figure | Full figure | Re-authored viewBox | Simplified form (sparkline + endpoints) |
@@ -32,7 +32,10 @@ data rather than engineering around it*) applied.
 Verification: `tests/test_dashboard_responsive_overflow.py` is the test most likely to be
 tripped by work in this file (`ARCHITECTURE.md` § Tests & tooling). Rendered checks run at
 ~1440, ~1280 and ~390 via the global Playwright MCP. A component claiming a content-driven
-breakpoint is checked at the boundary itself as well — for the header, at 1099 and 1100.
+breakpoint is checked at the boundary itself as well — for the header, at 1099 and 1100;
+for the leaderboard row, at 767/768 and 1279/1280. Target sizes are checked by hit-testing
+`document.elementFromPoint` across the target, not by reading the box off the source: an
+overlay can report 44 px and still belong to the row above.
 
 ---
 
@@ -60,8 +63,9 @@ Three rules govern this, and the third is the one that keeps the system from dis
 | Component | Breakpoint | Tier it departs from | Measured reason |
 |---|---|---|---|
 | **Application header** (`.site-header-inner`) | **1100** | Laptop/narrow boundary at 1024 | The five route labels measure **493 px** together at their normal size. Alongside the wordmark, the search field and the "Data through" provenance, the one-row contract overran a 1024 viewport by **13 px** — and that was *after* narrowing the field to 140 px, tightening the zone rules to 16 px and hiding the field's visible label. The routes are the one thing in the header that must not shrink, so the row structure changes instead. Verified: 0 overflow across 8 routes × 10 widths × 2 themes. |
+| **Leaderboard row** (`.leaderboard tbody tr`) | **768** and **1280** | Narrow boundary at 640; laptop/desktop boundary at 1024 | `docs/design/accessibility.md` rule 9 requires 44 × 44 of anything tapped, and the player name is the row's primary action. In the table layout the name's box measured **21 px** — under half. The stacked row below 768 can carry a 44 px hit band inside its 111 px row, but the table row is **40 px**, where a 44 px overlay would hang ~2 px into the rows either side and could take a neighbouring hitter's tap. So the table row itself grows to **45 px** — the target plus its own rule, 1 px over the 44 px ceiling in `docs/design/tables.md` — from 768 up to **1279**, because a landscape tablet reports 1024–1279 and is still a touch device. Density resumes untouched at 1280. Cost: **+820 px** of page (164 × 5) at every width in the range, 0 above it. Verified: 44 px target and 45 px row at 768/800/900/1023/1024/1100/1180/1279, 40 px/21 px at 1280 and 1440, mobile band unchanged at 390/767; 1,260 hit-test probes with 0 captured by a neighbouring link and 0 targets escaping their row. |
 
-The header is the only component with a content-driven breakpoint today. Adding a second
+These two are the only components with content-driven breakpoints today. Adding a third
 means adding a row to that table, with its own measurement.
 
 ---

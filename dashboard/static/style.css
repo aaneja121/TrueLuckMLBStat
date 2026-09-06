@@ -1476,7 +1476,21 @@ td.evidence {
   :root {
     /* 11rem of name + the same 2.625rem of portrait. */
     --lb-player: 13.625rem;
-    --lb-evidence: 11rem;
+    /* 13rem, not 11rem. The evidence string is one nowrap run --
+       `375 BBE · 136 G · +27.6 runs` -- and it MEASURES 198px here, so an
+       11rem (176px) track clipped the last glyphs of `runs` on all 164
+       rows at every width from 768 to 1023, and pushed 22px of silent
+       scroll into `.leaderboard-scroll` (`docs/design/tables.md` rule 3:
+       a table that scrolls owes an affordance; this one scrolled without
+       one). The track is widened to fit rather than the string shortened:
+       shedding is ranked and declared, and Evidence has not reached the
+       point where it sheds. 13rem is 208px, so the measured worst case
+       clears by 10px -- a 12.5rem track fits today's string with 2px to
+       spare, which one metric change or one three-digit runs value would
+       spend. The 32px comes out of the verdict field, which is the
+       elastic `1fr` track; zero stays at the same fraction of it, so the
+       shared domain is untouched. */
+    --lb-evidence: 13rem;
     --lb-interval-col: 0px;
   }
   .verdict-interval {
@@ -1488,6 +1502,54 @@ td.evidence {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+}
+
+/* ── Compact touch target: the row grows, it does not overlap ────────────
+   768-1279 keeps the table layout, and there the player name's box is
+   21px tall -- less than half the 44x44 `docs/design/accessibility.md`
+   rule 9 requires of anything tapped. The stacked layout below solves
+   this with a pseudo-element band, which is only safe because its row is
+   111px tall. Here the row is 40px, so a 44px band would hang ~2px into
+   the rows above and below and could take a tap meant for a neighbouring
+   hitter. The row grows instead; overlapping hit areas are not an option
+   in a table this dense.
+
+   It grows by 5px, not 13, because the link's `min-height` REPLACES the
+   cell's vertical padding rather than adding to it: the row is exactly
+   the target plus its own rule, 45px against the 44px density ceiling in
+   `docs/design/tables.md`. The target is bounded by that rule top and
+   bottom, so no coordinate inside it belongs to another hitter, and it
+   spans the name cell's width so a short name gets the same box as a
+   long one.
+
+   The range runs to 1279, not 1023, because a landscape tablet reports
+   1024-1279 and is still a touch device: the four tiers in
+   `docs/design/responsive.md` are a guess about width, and rule 9 is a
+   fact about fingers. 1280 is where desktop density resumes untouched. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  table.leaderboard tbody td { padding-block: 0; }
+  .leaderboard .player-link {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-height: var(--target-min);
+  }
+
+  /* The ring turns INWARD here, and only here. The tokens are unchanged --
+     same 2px amber, same 2px separator, same colours -- but a 44px target
+     in a 45px row leaves 0.5px of slack, so the shipped outward geometry
+     (2px offset + 2px outline + 4px page-coloured shadow) put 3.5px of
+     ring through the row rules above and below. Negative offset draws the
+     same ring in the outermost 2px of the target instead, and the shadow
+     becomes `inset` so the contrasting separator stays on the outside of
+     the amber where it does its job. Nothing is dimmed, thinned or
+     removed: the indicator is the same two bands, fully visible, wholly
+     inside the row it belongs to. */
+  .leaderboard .player-link:focus-visible {
+    outline-offset: calc(-1 * var(--focus-ring-width));
+    box-shadow: inset 0 0 0
+      calc(var(--focus-ring-offset) + var(--focus-ring-width)) var(--page);
   }
 }
 
