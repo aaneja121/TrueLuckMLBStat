@@ -56,6 +56,7 @@ import content as c
 import demo_content as dc
 import demo_counterfactual_content as dcc
 import explore_content as ec
+import pitcher_prototype_content as ppc
 import snapshot_data as sd
 import visuals as v
 from dashboard_config import (
@@ -846,6 +847,318 @@ class BuildResult:
     out_dir: Path
 
 
+
+# ══ Version 0.13.1 LOCAL PROTOTYPE · pitcher views ═══════════════════════
+#
+# Every function below is a PROJECTION of already-scored fixture values into
+# layout percentages and display strings. Nothing here computes a score, a
+# rank, an interval or a probability: `board_rank` is a position in a list
+# the fixture's own cumulative totals already ordered, and a percentage is a
+# layout coordinate (the same argument `cl_zero_fraction_css` carries).
+
+#: The board's ordering quantity, named once. Every label on the surface
+#: that says what is being ranked reads from here, so no template can
+#: describe the board as ranking something it does not.
+PITCHER_RANKED_QUANTITY_LABEL = "Cumulative Contact Luck allowed, runs"
+
+_PITCHER_BOARD_DEFINITIONS: dict[str, str] = {
+    "starter_like": (
+        "Observed usage of at least 10 resolved batted balls per appearance. A description "
+        "of how these pitchers were used this season, not a roster role."
+    ),
+    "reliever_like": (
+        "Observed usage of 8 or fewer resolved batted balls per appearance. A description "
+        "of how these pitchers were used this season, not a roster role — no pitcher here "
+        "is identified as a closer."
+    ),
+}
+
+_BB_TYPE_LABELS: dict[str, str] = {
+    "fly_ball": "fly ball",
+    "line_drive": "line drive",
+    "ground_ball": "ground ball",
+    "popup": "popup",
+}
+
+#: Outcome names in plain words. These restate `mlb_luck_score.eligibility`'s
+#: own outcome classes for a reader and introduce no new class -- duplicated
+#: rather than imported, the same convention `_QUALIFICATION_EXPLANATIONS`
+#: above follows, because no module under `dashboard/` may import scoring
+#: code.
+_OUTCOME_LABELS: dict[str, str] = {
+    "out": "out",
+    "single": "single",
+    "double": "double",
+    "triple": "triple",
+    "home_run": "home run",
+}
+
+#: Why a pitcher-season is on no board. Two different reasons, said
+#: differently, because collapsing them into one sentence would be false for
+#: whichever half it did not describe. Neither is a qualification rule: the
+#: first is a display choice about a ranked board, and the second is the
+#: honest consequence of a two-population split that does not claim to cover
+#: a continuum.
+_REASON_MIXED_USAGE = (
+    "Shown here but on neither board. This season's batted balls per appearance fall between "
+    "the starter-like and reliever-like descriptions, and the two boards are separate because "
+    "their opportunity is genuinely different \u2014 so there is no board this season belongs "
+    "to. That is a limit of a two-way usage split, not a requirement this season failed."
+)
+
+#: Short band tags for the per-row workload marker. Display organization on a
+#: continuous axis -- never a tier, never a qualification.
+_BAND_SHORT_LABELS: dict[str, str] = {
+    "high": "150+",
+    "moderate": "60\u2013149",
+    "below_board_minimum": "<60",
+}
+
+
+def _pitcher_row_view(
+    row: ppc.PitcherRow, scale: v.ZeroScale, root_prefix: str
+) -> dict[str, Any]:
+    """One pitcher, projected onto the cumulative-runs scale.
+
+    The scale field is built from the CUMULATIVE interval, never the per-100
+    interval, because the cumulative total is what this surface ranks. Mixing
+    the two would draw a mark whose position and whose error bar answer
+    different questions.
+    """
+    point = row.cumulative_contact_luck_runs
+    lower = row.cumulative_ci_low
+    upper = row.cumulative_ci_high
+    return {
+        "pitcher_id": row.pitcher_id,
+        "name": row.name,
+        "url": f"{root_prefix}pitchers/{row.pitcher_id}/",
+        "total": point,
+        "bbe": row.eligible_batted_balls,
+        "appearances": row.appearances,
+        "bbe_per_appearance": row.bbe_per_appearance,
+        "per_100": row.contact_luck_per_100,
+        "per_100_low": row.per_100_ci_low,
+        "per_100_high": row.per_100_ci_high,
+        "per_100_width": f"{row.per_100_ci_high - row.per_100_ci_low:.1f}",
+        "band_short": _BAND_SHORT_LABELS[row.workload_band],
+        "role_label": ppc.ROLE_LABELS[row.role_bucket],
+        "on_board": row.on_board,
+        # Sign follows the POINT ESTIMATE only, identically whether or not
+        # the interval crosses zero (preserved product invariant).
+        "favorable": point >= 0,
+        "pt_pct": _pct(scale.clamped_fraction_of(point)),
+        "lo_pct": _pct(scale.clamped_fraction_of(lower)),
+        "hi_pct": _pct(scale.clamped_fraction_of(upper)),
+        "clip_state": scale.clip_state(point=point, lower=lower, upper=upper),
+        "point_state": scale.point_state(point),
+    }
+
+
+def _pitcher_band_summary(rows: list[ppc.PitcherRow]) -> str:
+    high = sum(1 for r in rows if r.workload_band == "high")
+    moderate = sum(1 for r in rows if r.workload_band == "moderate")
+    return (
+        f"{len(rows)} ranked here: {high} at 150 or more resolved batted balls, "
+        f"{moderate} between 60 and 149."
+    )
+
+
+def _pitcher_board_view(
+    data: ppc.PitcherPrototypeData,
+    role_bucket: str,
+    scale: v.ZeroScale,
+    root_prefix: str,
+) -> dict[str, Any]:
+    """One ranked board. Built from ONE usage population and never merged
+    with another: two populations whose opportunity differs by roughly a
+    factor of four have no shared ranking to be first of.
+    """
+    rows = data.board(role_bucket)
+    views = [_pitcher_row_view(r, scale, root_prefix) for r in rows]
+    for position, view in enumerate(views, start=1):
+        view["board_rank"] = position
+    marks = sorted(
+        (
+            {
+                "left": _pct(scale.clamped_fraction_of(r.cumulative_contact_luck_runs)),
+                "favorable": r.cumulative_contact_luck_runs >= 0,
+                "score": r.cumulative_contact_luck_runs,
+            }
+            for r in rows
+        ),
+        key=lambda m: m["score"],
+    )
+    label = ppc.ROLE_LABELS[role_bucket]
+    return {
+        "slug": role_bucket.replace("_", "-"),
+        "label": label,
+        "short_label": label,
+        "definition": _PITCHER_BOARD_DEFINITIONS[role_bucket],
+        "band_summary": _pitcher_band_summary(rows),
+        "season": data.season,
+        "rows": views,
+        "marks": marks,
+        # Per-row band tags on the RELIEVER-LIKE board only. On the
+        # starter-like board 176 of 231 rows carry the same tag, so the
+        # column reads as decoration applied uniformly rather than as
+        # information (guardrails anti-pattern 1's argument, applied to a
+        # table cell). Reliever-like workload is the axis that actually
+        # varies fast down its board, and it is the one a reader most needs
+        # marked -- so that is where the marker is spent. The band counts
+        # for BOTH boards are stated above every board regardless.
+        "show_bands": role_bucket == "reliever_like",
+    }
+
+
+def _pitcher_play_view(play: ppc.PlayHighlight, label: str) -> dict[str, Any]:
+    bb_type = _BB_TYPE_LABELS.get(play.bb_type or "", play.bb_type or "batted ball")
+    outcome = _OUTCOME_LABELS.get(play.outcome_class or "", play.outcome_class or "\u2014")
+    return {
+        "label": label,
+        "value": play.pitching_contact_luck_runs,
+        "favorable": play.pitching_contact_luck_runs >= 0,
+        "launch_speed": (
+            f"{play.launch_speed_mph:.1f}" if play.launch_speed_mph is not None else None
+        ),
+        "launch_angle": (
+            format_signed(play.launch_angle_deg, 0) if play.launch_angle_deg is not None else None
+        ),
+        "bb_type_label": bb_type,
+        "outcome_label": outcome,
+        "game_date_display": _display_date(play.game_date),
+    }
+
+
+def _plural(count: float, singular: str, plural: str | None = None) -> str:
+    """`1 batted ball` / `2 batted balls`. A stat line that reads "1 resolved
+    batted balls" is a small thing that tells a reader nobody looked at the
+    smallest cases, which on this surface are exactly the cases the display
+    rules are about.
+    """
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
+def _largest_play_sentence(row: ppc.PitcherRow) -> str:
+    """States how much of the season total the single biggest batted ball
+    accounts for, in the reader's own terms.
+
+    The share is `largest |play| / |net total|`, and it is only a meaningful
+    percentage while the denominator is a real quantity. Josh Winckowski's
+    2024 net is -0.10 runs over 241 batted balls, which makes that ratio
+    1365% -- a true number that tells a reader nothing except that something
+    small is in a denominator. Above 2x the sentence stops quoting a
+    percentage and says the thing the percentage was standing in for: the
+    season's batted balls very nearly cancelled, and the net is smaller than
+    a single play on this page.
+
+    Never a warning and never a de-emphasis: a season carried by one play is
+    a true description of that season, and the product's standing rule is
+    that an uncertain number is rendered exactly like a certain one.
+    """
+    share = row.largest_play_share_of_net
+    if share is None:
+        return (
+            "These are the two batted balls whose outcomes differed most from what the "
+            "contact predicted."
+        )
+    if share >= 2.0:
+        return (
+            "This season's favorable and unfavorable batted balls very nearly cancelled: the "
+            "net total above is smaller than either of the two single batted balls below. "
+            "Read it as roughly zero across the whole sample, not as a small finding in "
+            "either direction."
+        )
+    pct = f"{share * 100:.0f}%"
+    if share >= 1.0:
+        return (
+            f"The larger of these two batted balls is worth {pct} of this season's net total "
+            "on its own \u2014 more than the whole of it, with the rest of the season pulling "
+            "the other way. A total this size is one or two batted balls, not a season-long "
+            "pattern."
+        )
+    if share >= 0.5:
+        return (
+            f"The larger of these two batted balls accounts for {pct} of this season's net "
+            "total on its own. Most of what the number above says comes from very few plays."
+        )
+    return (
+        f"The larger of these two batted balls accounts for {pct} of this season's net total. "
+        "The rest is spread across the other batted balls."
+    )
+
+
+def _pitcher_card_view(
+    row: ppc.PitcherRow,
+    data: ppc.PitcherPrototypeData,
+    scale: v.ZeroScale,
+    root_prefix: str,
+) -> dict[str, Any]:
+    view = _pitcher_row_view(row, scale, root_prefix)
+
+    # A season with ONE resolved batted ball has the same play at both ends
+    # of its own distribution. Printing it twice, once labelled "largest
+    # favorable" and once "largest unfavorable", states two findings where
+    # there is one -- and gives a positive value a label reading
+    # "unfavorable", which is simply false. Seven 2024 pitcher-seasons are in
+    # this position; each gets one entry, named for what it is.
+    favorable_play = row.largest_favorable_play
+    unfavorable_play = row.largest_unfavorable_play
+    single_play = (
+        favorable_play is not None
+        and unfavorable_play is not None
+        and favorable_play.play_id == unfavorable_play.play_id
+    )
+    plays = []
+    if single_play and favorable_play is not None:
+        plays.append(_pitcher_play_view(favorable_play, "The season's only batted ball"))
+    else:
+        if favorable_play is not None:
+            plays.append(
+                _pitcher_play_view(favorable_play, "Largest favorable batted ball")
+            )
+        if unfavorable_play is not None:
+            plays.append(
+                _pitcher_play_view(unfavorable_play, "Largest unfavorable batted ball")
+            )
+    if not row.on_board:
+        off_board_reason: str | None = ppc.REASON_BELOW_BOARD_MINIMUM
+    elif row.role_bucket == "ambiguous":
+        off_board_reason = _REASON_MIXED_USAGE
+    else:
+        off_board_reason = None
+    # A 95% interval of width zero is not precision. The bootstrap resamples
+    # GAMES within a pitcher-season, so a pitcher who appeared in exactly one
+    # game has nothing to resample and every replicate returns the same
+    # number. Seventy-three 2024 pitcher-seasons are in this position and all
+    # 73 appeared once. Printing "+16.30 to +16.30" beside the standard
+    # sentence about interval width would present the total ABSENCE of an
+    # uncertainty estimate as the tightest one on the site, which inverts the
+    # thing this whole surface is careful about. None of the 73 is on a
+    # ranked board, but every one of them has a page.
+    interval_width = row.per_100_ci_high - row.per_100_ci_low
+    degenerate_interval = interval_width < 0.005 and row.appearances <= 1
+    view.update(
+        {
+            "season": data.season,
+            "off_board_reason": off_board_reason,
+            "single_play_season": single_play,
+            "degenerate_interval": degenerate_interval,
+            "bbe_noun": _plural(row.eligible_batted_balls, "resolved batted ball"),
+            "appearances_noun": _plural(row.appearances, "appearance"),
+            "largest_favorable": row.largest_favorable_play is not None,
+            "largest_unfavorable": row.largest_unfavorable_play is not None,
+            "plays": plays,
+            "largest_play_sentence": (
+                "This season has one resolved batted ball, so it is both the most and the "
+                "least favorable one, and the whole of the total above."
+                if single_play
+                else _largest_play_sentence(row)
+            ),
+        }
+    )
+    return view
+
+
 def build_dashboard(
     *,
     out_dir: Path = DASHBOARD_DIST_DIR,
@@ -859,6 +1172,7 @@ def build_dashboard(
     explore_metadata_path: Path | None = None,
     explore_showcase_path: Path | None = None,
     explore_showcase_sensitivity_dir: Path | None = None,
+    pitcher_prototype_fixture_path: Path | None = None,
     repo_root: Path = PROJECT_ROOT,
     build_timestamp: str | None = None,
 ) -> BuildResult:
@@ -942,6 +1256,18 @@ def build_dashboard(
     # itself -- one fixture load, one source of truth, no second copy of
     # Greene's/Lindor's numbers that could drift from the committed fixture.
     demo_page_data = dc.load_demo_page_data(demo_fixture_path)
+
+    # Version 0.13.1 LOCAL PROTOTYPE. Fail-closed exactly like the Play
+    # Explorer above: this parameter has NO default of its own, so a bare
+    # `build.py` -- and therefore every production invocation, including
+    # `scripts/publish_snapshot.sh`, which does not pass it -- builds the
+    # site with no pitcher route at all and no nav entry pointing at one.
+    # A development-season surface can never reach the published site by
+    # omission; it takes an explicit flag naming the fixture.
+    pitcher_data: ppc.PitcherPrototypeData | None = None
+    if pitcher_prototype_fixture_path is not None:
+        pitcher_data = ppc.load_pitcher_prototype_data(pitcher_prototype_fixture_path)
+    pitcher_prototype_available = pitcher_data is not None
 
     # Version 1.4.0 Phase 4: the Play Explorer artifact directory is
     # OPTIONAL at build time (unlike the demo fixture/counterfactual grid
@@ -1082,6 +1408,7 @@ def build_dashboard(
         "build_timestamp_display": _display_timestamp(build_timestamp),
         "player_index_json": player_index_json,
         "explore_available": explore_available,
+        "pitcher_prototype_available": pitcher_prototype_available,
     }
 
     if out_dir.exists():
@@ -1305,6 +1632,84 @@ def build_dashboard(
             )
         )
 
+    # ── "/pitchers/" + "/pitchers/<pitcher_id>/" · Version 0.13.1 LOCAL
+    #    PROTOTYPE ────────────────────────────────────────────────────────
+    #
+    # A FOURTH `ZeroScale`. `visuals.ZeroScale`'s docstring says the product
+    # has exactly three and that adding one is a design review rather than a
+    # code change -- so this is that decision made deliberately and written
+    # down, not slipped in. The reason a fourth is needed: this surface's
+    # ranked quantity is a CUMULATIVE RUN TOTAL, which no existing scale
+    # measures. Drawing it on `league_per_100` would place a +20-run season
+    # off the end of a rate axis; drawing it on `run_value` would put a
+    # season total on a single-play axis. Both would be a false alignment.
+    #
+    # Invariant Z still holds and is what makes the fourth scale safe: it is
+    # built with `from_values(..., zero_fraction=league_scale.zero_fraction)`,
+    # so zero sits at the SAME `--cl-zero` every other figure on the site
+    # registers against. Invariant D deliberately does NOT apply (same
+    # exception the `run_value` scale takes): this is a development-season
+    # population, not the snapshot's own comparison population. The price of
+    # the exception, per that docstring, is paid in the template -- both
+    # boards and every card print this scale's own ticks and its own unit,
+    # so no figure borrows the shared zero while hiding its own domain.
+    #
+    # ONE scale across BOTH boards. Starter-like and reliever-like are never
+    # ranked together, but they are drawn together, which is what makes the
+    # opportunity difference between them legible instead of hidden.
+    if pitcher_data is not None:
+        board_rows = [r for r in pitcher_data.rows if r.on_board]
+        pitcher_scale = v.ZeroScale.from_values(
+            "pitcher_cumulative_runs",
+            f"Contact Luck allowed, cumulative runs, {pitcher_data.season}",
+            [r.cumulative_ci_low for r in board_rows]
+            + [r.cumulative_ci_high for r in board_rows],
+            zero_fraction=league_scale.zero_fraction,
+        )
+        pitcher_scale_ticks = _axis_ticks(pitcher_scale)
+        boards = [
+            _pitcher_board_view(pitcher_data, "starter_like", pitcher_scale, root_prefix),
+            _pitcher_board_view(pitcher_data, "reliever_like", pitcher_scale, root_prefix),
+        ]
+        pitchers_dir = out_dir / "pitchers"
+        pitchers_dir.mkdir(parents=True, exist_ok=True)
+        (pitchers_dir / "index.html").write_text(
+            env.get_template("pitchers.html").render(
+                **base_context,
+                active_page="pitchers",
+                pitchers=pitcher_data,
+                boards=boards,
+                pitcher_scale=pitcher_scale,
+                pitcher_scale_ticks=pitcher_scale_ticks,
+                below_minimum_count=sum(1 for r in pitcher_data.rows if not r.on_board),
+            )
+        )
+
+        # Every pitcher-season gets a page, INCLUDING the ones the board
+        # withholds -- that withholding is the whole reason those seasons
+        # need somewhere to be shown in full, and a display rule that
+        # removed them from the site entirely would be the qualification
+        # rule this surface is careful not to have.
+        marks_by_role = {b["label"]: b["marks"] for b in boards}
+        count_by_role = {b["label"]: len(b["rows"]) for b in boards}
+        pitcher_card_template = env.get_template("pitcher.html")
+        for row in pitcher_data.rows:
+            card = _pitcher_card_view(row, pitcher_data, pitcher_scale, root_prefix)
+            role_label = card["role_label"]
+            card_dir = pitchers_dir / str(row.pitcher_id)
+            card_dir.mkdir(parents=True, exist_ok=True)
+            (card_dir / "index.html").write_text(
+                pitcher_card_template.render(
+                    **base_context,
+                    active_page=None,
+                    p=card,
+                    pitcher_scale=pitcher_scale,
+                    pitcher_scale_ticks=pitcher_scale_ticks,
+                    board_marks=marks_by_role.get(role_label, []),
+                    board_count=count_by_role.get(role_label, 0),
+                )
+            )
+
     shutil.copytree(DASHBOARD_STATIC_DIR, out_dir / "static", dirs_exist_ok=True)
     # Copied to the dist ROOT (not under static/) so it serves at
     # `{SITE_URL}/og-image.png`, matching the `og:image`/`twitter:image` URLs
@@ -1379,6 +1784,19 @@ def _build_cli_arg_parser() -> argparse.ArgumentParser:
             "--explore-artifacts-dir dashboard/explore_fixture explicitly."
         ),
     )
+    parser.add_argument(
+        "--pitcher-prototype-fixture",
+        type=Path,
+        default=None,
+        help=(
+            "Path to the committed Pitcher Contact Luck development fixture "
+            "(dashboard/pitcher_prototype_fixture.json), enabling the LOCAL 2024 pitcher "
+            "prototype at /pitchers/. NOT defaulted: omitting this flag builds the site "
+            "with no pitcher route and no nav entry, which is what every production "
+            "invocation does -- scripts/publish_snapshot.sh never passes it. The fixture "
+            "is 2024 DEVELOPMENT-season data and must not be published."
+        ),
+    )
     return parser
 
 
@@ -1407,6 +1825,7 @@ def main(
         "explore_metadata_path": metadata_path,
         "explore_showcase_path": showcase_path,
         "explore_showcase_sensitivity_dir": showcase_sensitivity_dir,
+        "pitcher_prototype_fixture_path": args.pitcher_prototype_fixture,
     }
     if outputs_root is not None:
         kwargs["outputs_root"] = outputs_root
@@ -1425,6 +1844,10 @@ def main(
         f"[dashboard build] players: {result.manifest.player_count} (qualified: {result.manifest.qualified_count})"
     )
     print(f"[dashboard build] explore available: {args.explore_artifacts_dir is not None}")
+    print(
+        "[dashboard build] pitcher prototype (2024 development data): "
+        f"{args.pitcher_prototype_fixture is not None}"
+    )
     if result.invalid_snapshot_count:
         print(
             f"[dashboard build] WARNING: {result.invalid_snapshot_count} invalid snapshot(s) excluded -- see warnings above"

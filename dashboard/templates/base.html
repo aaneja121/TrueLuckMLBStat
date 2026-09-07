@@ -59,6 +59,15 @@
           {% if explore_available %}
           <li><a href="{{ root_prefix }}explore/"{% if active_page == 'explore' %} class="is-active" aria-current="page"{% endif %}>Explore Plays</a></li>
           {% endif %}
+          {# Version 0.13.1 LOCAL PROTOTYPE. Present only when the build was
+             given `--pitcher-prototype-fixture`, which no production
+             invocation passes -- the same conditional-nav convention the
+             Play Explorer entry above already follows, so a route that does
+             not exist is never linked. The label carries "prototype" because
+             this is 2024 development data, not the published season. #}
+          {% if pitcher_prototype_available %}
+          <li><a href="{{ root_prefix }}pitchers/"{% if active_page == 'pitchers' %} class="is-active" aria-current="page"{% endif %}>Pitching prototype</a></li>
+          {% endif %}
           <li><a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="is-active" aria-current="page"{% endif %}>How It Works</a></li>
           <li><a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="is-active" aria-current="page"{% endif %}>Methodology</a></li>
           <li><a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="is-active" aria-current="page"{% endif %}>Data &amp; status</a></li>

@@ -300,14 +300,35 @@ class TestGapFigure:
 
 
 class TestZeroSpineDiscipline:
-    def test_only_the_run_value_figure_carries_a_spine(self) -> None:
+    def test_only_zero_centred_quantities_carry_a_spine(self) -> None:
         """Section 12: an amber rule means a zero-centred quantity. Exit
         velocity, launch angle, probabilities, dates and categories are not
-        zero-centred and get none."""
+        zero-centred and get none.
+
+        The scan covers the stylesheet from the play-page block to the end,
+        so every component added after it is checked too. The allowed set is
+        an explicit list, not a count: adding a spine to something new means
+        adding it here and saying which zero-centred quantity it draws.
+
+        - `.play-gap-field` -- expected vs. observed run value on one play.
+        - `.pitcher-board-table` -- cumulative Contact Luck allowed, runs
+          (Version 0.13.1 local prototype).
+        - `.pitcher-mark-row` -- the same quantity on a pitcher card. It
+          shares one grouped rule with `.pitcher-league-row`, the population
+          strip directly beneath it, which the regex reports under the first
+          selector of the pair; both draw the same axis and the same zero.
+
+        All three are signed Contact Luck quantities whose zero is a real
+        zero, and all three register at `--cl-zero` (Invariant Z).
+        """
         css = CSS.read_text()
         block = css.split("/* ══ The play page (redesign Phase 6)", 1)[1]
         spined = re.findall(r"(\.[\w-]+)[^{]*::before \{[^}]*--cl-zero", block)
-        assert spined == [".play-gap-field"], spined
+        assert spined == [
+            ".play-gap-field",
+            ".pitcher-board-table",
+            ".pitcher-mark-row",
+        ], spined
 
     def test_probabilities_are_not_drawn_on_a_zero_centred_scale(self, site: Path) -> None:
         html = _play(site)

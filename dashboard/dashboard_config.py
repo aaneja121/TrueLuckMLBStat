@@ -100,3 +100,19 @@ FROZEN_PUBLIC_TERMINOLOGY = {
     "favorable": "Most favorable realized luck",
     "unfavorable": "Least favorable outcomes relative to expectation",
 }
+
+
+# Version 0.13.1 LOCAL PROTOTYPE: the committed Pitcher Contact Luck
+# development fixture -- same committed-reference-data convention as
+# DEMO_FIXTURE_PATH / EXPLORE_PLAYERS_PATH above, produced ONCE, offline,
+# by `demo/build_pitcher_prototype_fixture.py` (which trains the frozen
+# models on real 2021-2023 development data and scores 2024 -- local dev
+# only, never 2025, never a prospective 2026 run). Dashboard code only ever
+# READS this file; nothing under `dashboard/` regenerates or recomputes any
+# value in it.
+#
+# Like EXPLORE_PLAYERS_PATH and unlike DEMO_FIXTURE_PATH, this path is NOT a
+# default for `build.py`: the pitcher route is fail-closed and must be opted
+# into with `--pitcher-prototype-fixture PATH`, so an ordinary production
+# build can never publish a development-season pitcher surface by accident.
+PITCHER_PROTOTYPE_FIXTURE_PATH = DASHBOARD_SOURCE_ROOT / "pitcher_prototype_fixture.json"

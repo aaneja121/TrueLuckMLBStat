@@ -4898,3 +4898,443 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
 @media (max-width: 359px) {
   .play-gap-caption-value { font-size: var(--fs-300); }
 }
+
+/* ══ Version 0.13.1 LOCAL PROTOTYPE · Pitcher Contact Luck ════════════════
+   Present only in a build given `--pitcher-prototype-fixture`. Deliberately
+   built from the SAME primitives as the hitter surfaces -- `.cl-scale-field`,
+   `.cl-axis-tick`, `.verdict-inner`, `.num`, the three radii, the 9-step type
+   scale, the 8px spacing scale -- rather than a second visual system. Every
+   token below already existed; nothing here adds a hue, a radius or a size.
+
+   The ONE thing this surface does differently from the hitter leaderboard is
+   which quantity gets the plot field. There, a rate is ranked and drawn.
+   Here, a cumulative total is ranked and drawn, and the rate is set as plain
+   ink with no mark and no axis position -- so a reader who has learned "the
+   drawn thing is the ranked thing" on the hitter board reads this board
+   correctly without being told. */
+
+/* The development-provenance line. A ruled note, not a boxed banner:
+   guardrails anti-pattern 2 (no bordered rounded rectangle to say
+   "section"). It sits in the lede because it qualifies everything under it. */
+.proto-banner {
+  margin: var(--sp-3) 0 0;
+  padding-left: var(--sp-3);
+  border-left: var(--rule-emphasis) solid var(--accent-amber-mark);
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
+  max-width: var(--measure-prose);
+}
+
+/* The prototype's nav entry is a SIXTH item in a header row whose five
+   shipped items already fill their 1200px track exactly. At 1280 the sixth
+   pushed the data-through badge 80px past the viewport -- a page-level
+   horizontal overflow on EVERY route in a prototype build, including the
+   hitter leaderboard, which this work is not allowed to change.
+
+   Scoped with `:has()` to the nav list that actually contains the prototype
+   link, so the shipped five-item header is byte-for-byte unaffected: with no
+   `/pitchers/` entry the selector never matches and no wrap rule exists. The
+   nav wraps to a second line instead of overflowing, and the row's other
+   three grid areas keep their positions. */
+.site-nav-list:has(a[href$="/pitchers/"]) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 0;
+}
+
+.pitcher-board { margin-top: var(--sp-7); }
+.pitcher-board-head { margin-bottom: var(--sp-3); }
+.pitcher-board-head h2 { margin: 0 0 var(--sp-1); }
+.pitcher-board-definition {
+  margin: 0;
+  max-width: var(--measure-prose);
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
+}
+.pitcher-board-workload {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.pitcher-scroll { overflow-x: auto; }
+
+table.pitcher-board-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--fs-300);
+  /* The min-width contract every `.overflow-x` box on this site owes
+     (guardrails anti-pattern 6): five columns cannot compress below this
+     without clipping the interval text, so the box scrolls instead. */
+  min-width: 760px;
+}
+.pitcher-board-table col.pcol-rank { width: 3rem; }
+.pitcher-board-table col.pcol-name { width: 13rem; }
+.pitcher-board-table col.pcol-verdict { width: auto; }
+.pitcher-board-table col.pcol-evidence { width: 11rem; }
+.pitcher-board-table col.pcol-rate { width: 11.5rem; }
+
+table.pitcher-board-table th {
+  text-align: left;
+  padding: 0 var(--sp-3) var(--sp-1);
+  border-bottom: var(--rule-hairline) solid var(--baseline);
+  vertical-align: bottom;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+table.pitcher-board-table th.pcol-rank,
+table.pitcher-board-table td.pcol-rank { padding-left: 0; }
+table.pitcher-board-table th.pcol-rate,
+table.pitcher-board-table td.pcol-rate { padding-right: 0; text-align: right; }
+table.pitcher-board-table th.pcol-evidence,
+table.pitcher-board-table td.pcol-evidence { text-align: right; }
+
+.pcol-sub {
+  display: block;
+  font-size: var(--fs-100);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+/* Says in the column head itself that this column is not the ranking. The
+   uppercase eyebrow means "this labels a measured quantity" everywhere else
+   on the site (design principle 5); here it also carries the demotion. */
+.pcol-secondary-tag {
+  font-size: var(--fs-100);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+table.pitcher-board-table td {
+  padding: var(--sp-1) var(--sp-3);
+  border-bottom: var(--rule-hairline) solid var(--gridline);
+  vertical-align: middle;
+}
+table.pitcher-board-table tbody tr:hover { background: var(--surface-recessed); }
+
+table.pitcher-board-table td.pcol-rank {
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.pitcher-board-table .pcol-name { overflow: hidden; }
+/* The row's own touch target, matching the hitter leaderboard's rule: the
+   name is the only link in the row, so it carries the 44px height itself
+   rather than relying on the row's padding (accessibility.md #9). */
+.pitcher-board-table .pcol-name .player-link {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
+/* The verdict cell reuses `.verdict-inner`'s grid, minus the interval track:
+   the cumulative interval is DRAWN on the field rather than printed, because
+   printing a second bracketed pair beside the per-100 bracket would put two
+   intervals in one row with nothing saying which qualifies which. */
+.pitcher-board-table td.pcol-verdict { padding: 0 var(--sp-3); }
+.pitcher-board-table .verdict-inner {
+  grid-template-columns: minmax(0, 1fr) var(--lb-value-col);
+}
+.pitcher-board-table .verdict-value { font-size: var(--fs-500); }
+/* The spine, on the field, exactly as on the hitter board -- same rule, same
+   `--cl-zero`, so the two surfaces read as one system. */
+.pitcher-board-table .cl-scale-field::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--sp-1));
+  bottom: calc(-1 * var(--sp-1));
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.pitcher-board-table .cl-scale-interval,
+.pitcher-board-table .cl-scale-point { z-index: 1; }
+
+/* ── Opportunity ──────────────────────────────────────────────────────────
+   BBE is set one full step above the hitter board's evidence figure and in
+   primary ink, because a cumulative total is meaningless without it. This is
+   the "make BBE visually unavoidable" requirement expressed as type, not as
+   a box or a badge. */
+td.pcol-evidence {
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-muted);
+  font-size: var(--fs-200);
+  white-space: nowrap;
+}
+.pitcher-bbe {
+  font-size: var(--fs-500);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pitcher-usage { display: block; color: var(--text-muted); }
+/* Display organization on a continuous axis. Muted, uppercase, and never a
+   pill: a pill would read as a granted status, which is exactly what this
+   is not. */
+.pitcher-band-tag {
+  display: block;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── The secondary rate ───────────────────────────────────────────────────
+   Neutral ink. No favorable/unfavorable colour, no mark, no axis position.
+   The sign is carried by the glyph alone, which is the channel that survives
+   monochrome and colour-blindness anyway; withholding the hue here is what
+   keeps "coloured and drawn" meaning "this is the ranked quantity". */
+td.pcol-rate {
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+.pitcher-rate {
+  display: block;
+  font-size: var(--fs-300);
+  color: var(--text-secondary);
+}
+.pitcher-rate-interval {
+  display: block;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+.pitcher-note { margin-top: var(--sp-7); }
+.pitcher-note p { margin: 0 0 var(--sp-3); }
+
+/* ══ The pitcher card ════════════════════════════════════════════════════ */
+.pitcher-hero { margin: var(--sp-5) 0 var(--sp-6); }
+.pitcher-hero-eyebrow {
+  margin: 0;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.pitcher-hero-value {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-800);
+  font-weight: 600;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.pitcher-hero.is-favorable .pitcher-hero-value { color: var(--fav-text); }
+.pitcher-hero.is-unfavorable .pitcher-hero-value { color: var(--unfav-text); }
+.pitcher-hero-unit {
+  margin-left: var(--sp-2);
+  font-size: var(--fs-400);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+/* Opportunity sits directly under the total, before anything else, because
+   the total cannot be read without it. */
+.pitcher-hero-opportunity {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-400);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.pitcher-hero-plot { margin-top: var(--sp-5); max-width: 720px; }
+.pitcher-plot-label {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.pitcher-mark-row { position: relative; height: 24px; margin-bottom: var(--sp-4); }
+.pitcher-mark-row .cl-scale-field { position: absolute; inset: 0; }
+.pitcher-league-row { position: relative; }
+/* The zero rule runs the height of both rows so the pitcher's own mark and
+   the population behind it are registered against one line (Invariant Z). */
+.pitcher-mark-row::before,
+.pitcher-league-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--cl-zero);
+  width: var(--rule-emphasis);
+  margin-left: calc(var(--rule-emphasis) / -2);
+  background: var(--accent-amber-mark);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+}
+.pitcher-mark-row .cl-scale-interval,
+.pitcher-mark-row .cl-scale-point { z-index: 1; }
+/* This figure is NOT on `league_per_100`, so it prints its own ticks and its
+   own unit -- the anti-fake-alignment guard that is the price of borrowing
+   the shared zero (visuals.ZeroScale.from_values' docstring). */
+.pitcher-axis { position: relative; margin-top: var(--sp-2); }
+.pitcher-axis-unit {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+/* The secondary rate as a ruled stat line, never a pair of KPI tiles
+   (guardrails anti-pattern 14). */
+.pitcher-rate-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+  margin: 0;
+  padding-top: var(--sp-3);
+  border-top: var(--rule-hairline) solid var(--border);
+}
+.pitcher-rate-item > dt {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.pitcher-rate-item > dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-500);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.pitcher-rate-note,
+.pitcher-offboard {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+.pitcher-plays { margin-top: var(--sp-7); }
+.pitcher-plays-lede { margin: 0 0 var(--sp-4); }
+.pitcher-play-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-5);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+/* Rules and space, not boxes (design principle 3). */
+.pitcher-play {
+  padding-top: var(--sp-3);
+  border-top: var(--rule-emphasis) solid var(--border);
+}
+.pitcher-play.is-favorable { border-top-color: var(--fav-mark); }
+.pitcher-play.is-unfavorable { border-top-color: var(--unfav-mark); }
+.pitcher-play-label {
+  margin: 0;
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.pitcher-play-value {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-600);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.pitcher-play.is-favorable .pitcher-play-value { color: var(--fav-text); }
+.pitcher-play.is-unfavorable .pitcher-play-value { color: var(--unfav-text); }
+.pitcher-play-unit {
+  margin-left: var(--sp-2);
+  font-size: var(--fs-200);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.pitcher-play-contact {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-300);
+  color: var(--text-primary);
+}
+.pitcher-play-date {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+
+.pitcher-framing { margin-top: var(--sp-7); }
+.pitcher-framing p { margin: 0 0 var(--sp-3); }
+
+/* ── Responsive ───────────────────────────────────────────────────────────
+   Declared shedding order, right to left: Rate, then the plot field, then
+   the per-appearance figure. Identity and Verdict never shed
+   (docs/design/tables.md standing decision 6). Nothing shed here is lost to
+   the reader: the card at /pitchers/<id>/ prints every one of these values
+   in full at every width.
+
+   The rate sheds at <=1023, one breakpoint earlier than it strictly has to,
+   because five columns do not fit in a 720px content box at 768 and the
+   alternative was this table scrolling sideways inside its own box while
+   the hitter leaderboard on the next route does not. The rate is the
+   secondary quantity; it is what a narrow layout is for. */
+@media (max-width: 1023px) {
+  table.pitcher-board-table { min-width: 0; }
+  /* `width: 0` on the <col>, `display: none` on its cells. NOT
+     `display: none` on the <col> as well: a fixed-layout table with a
+     display-none column distributes the remaining width unevenly across
+     browsers, and it left the plot field at 71px here -- narrow enough that
+     the axis tick labels collided into "-40-20+0+20+40". A zero-width
+     column is unambiguous. */
+  .pitcher-board-table col.pcol-rate { width: 0; }
+  .pitcher-board-table th.pcol-rate,
+  .pitcher-board-table td.pcol-rate { display: none; }
+  .pitcher-board-table col.pcol-name { width: 11rem; }
+  .pitcher-board-table col.pcol-evidence { width: 9.5rem; }
+}
+
+@media (max-width: 767px) {
+  /* Withdrawn rather than reworded: below this width the boards draw no
+     plot field, so a caption asserting "both boards below are drawn on this
+     one scale" would be false here. */
+  .pitcher-axis-head { display: none; }
+  .pitcher-board-table col.pcol-rank { width: 2rem; }
+  .pitcher-board-table col.pcol-name { width: auto; }
+  /* The verdict cell now holds only its numeral, so it needs numeral width
+     and nothing more; the space that buys goes to the name, which is the
+     one cell whose content this table cannot abbreviate. */
+  .pitcher-board-table col.pcol-verdict { width: 4.75rem; }
+  /* Wide enough to hold its own heading. "Opportunity" is a single word and
+     cannot wrap, so narrowing this column further would mean breaking the
+     word mid-syllable -- the "engineer around the data" move design
+     principle 8 rules out. The tracking comes off the headings at this
+     width for the same reason: it is 11 characters of letter-spacing buying
+     nothing once the column is this narrow. */
+  .pitcher-board-table col.pcol-evidence { width: 7rem; }
+  table.pitcher-board-table th { letter-spacing: 0.02em; }
+  /* The evidence sub-label spelled out a three-part column that is now two
+     parts; the heading word carries it at this width. */
+  .pitcher-board-table th.pcol-evidence .pcol-sub { display: none; }
+  /* With no room for a plot field, the verdict cell collapses to its
+     numeral. The spine has nothing left to register against at this width,
+     so it is not drawn rather than drawn against one column. */
+  .pitcher-board-table .verdict-inner { grid-template-columns: minmax(0, 1fr); }
+  .pitcher-board-table .verdict-inner .cl-scale-field { display: none; }
+  /* The axis header and the population strip go with the field they label:
+     an axis with nothing drawn on it is an assertion of a scale the rows no
+     longer use. Both are `aria-hidden` decoration, so nothing operable or
+     announced is removed (guardrails anti-pattern 7 does not apply). */
+  .pitcher-board-table .cl-axis-row,
+  .pitcher-board-table .cl-distribution-row { display: none; }
+  .pitcher-board-table .verdict-value {
+    grid-column: 1;
+    padding-left: 0;
+    font-size: var(--fs-400);
+  }
+  .pitcher-bbe { font-size: var(--fs-400); }
+  /* Batted balls per appearance is the one figure in the row recoverable
+     from the two beside it (BBE / appearances), so it is what the
+     opportunity cell sheds when the cell is too narrow to hold all three on
+     one nowrap line. BBE and appearances -- the two that cannot be derived
+     -- both stay. */
+  .pitcher-usage-rate { display: none; }
+  .pitcher-hero-value { font-size: var(--fs-700); }
+}

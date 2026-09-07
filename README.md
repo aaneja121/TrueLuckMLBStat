@@ -2348,6 +2348,328 @@ Writes `outputs/tables/pitcher_season_pitching_contact_luck_v013.json` and
 re-checks every season present in the input); this script exposes no flag that could
 reach a final-test season.
 
+## Pitching Contact Luck presentation research (Version 0.13.1)
+
+Freezes Versions 0.2-0.13 completely. **This version trains nothing, predicts nothing, and
+redefines nothing.** Version 0.13 established the pitcher-side quantity and showed it could
+be produced exactly. This version answers a different question: **given that quantity, what
+can honestly be put in front of a reader?** Its output is a set of presentation findings, a
+committed 2024 development fixture, and a local UI prototype -- no model, no threshold, no
+score.
+
+Status: **provisional research spike, 2024 development season only.** Nothing here is
+scored for 2025 or 2026, nothing is in the public-score schema, and the prototype surface is
+gated behind an explicit build flag that no production invocation passes.
+
+### The quantity, restated (unchanged from Version 0.13)
+
+For each outcome-resolved eligible batted ball,
+
+    pitcher Contact Luck contribution = expected run value - observed run value
+
+which is exactly the negative of the batter-side contribution on the same play, and is the
+`-1 x batting_contact_luck` convention Version 0.13 already implements in
+`SIGNED_VALUE_COLUMNS`. **Positive** means the realized outcome was more favorable to the
+pitcher than the contact itself predicted; **negative** means it was less favorable. The
+frozen scoring architecture is reused unchanged: no second model, no retraining, no second
+scoring path. The pitcher aggregation reproduces the frozen batter-side arithmetic exactly
+when run against the `batter` key -- `max_abs_difference: 0.0` across all 647 2024
+batter-seasons, re-verified on every run of this version's generator, which refuses to write
+its fixture if the check fails.
+
+### The finding that decides the presentation
+
+**Do not rank pitchers on Contact Luck per 100 BBE.** Normalized pitcher rates are too noisy
+to support an authoritative season ranking at any workload that actually occurs.
+
+Measured on the 2024 development season
+(`outputs/tables/pitcher_prototype_research_report.json`), decomposing the observed spread of
+season rates into signal and the measurement error the bootstrap already reports
+(`var_observed = var_signal + mean(var_measurement)`, with each row's measurement SD read off
+its own 95% interval as `half_width / 1.96`):
+
+| workload floor | n | SD observed | mean SD measurement | resolving power |
+|---|---|---|---|---|
+| >=60 BBE | 537 | 3.342 | 2.980 | **0.51** |
+| >=150 BBE | 305 | 2.547 | 2.323 | **0.45** |
+| >=300 BBE | 129 | 1.803 | 1.804 | **0.00** (signal variance -0.002, i.e. negative) |
+| >=450 BBE | 61 | 1.819 | 1.626 | **0.50** |
+
+**Resolving power is below 1 at every achievable pitcher workload.** The typical difference
+between two pitchers' true rates is smaller than the error bar on either of them, so an
+ordering on that quantity is substantially an ordering of noise. At the >=300 BBE floor the
+signal-variance estimate comes out *negative*, which is reported raw rather than clipped to
+zero: it means the observed spread is no wider than measurement error alone would produce.
+
+The >=1 BBE row is deliberately excluded from that table. It computes to 1.94, and that
+number is an artifact, not a finding: the bootstrap resamples GAMES within a pitcher-season,
+so the 73 pitcher-seasons with exactly one appearance get zero-width intervals, their
+measurement variance is recorded as zero, and the decomposition then attributes all of their
+(enormous) spread to signal. Any future use of this estimator must exclude single-appearance
+seasons.
+
+Verified directly on the shipped fixture: **exactly 73 rows have a zero-width per-100
+interval, and they are exactly the 73 rows with one appearance** -- no zero-width row has
+more than one appearance, and no single-appearance row has a non-zero width. Those 73
+seasons carry a median of 5 BBE and a per-100 SD of 25.8 (range -143.9 to +55.7), all of it
+booked as signal because their measured variance is zero. Dropping them takes resolving
+power from 1.939 to **0.877** -- below 1, in line with every other floor in the table. The
+1.94 is the artifact; 0.877 is what that population actually supports.
+
+Approximate 95% rate precision requirements, from the same season's own measured intervals
+fitted as `half_width = k / sqrt(bbe)` (k = 70.6, median over the 658 rows with >=30 BBE):
+
+| target half-width | resolved BBE required |
+|---|---|
+| +/-5 runs / 100 | ~199 |
+| +/-4 runs / 100 | ~311 |
+| +/-3 runs / 100 | ~554 |
+| +/-2 runs / 100 | 1,246 |
+
+Every row above is `(k / target)^2` at the single measured `k = 70.588`: 199.3, 311.4,
+553.7, 1245.7. An earlier pass reported ~1,275 for the last row; that figure is **not
+reproducible from this repository's estimator** and is superseded. It implies `k = 71.41`
+(a per-play SD of 0.3644 against the measured 0.3601) -- about 1.2% more noise, the size of
+gap produced by fitting `k` on a different subset of rows, not by a different formula. It
+was a rough pre-generator estimate with no recorded derivation; only 1,246 has one.
+
+**The 2024 maximum pitcher workload is 610 BBE.** No realistic one-season pitcher sample can
+make small differences in per-100 Contact Luck separable. Split-half reliability was also
+approximately zero at all pitcher workloads (carried forward from the analysis that produced
+this version; not recomputed by this version's generator, which produces the resolving-power
+and precision figures above).
+
+**This is not a failure of the metric.** Contact Luck is retrospective luck, not persistent
+pitcher skill, and a quantity that does not persist is not supposed to have high split-half
+reliability. The finding constrains how it may be PRESENTED, not whether it is correct.
+
+### Primary presentation: cumulative Contact Luck runs
+
+The pitcher surface leads with the **cumulative total**, which answers:
+
+> Across the batted balls this pitcher actually allowed, how many runs did realized outcomes
+> differ from what the contact itself deserved?
+
+**The displayed cumulative total is exact for the observed plays, conditional on the frozen
+Contact Luck scoring model.** That sentence is the exact claim and its exact limit. The
+following are NOT claimed and must never be written:
+
+- that there is no model uncertainty;
+- that the number is objectively true independent of the model;
+- that the pitcher owns a persistent luck skill.
+
+**Cumulative totals are intentionally workload-sensitive.** A pitcher with more BBE has more
+opportunities to accumulate favorable or unfavorable outcomes. They therefore answer an
+ACCUMULATION question, and are not workload-independent pitcher quality, skill, talent, a
+forecast, or expected future performance. Because of this, **workload must always be visible
+beside the total** -- that is a presentation requirement of the quantity, not a design
+preference.
+
+### Secondary presentation: per 100 BBE
+
+Contact Luck per 100 BBE remains useful as a normalized secondary statistic and **must not
+be the primary ranking key**. Wherever it is shown it must appear with:
+
+- the resolved eligible BBE it is normalized over, and
+- a 95% uncertainty interval.
+
+Reading: *per 100 normalizes the observed Contact Luck for opportunity.* Because it is
+normalized across unequal samples, it must never be presented with more visual authority
+than the cumulative total.
+
+### Why totals matter: heterogeneous opportunity
+
+The pitcher population's opportunity is extremely heterogeneous. 2024 descriptive usage
+split, read off the observed bimodal BBE-per-appearance distribution:
+
+| bucket | rule | n | median BBE | max BBE |
+|---|---|---|---|---|
+| starter-like | >=10 BBE per appearance | 273 | 261 | 610 |
+| ambiguous | 8-10 BBE per appearance | 29 | -- | -- |
+| reliever-like | <=8 BBE per appearance | 552 | 64 | 282 |
+
+**No reliever-like 2024 season reached 300 BBE.** The gap between the two medians is a factor
+of four.
+
+This split is **descriptive only**. The repository has NO authoritative role metadata. Do NOT
+call anyone a closer, a starter, or a reliever as an official role. Use **Starter-like** and
+**Reliever-like**. Factual usage may be described ("72 appearances, 2.6 BBE per appearance");
+"closer" may not be inferred from it.
+
+### Totals vs. rates: the structural failure mode
+
+For a population with this much opportunity spread, cumulative totals avoid a failure mode
+that per-100 rankings have by construction. 2024 examples, all position players who pitched:
+
+| pitcher | total runs | BBE | per 100 |
+|---|---|---|---|
+| Miguel Sano | +0.16 | 1 | +16.3 |
+| Oswaldo Cabrera | +0.22 | 1 | +21.9 |
+| Carl Edwards Jr. | -0.47 | 1 | -47.1 |
+
+A per-100 ranking places each of these at or near an extreme of the full pitcher population
+while their actual cumulative impact is approximately zero. This is why cumulative totals lead
+the pitcher presentation.
+
+### The workload relationship (2024, n=854 pitcher-seasons)
+
+| relationship | Pearson | Spearman |
+|---|---|---|
+| \|cumulative total\| vs. BBE | 0.536 | 0.579 |
+| signed cumulative total vs. BBE | 0.194 | 0.102 |
+
+Opportunity moderately affects **how large** the total can become. Opportunity does **not**
+strongly determine **whether** the season total is favorable or unfavorable. This is what
+supports cumulative totals as an accumulation measure -- provided workload is always visible.
+
+### Reliever-like seasons are frequently one or two plays
+
+Share of 2024 reliever-like seasons (n=552) whose single largest batted ball accounts for
+more than a given fraction of the net season total:
+
+| threshold | share of reliever-like seasons |
+|---|---|
+| >25% of the net total | 83.2% |
+| >50% | 52.5% |
+| >100% (larger than the whole net) | 27.7% |
+
+**Over half** of reliever-like seasons have one batted ball worth more than half their net,
+and better than a quarter have one worth more than the whole of it. The player surface
+therefore **surfaces the largest favorable and largest unfavorable Contact Luck plays**. This
+is not a flaw to hide: it is how the cumulative total was produced, and concealing it would
+make a season total look steadier than it is.
+
+Two display consequences found while building the prototype:
+
+- Where the net total is near zero the ratio `largest |play| / |net|` explodes and stops being
+  informative (Josh Winckowski 2024: net -0.10 runs over 241 BBE, ratio 1365%). Above roughly
+  2x, say that the season's batted balls very nearly cancelled instead of quoting a percentage.
+- A season with ONE resolved batted ball has the same play at both ends of its own
+  distribution. Seven 2024 pitcher-seasons are in this position; each must show one play, not
+  the same play twice labelled "most favorable" and "least favorable".
+
+### The sub-60-BBE rule is a PRESENTATION rule
+
+Pitcher-seasons below 60 resolved BBE appear on player pages only, not on the ranked
+prototype board. If this rule is retained it must be treated **strictly as a presentation
+rule** motivated by the extreme width of the normalized-rate interval at that exposure.
+
+It is NOT qualification, NOT eligibility, NOT an official minimum, and NOT an MLB threshold.
+Do not invent a baseball qualification rule for it. A season below the line keeps its page,
+its total, its rate and its interval, and is never described as having failed anything.
+
+2024 board population at that line: 231 starter-like, 290 reliever-like, 317 pitcher-seasons
+withheld from the boards (of which 29 are the ambiguous-usage bucket that belongs to neither
+board regardless of workload).
+
+### The hitter product is unchanged, and here is why
+
+Do **not** change the existing hitter leaderboard. At the shipped qualified bar, ranking 2024
+qualified hitters by cumulative runs and by runs/100 produce almost the same order:
+
+| measure | value |
+|---|---|
+| qualified hitters (2024, `primary` threshold set) | 216 |
+| resolved eligible BBE range | 217 - 609 (median 369; max/min = 2.8x) |
+| Pearson(cumulative total, per-100) | 0.977 |
+| Spearman(cumulative total, per-100) | **0.992** |
+| median rank change switching to totals | 5 places of 216 |
+| p90 rank change | 13.5 places |
+| maximum rank change | 24 places (11% of the board) |
+| top-10 overlap | 6 of 10 |
+| top-25 overlap | 19 of 25 |
+| bottom-10 overlap | 6 of 10 |
+| bottom-25 overlap | 21 of 25 |
+| \|total\| vs. BBE | Pearson 0.041, Spearman -0.028 |
+| signed total vs. BBE | Pearson 0.093, Spearman 0.077 |
+
+Totals-first would not materially change the hitter leaderboard, because qualified hitters
+already have relatively homogeneous opportunity -- a 2.8x BBE range, against 10.2x across the
+pitcher prototype's own boards (60-610) and 610x across all 854 pitcher-seasons. The pitcher
+product is allowed a different primary presentation. **Do not alter hitter official-rank
+semantics for visual symmetry.**
+
+One honest qualification on that conclusion: it holds for the ORDERING (median 5 places,
+max 24 of 216), not uniformly for the HEAD of the board. Four of the ten most-favorable rows
+change identity, and all four arrivals are high-exposure seasons (425-541 BBE) that the rate
+key ranks 11th or lower. This does not overturn the conclusion -- it is the same
+workload-sensitivity the pitcher section documents, showing up in miniature -- but a claim
+that the visible top ten is unaffected would be false, and is not made here.
+
+**Provenance of 216 vs. the earlier 283.** An earlier pass reported n = 283, Spearman ~0.988
+and ~8 places. Both are arithmetically correct; they are different populations, not a
+corrected error:
+
+| n | definition | Spearman | median rank change |
+|---|---|---|---|
+| 283 | `eligible_batted_balls >= 200` alone | 0.988 | 8 places |
+| **216** | `qualification_status == "qualified"` -- the shipped contract | 0.992 | 5 places |
+
+The gap is the `min_games` half of the volume bar. `QUALIFICATION_THRESHOLD_SETS["primary"]`
+requires >=200 resolved eligible BBE **and >=100 games**; the 283-row cut applied only the
+first. The 67 extra rows are all `small_sample` on games alone (70-99 scored games, every one
+of them >=200 BBE), and the other three gates never bind on this season (0
+`provisionally_qualified`, 0 `insufficient_component_coverage`). Both paths use the same
+`eligible_batted_balls` column -- outcome-resolved rows only
+(`observed_contact_result_run_value.notna()`, so `field_error`/`fielders_choice` rows without
+an `outcome_class` are excluded from both) -- so the denominator is not the difference.
+
+Only the 216-row figures answer the question this section asks, which is about the SHIPPED
+board. The 283-row figures answer "what if the board dropped its games requirement", which is
+not a shipped configuration. The conclusion is unchanged and slightly stronger on the shipped
+population.
+
+### Limits on every number in this section
+
+- **2024 development season only.** No 2025, no 2026, no prospective scoring.
+- **No predictive or out-of-sample claim** is made or supported by anything here.
+- Development-only: this is not a validation of the pitcher metric against held-out data, and
+  2024 has been iterated against elsewhere in this repository (see "Version 0.7 is now FROZEN"
+  in `RESEARCH_RULES.md`).
+- Conditional on the frozen Contact Luck scoring model throughout.
+
+### Files
+
+| Module | Role |
+|---|---|
+| `demo/build_pitcher_prototype_fixture.py` | Offline generator. Calls the frozen batter runner unchanged, re-aggregates by pitcher, projects names/usage/largest plays, and writes the fixture plus the research report backing this section |
+| `dashboard/pitcher_prototype_fixture.json` | Committed 2024 development fixture (854 pitcher-seasons). Reviewed reference data, same convention as `demo_fixture.json` |
+| `dashboard/pitcher_prototype_content.py` | Fail-closed loader + view-models. Recomputes nothing |
+| `dashboard/templates/pitchers.html`, `pitcher.html` | The two prototype surfaces |
+| `tests/test_dashboard_pitcher_prototype.py` | 20 tests: fail-closed routing, ranking key, population separation, vocabulary, small-sample honesty |
+
+```bash
+# Regenerate the fixture (local dev only; trains the frozen models on 2021-2023,
+# scores 2024; no network access):
+.venv/bin/python demo/build_pitcher_prototype_fixture.py
+
+# Build the site WITH the local prototype (no production invocation passes this flag):
+.venv/bin/python dashboard/build.py \
+    --explore-artifacts-dir dashboard/explore_fixture \
+    --pitcher-prototype-fixture dashboard/pitcher_prototype_fixture.json
+```
+
+Routes emitted only when that flag is passed: `/pitchers/` and `/pitchers/<pitcher_id>/`.
+A bare `build.py` emits neither, and no navigation entry points at them -- the same
+fail-closed convention the Play Explorer uses, verified by
+`tests/test_dashboard_pitcher_prototype.py::TestFailClosedRouting`.
+
+### A fourth `ZeroScale`, declared deliberately
+
+`dashboard/visuals.ZeroScale`'s docstring states the product has exactly three canonical
+scales and that adding a fourth is a design review rather than a code change. The prototype
+adds `pitcher_cumulative_runs`, and this is that decision written down: its ranked quantity is
+a cumulative RUN TOTAL, which no existing scale measures. Drawing it on `league_per_100` would
+put a +20-run season off the end of a rate axis; drawing it on `run_value` would put a season
+total on a single-play axis. Both would be false alignments.
+
+Invariant Z still holds and is what makes the fourth scale safe: it is built with
+`from_values(..., zero_fraction=league_scale.zero_fraction)`, so zero sits at the same
+`--cl-zero` as every other figure on the site. Invariant D deliberately does not apply -- the
+same exception the `run_value` scale takes -- and the price of that exception is paid in the
+template, which prints the scale's own ticks, its own unit and its own domain on every surface
+that uses it.
+
 ## Version 1.1: prospective 2026 scoring
 
 Version 1.0 (`evaluation/run_v1_final_evaluation.py`) is the sealed, one-time final
