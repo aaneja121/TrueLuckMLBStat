@@ -2929,20 +2929,42 @@ which supersedes a freeze built on a dirty tree while the specification is still
 written; it archives the outgoing copy under `superseded/` and stops working once a
 freeze has been written from a clean tree.
 
-### Authorization: the 2025 run is NOT approved
+### Authorization: granted 2026-09-08, for this replication only
 
 **A 2025 pitcher replication is a SECOND sealed evaluation through a SECOND code path.**
 `RESEARCH_RULES.md` permits 2025 to enter this repository exactly once, through
-`evaluation/run_v1_final_evaluation.py`, and states that being asked to run a second
-final evaluation, loosen a guard, or make 2025 reachable from another code path is "a
-new, separate decision requiring the user's explicit sign-off, not a natural extension of
-this one."
+`evaluation/run_v1_final_evaluation.py`, and reserves any second use for "a new, separate
+decision requiring the user's explicit sign-off."
 
-That sign-off has not been given. `assert_ready_for_2025` therefore always raises, and
-would additionally require a clean tree, a non-provisional freeze, intact 2025 protection
-in `mlb_luck_score.config`, an empty replication namespace, and full freeze validation.
-Freezing the specification first is the correct order of operations; it is not the
-approval.
+That sign-off was given on **2026-09-08** and is recorded in
+`replication/pitcher_replication_authorization.py`. Scope: *"One-time held-out 2025
+full-season replication of Pitcher Contact Luck under the frozen Version 0.14
+specification."*
+
+Three properties make it safe to have written down:
+
+- **It binds by hash.** The record names the authorized `freeze_content_hash` AND
+  `spec_content_hash`. `resolve_authorization` refuses to apply it to anything else, so
+  amending the specification silently voids the authorization rather than inheriting it.
+- **It is one-time.** `assert_no_replication_outputs_exist` fails readiness the moment the
+  replication namespace holds output, so the run cannot be repeated.
+- **It sits outside the freeze.** The frozen spec's
+  `AUTHORIZATION_STATUS["second_sealed_2025_evaluation_authorized"]` still reads `False`,
+  because it records the state *at freeze time*. That flag is the evidence the questions
+  were fixed before the sign-off; "fixing" it would change `spec_content_hash` and
+  invalidate the freeze. The authorization module is likewise absent from
+  `FROZEN_SOURCE_RELATIVE_PATHS` — a frozen set cannot contain its own later
+  authorization.
+
+Authorization is necessary, not sufficient. `assert_ready_for_2025` still requires a clean
+tree, a non-provisional freeze, intact 2025 protection in `mlb_luck_score.config`, an
+empty replication namespace, and full freeze validation. It withholds everything listed in
+`AUTHORIZATION_EXCLUSIONS` — changing the metric, denominator, estimators, role/display
+rules or thresholds; adding metrics after seeing 2025; selecting subsets; redesigning the
+UI before the result is reported; reading 2026; touching Contact Forecast; deploying.
+
+**No other research line may read 2025 on the strength of this**, and it does not extend
+to 2026.
 
 ### Files
 
@@ -2951,6 +2973,7 @@ approval.
 | `replication/pitcher_replication_spec.py` | The pre-registration itself: constants only, no I/O |
 | `replication/pitcher_replication_estimators.py` | Question E's estimators, extracted from the fixture generator |
 | `replication/pitcher_split_half.py` | Question F, ported from the accepted Version 0.11 procedure |
+| `replication/pitcher_replication_authorization.py` | The maintainer's 2026-09-08 sign-off, bound to the freeze by hash |
 | `replication/pitcher_replication_freeze.py` | Hashing, guards, write-once artifact, amendment path, the 2025 gate |
 | `tests/test_pitcher_replication_freeze.py` | 94 tests, including proof that building the freeze reads no data |
 | `tests/test_pitcher_replication_estimators.py` | 26 tests, including exact reproduction of every Version 0.13.1 value |

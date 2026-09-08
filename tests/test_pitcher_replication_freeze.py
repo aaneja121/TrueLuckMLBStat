@@ -196,14 +196,79 @@ class TestClassificationRule:
         assert "AS A PACKAGE" in spec.CLASSIFICATION_RULE["decision_procedure"]
 
 
-class TestAuthorizationIsNotGranted:
-    def test_second_sealed_evaluation_is_not_authorized(self) -> None:
+class TestAuthorization:
+    def test_the_frozen_spec_still_records_the_pre_authorization_state(self) -> None:
+        """This flag must NEVER be 'fixed'. It records the state at freeze
+        time, which is the evidence the questions preceded the sign-off;
+        editing it would change spec_content_hash and void the freeze.
+        """
         assert spec.AUTHORIZATION_STATUS["second_sealed_2025_evaluation_authorized"] is False
 
-    def test_assert_ready_for_2025_refuses_without_signoff(self, isolated_namespace: Path) -> None:
+    def test_authorization_is_recorded_outside_the_frozen_source_set(self) -> None:
+        assert (
+            "replication/pitcher_replication_authorization.py"
+            not in prf.FROZEN_SOURCE_RELATIVE_PATHS
+        )
+
+    def test_an_explicit_false_still_forces_refusal(self, isolated_namespace: Path) -> None:
         freeze = prf.build_freeze()
         with pytest.raises(prf.FreezeError, match="SECOND sealed evaluation"):
+            prf.assert_ready_for_2025(freeze, maintainer_authorized_second_sealed_evaluation=False)
+
+    def test_the_recorded_authorization_binds_to_the_committed_freeze(self) -> None:
+        """The authorization must apply to the real artifact on disk."""
+        if not prf.FREEZE_PATH.is_file():
+            pytest.skip("no freeze artifact written in this checkout")
+        binds, reasons = prf.resolve_authorization(prf.read_freeze())
+        assert binds, reasons
+
+    def test_authorization_does_not_transfer_to_a_different_spec(self) -> None:
+        if not prf.FREEZE_PATH.is_file():
+            pytest.skip("no freeze artifact written in this checkout")
+        freeze = prf.read_freeze()
+        object.__setattr__(freeze, "spec_content_hash", "9" * 64)
+        binds, reasons = prf.resolve_authorization(freeze)
+        assert not binds
+        assert any("spec_content_hash mismatch" in r for r in reasons)
+
+    def test_authorization_does_not_transfer_to_a_different_freeze(self) -> None:
+        if not prf.FREEZE_PATH.is_file():
+            pytest.skip("no freeze artifact written in this checkout")
+        freeze = prf.read_freeze()
+        object.__setattr__(freeze, "notes", ["a materially different freeze"])
+        object.__setattr__(freeze, "repository_commit", "0" * 40)
+        binds, reasons = prf.resolve_authorization(freeze)
+        assert not binds
+        assert any("freeze_content_hash mismatch" in r for r in reasons)
+
+    def test_a_non_binding_authorization_blocks_readiness(self, isolated_namespace: Path) -> None:
+        """A freeze the authorization does not name must still be refused."""
+        freeze = prf.build_freeze()
+        object.__setattr__(freeze, "spec_content_hash", "8" * 64)
+        with pytest.raises(prf.FreezeError, match="mismatch"):
             prf.assert_ready_for_2025(freeze)
+
+    def test_the_authorization_record_states_its_scope_and_limits(self) -> None:
+        import pitcher_replication_authorization as auth
+
+        record = auth.authorization_record()
+        assert record["scope"] == "pitcher_replication_only"
+        assert record["declarations"]["one_time_use"] is True
+        assert record["declarations"]["is_a_second_sealed_2025_evaluation"] is True
+        assert record["declarations"]["no_2025_outcome_opened_at_authorization_time"] is True
+        assert "2026" in record["declarations"]["does_not_extend_to_2026"]
+        for withheld in ("reading 2026", "retuning thresholds", "deploying anything"):
+            assert withheld in record["exclusions"]
+
+    def test_the_authorization_names_the_committed_freeze(self) -> None:
+        import pitcher_replication_authorization as auth
+
+        if not prf.FREEZE_PATH.is_file():
+            pytest.skip("no freeze artifact written in this checkout")
+        freeze = prf.read_freeze()
+        assert freeze.freeze_content_hash() == auth.AUTHORIZED_FREEZE_CONTENT_HASH
+        assert freeze.spec_content_hash == auth.AUTHORIZED_SPEC_CONTENT_HASH
+        assert freeze.repository_commit == auth.AUTHORIZED_FREEZE_REPOSITORY_COMMIT
 
     def test_assert_ready_for_2025_refuses_a_provisional_dirty_tree_freeze(
         self, isolated_namespace: Path, monkeypatch: pytest.MonkeyPatch
@@ -213,6 +278,23 @@ class TestAuthorizationIsNotGranted:
         if freeze.working_tree_clean:
             pytest.skip("tree is clean; the provisional-freeze branch is unreachable here")
         with pytest.raises(prf.FreezeError, match="PROVISIONAL"):
+            prf.assert_ready_for_2025(freeze, maintainer_authorized_second_sealed_evaluation=True)
+
+    def test_authorization_alone_does_not_bypass_the_other_guards(
+        self, isolated_namespace: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 2025 result already present must block readiness even with a
+        valid sign-off -- that is what makes the authorization one-time.
+
+        The tree and provisional checks run first, so both are stubbed out
+        here to isolate the one-time guard from this checkout's tree state.
+        """
+        freeze = prf.build_freeze()
+        object.__setattr__(freeze, "working_tree_clean", True)
+        monkeypatch.setattr(prf, "working_tree_status", lambda repo_root=None: (True, []))
+        prf.REPLICATION_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        (prf.REPLICATION_OUTPUTS_DIR / "result.json").write_text("{}")
+        with pytest.raises(prf.FreezeError, match="NOT empty"):
             prf.assert_ready_for_2025(freeze, maintainer_authorized_second_sealed_evaluation=True)
 
 

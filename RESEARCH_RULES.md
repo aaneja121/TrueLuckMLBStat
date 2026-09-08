@@ -84,28 +84,48 @@ loosen any guard above, or to make 2025 reachable from a second code path -- tre
 as a new, separate decision requiring the user's explicit sign-off, not a natural
 extension of this one.
 
-### A second sealed 2025 evaluation has been SPECIFIED but NOT authorized
+### A second sealed 2025 evaluation IS authorized -- for the pitcher replication ONLY
 
 Version 0.14 (`replication/`) pre-registers a one-time held-out 2025 replication of the
-pitcher findings: the questions, the estimators, and the classification rule are frozen
-and hashed, deliberately before any 2025 data is opened. **Freezing the specification is
-not the sign-off.** That replication is exactly the "second final evaluation through a
-second code path" the paragraph above reserves for a separate decision, and no such
-decision has been recorded.
+pitcher findings: the questions, the estimators, and the classification rule were frozen
+and hashed before any 2025 data was opened. **Freezing the specification was not the
+sign-off.** On 2026-09-08 the maintainer gave that sign-off explicitly, as the separate
+decision the paragraph above requires. It is recorded in
+`replication/pitcher_replication_authorization.py`.
 
-Consequently: `replication/` may not download, read, score, or aggregate 2025 rows, and
-nothing in it may pass `allow_final_evaluation=True`. Its
-`assert_ready_for_2025` gate always raises while
-`maintainer_authorized_second_sealed_evaluation` is False, and additionally requires a
-clean tree, a non-provisional freeze, intact 2025 protection, an empty replication
-namespace, and a validating freeze. Do not treat the existence of the freeze artifact,
-the namespace, or a `make` target as authorization to proceed -- ask first, in that
-moment, exactly as this section requires.
+The authorization is deliberately narrow:
 
-If that sign-off is later given, everything in the numbered list above (isolated
-namespaces, a locally-defined date range, a dedicated entry point, provenance recording,
-fail-fast guards, synthetic-data testing before real access, a clean committed tree)
-applies to it unchanged.
+- **Scope.** "One-time held-out 2025 full-season replication of Pitcher Contact Luck
+  under the frozen Version 0.14 specification." Exactly one evaluation, for the
+  preregistered questions only.
+- **Bound by hash.** It names the authorized `freeze_content_hash` AND
+  `spec_content_hash`. `resolve_authorization` refuses to apply it to any other freeze,
+  so amending the specification silently voids it and a new sign-off is required.
+- **One-time.** Enforced by `assert_no_replication_outputs_exist`: once the replication
+  namespace holds output, readiness fails and a rerun is refused.
+- **Recorded after the freeze, on purpose.** The frozen spec's
+  `AUTHORIZATION_STATUS["second_sealed_2025_evaluation_authorized"]` still reads False
+  because it records the state at freeze time. Do not "fix" it -- that flag is the
+  evidence the questions preceded the sign-off, and editing it would invalidate the
+  freeze.
+
+It does NOT authorize: changing the metric, denominator, interval estimator,
+resolving-power or split-half methodology, the role/display rules, or the primary and
+secondary quantities; adding metrics after seeing 2025; selecting subsets; retuning
+thresholds; redesigning the pitcher UI before the result is reported and frozen; reading
+2026; touching Contact Forecast; or deploying. The full withheld list is
+`AUTHORIZATION_EXCLUSIONS`.
+
+**No other research line may read 2025 on the strength of this.** Neither this
+authorization nor the Version 1.0 final evaluation extends to any other use; each needs
+its own explicit sign-off, asked for in the moment.
+
+Everything in the numbered list above (isolated namespaces, a locally-defined date range,
+a dedicated entry point, provenance recording, fail-fast guards, synthetic-data testing
+before real access, a clean committed tree) applies to this run unchanged. `replication/`
+still may not pass `allow_final_evaluation=True` from anywhere but its own dedicated
+entry point, and `assert_ready_for_2025` still requires a clean tree, a non-provisional
+freeze, intact 2025 protection, an empty replication namespace, and a validating freeze.
 
 ## Version 1.1: prospective 2026 scoring
 

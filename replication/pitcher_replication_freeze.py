@@ -31,15 +31,24 @@ amendment log -- it never mutates or deletes an existing revision, and it
 refuses unless the caller attests the amendment is being recorded BEFORE any
 2025 access.
 
-## This module does not authorize a 2025 run
+## Authorization is recorded elsewhere, and binds by hash
 
-See `pitcher_replication_spec.AUTHORIZATION_STATUS`. 2025 is
+This module does not itself authorize anything. 2025 is
 `FINAL_TEST_SEASONS`; `RESEARCH_RULES.md` permits it exactly once, through
-the sealed Version 1.0 entry point, which has been used. A second sealed
+the sealed Version 1.0 entry point, which has been used, so a second sealed
 evaluation needs the maintainer's explicit sign-off as a separate decision.
-`assert_ready_for_2025` encodes every precondition and always fails while
-that sign-off is absent -- deliberately, so this namespace cannot become the
-second code path by accident.
+
+That sign-off lives in `pitcher_replication_authorization`, recorded AFTER
+the freeze and deliberately outside `FROZEN_SOURCE_RELATIVE_PATHS` -- the
+frozen spec's own `AUTHORIZATION_STATUS` still reads False because it
+records the state at freeze time, which is the evidence that the questions
+were fixed before the sign-off. `resolve_authorization` binds a recorded
+authorization to a freeze by BOTH content hashes, so a sign-off can never
+transfer to a different specification.
+
+`assert_ready_for_2025` consults it and still enforces every other
+precondition, so this namespace cannot become the second code path by
+accident.
 
 `evaluation/` is a plain script directory, not part of the installed
 `mlb_luck_score` package, and `replication/` follows it: not covered by
@@ -632,30 +641,69 @@ def validate_freeze(
     }
 
 
+def resolve_authorization(freeze: PitcherReplicationFreeze) -> tuple[bool, list[str]]:
+    """Is there a recorded maintainer sign-off that applies to THIS freeze?
+
+    The authorization lives in `pitcher_replication_authorization`, recorded
+    after (and deliberately outside) the freeze -- see that module's
+    docstring for why editing the frozen spec to flip a flag would have
+    destroyed the pre-registration evidence.
+
+    Returns:
+        `(authorized, reasons)`. `reasons` explains every failure to bind,
+        so a refusal can say precisely why rather than just "no".
+    """
+    try:
+        from pitcher_replication_authorization import authorization_binds_to
+    except ImportError:  # pragma: no cover -- the module is committed alongside this one
+        return (False, ["no authorization record exists in this repository"])
+    return authorization_binds_to(freeze)
+
+
 def assert_ready_for_2025(
     freeze: PitcherReplicationFreeze,
     *,
-    maintainer_authorized_second_sealed_evaluation: bool = False,
+    maintainer_authorized_second_sealed_evaluation: bool | None = None,
     repo_root: Path = REPO_ROOT,
 ) -> None:
-    """The gate a future 2025 runner must pass. ALWAYS raises while the
-    second-sealed-evaluation sign-off is absent.
+    """The gate a 2025 runner must pass.
 
     `RESEARCH_RULES.md` permits 2025 exactly once, through the sealed
-    Version 1.0 entry point, which has been used. This function exists so
-    that a later author who wires up a 2025 runner has to confront that rule
-    explicitly rather than discover it afterwards.
+    Version 1.0 entry point, which has been used. A pitcher replication is a
+    SECOND sealed evaluation through a second code path, and needs its own
+    explicit maintainer sign-off.
+
+    Authorization resolution:
+      - `None` (the default) consults the recorded authorization via
+        `resolve_authorization`, which binds by freeze AND spec content hash
+        so a sign-off can never transfer to a different specification.
+      - `False` forces refusal regardless of what is recorded.
+      - `True` asserts the sign-off directly, for a caller that has it out
+        of band. It does not skip any other check below.
+
+    Every other precondition is unchanged and still mandatory: a clean
+    working tree, a non-provisional freeze, intact 2025 protection, an empty
+    replication namespace (which is what makes the authorization one-time),
+    and a fully validating freeze.
 
     Raises:
-        FreezeError: if authorization is absent, the tree is dirty, the
-            freeze does not validate, or a 2025 result already exists.
+        FreezeError: if authorization is absent or does not bind, the tree
+            is dirty, the freeze is provisional, 2025 protection has lapsed,
+            a 2025 result already exists, or the freeze does not validate.
     """
-    if not maintainer_authorized_second_sealed_evaluation:
+    if maintainer_authorized_second_sealed_evaluation is None:
+        authorized, reasons = resolve_authorization(freeze)
+    else:
+        authorized, reasons = (
+            bool(maintainer_authorized_second_sealed_evaluation),
+            ["authorization explicitly withheld by the caller"],
+        )
+    if not authorized:
         raise FreezeError(
             "A 2025 pitcher replication is a SECOND sealed evaluation through a SECOND "
             "code path. RESEARCH_RULES.md requires the maintainer's explicit sign-off "
-            "for that as a separate decision. It has not been given, so this freeze "
-            "authorizes no 2025 access."
+            "for that as a separate decision, recorded against this exact freeze. It "
+            "does not apply here, so this freeze authorizes no 2025 access: " + "; ".join(reasons)
         )
     is_clean, dirty = working_tree_status(repo_root)
     if not is_clean:
