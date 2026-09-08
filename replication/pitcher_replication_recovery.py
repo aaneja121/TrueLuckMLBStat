@@ -79,7 +79,14 @@ from pitcher_replication_incident import FAILURE_RECORD_PATH, read_failure_recor
 
 RECOVERY_MANIFEST_VERSION = "1.0.0"
 
-RECOVERY_MANIFEST_PATH = ARTIFACTS_DIR / "recovery_manifest.json"
+#: Recovery manifests are ADDITIVE and numbered. Revision 1 was sealed for
+#: the code that hit the 2026-09-08 recovery-readiness bug; it is preserved
+#: byte-identically and never resealed. Revision 2 covers the corrected
+#: recovery-control code. `RECOVERY_MANIFEST_PATH` always names the CURRENT
+#: revision; earlier ones remain on disk beside it.
+RECOVERY_MANIFEST_REVISION = 2
+RECOVERY_MANIFEST_PATH = ARTIFACTS_DIR / f"recovery_manifest_rev{RECOVERY_MANIFEST_REVISION}.json"
+SUPERSEDED_RECOVERY_MANIFEST_PATHS: tuple[Path, ...] = (ARTIFACTS_DIR / "recovery_manifest.json",)
 RECOVERY_RECEIPT_PATH = ARTIFACTS_DIR / "recovery_receipt.json"
 
 #: The corrected runner plus every recovery-control source. Distinct from the
