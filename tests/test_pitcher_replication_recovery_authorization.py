@@ -21,23 +21,30 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestBindsToTheExactRecoveryManifest:
-    def test_it_names_the_manifest_actually_on_disk(self) -> None:
-        """The authorization must match the sealed artifact, not a value
-        copied from anywhere else.
-        """
-        live = rec.read_recovery_manifest().manifest_content_hash()
-        assert live == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+    SUPERSEDED = rec.SUPERSEDED_RECOVERY_MANIFEST_PATHS[0]
 
-    def test_it_binds_to_that_hash(self) -> None:
-        live = rec.read_recovery_manifest().manifest_content_hash()
-        authorized, reasons = auth.recovery_authorization_binds_to(live)
+    def test_it_names_the_revision_1_manifest_it_was_granted_for(self) -> None:
+        """The authorization matches the artifact it was sealed against --
+        revision 1, still on disk byte-identically.
+        """
+        v1 = rec.read_recovery_manifest(self.SUPERSEDED).manifest_content_hash()
+        assert v1 == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+
+    def test_it_binds_to_that_revision_1_hash(self) -> None:
+        v1 = rec.read_recovery_manifest(self.SUPERSEDED).manifest_content_hash()
+        authorized, reasons = auth.recovery_authorization_binds_to(v1)
         assert authorized is True
         assert reasons == []
 
-    def test_the_recovery_gate_now_resolves(self) -> None:
-        live = rec.read_recovery_manifest().manifest_content_hash()
-        authorized, reasons = rec.resolve_recovery_authorization(live)
-        assert authorized is True, reasons
+    def test_it_does_NOT_bind_to_the_current_revision_2_manifest(self) -> None:
+        """The recovery-control correction produced a new manifest, and this
+        sign-off deliberately does not follow it.
+        """
+        current = rec.read_recovery_manifest().manifest_content_hash()
+        assert current != auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+        authorized, reasons = rec.resolve_recovery_authorization(current)
+        assert authorized is False
+        assert any("does not transfer" in r for r in reasons)
 
     def test_it_fails_closed_on_any_other_manifest(self) -> None:
         for other in ("0" * 64, "deadbeef", "", "24e2ea817e741178fefdb5bd844603f67651983b"):
@@ -49,7 +56,7 @@ class TestBindsToTheExactRecoveryManifest:
         """Changing anything the manifest pins changes its hash, and the
         sign-off stops applying rather than following it.
         """
-        manifest = rec.read_recovery_manifest()
+        manifest = rec.read_recovery_manifest(self.SUPERSEDED)
         object.__setattr__(manifest, "corrected_runner_sha256", "9" * 64)
         authorized, _ = rec.resolve_recovery_authorization(manifest.manifest_content_hash())
         assert authorized is False
@@ -58,7 +65,7 @@ class TestBindsToTheExactRecoveryManifest:
 class TestTheAuthorizationRecord:
     def test_it_pins_every_required_identity(self) -> None:
         record = auth.recovery_authorization_record()
-        manifest = rec.read_recovery_manifest()
+        manifest = rec.read_recovery_manifest(rec.SUPERSEDED_RECOVERY_MANIFEST_PATHS[0])
         assert record["original_execution_id"] == "8edc32d6ca8830ce"
         assert record["original_receipt_sha256"] == manifest.original_receipt_sha256
         assert (
@@ -125,18 +132,21 @@ class TestOrderingAndIsolation:
             not in rec.RECOVERY_SOURCE_RELATIVE_PATHS
         )
 
-    def test_the_recovery_manifest_was_never_rebuilt_to_suit_this_authorization(self) -> None:
-        """The sealed v1 manifest is preserved byte-identically.
+    def test_revision_1_is_preserved_and_never_resealed(self) -> None:
+        """The manifest this authorization names is still on disk, unchanged.
 
         It no longer VALIDATES -- the recovery-control code was corrected
         after the 2026-09-08 recovery-readiness bug, and that drift is
-        exactly what it exists to detect. Preserved is not the same as
-        current; it is never resealed.
+        exactly what it exists to detect. Revision 2 was sealed BESIDE it.
         """
-        manifest = rec.read_recovery_manifest()
-        assert manifest.manifest_content_hash() == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+        v1_path = rec.SUPERSEDED_RECOVERY_MANIFEST_PATHS[0]
+        assert v1_path.is_file()
+        v1 = rec.read_recovery_manifest(v1_path)
+        assert v1.manifest_content_hash() == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
         with pytest.raises(rec.RecoveryError, match="changed since sealing|incident record"):
-            rec.validate_recovery_manifest(manifest)
+            rec.validate_recovery_manifest(v1)
+        assert v1_path != rec.RECOVERY_MANIFEST_PATH
+        assert rec.RECOVERY_MANIFEST_PATH.is_file()
 
     def test_the_research_freeze_was_not_rebuilt(self) -> None:
         report = prf.validate_freeze(prf.read_freeze())
@@ -179,10 +189,10 @@ class TestThisAuthorizationIsNowSuperseded:
     NEW maintainer sign-off are required before any resumption.
     """
 
-    def test_readiness_now_refuses_because_the_sealed_manifest_is_stale(
+    def test_readiness_refuses_because_no_authorization_covers_revision_2(
         self, clean_tree: None
     ) -> None:
-        with pytest.raises(rec.RecoveryError, match="changed since sealing|incident record"):
+        with pytest.raises(rec.RecoveryError, match="No maintainer authorization"):
             rec.assert_ready_for_recovery()
 
     def test_the_authorization_did_not_transfer_to_the_corrected_code(self) -> None:
@@ -193,14 +203,9 @@ class TestThisAuthorizationIsNowSuperseded:
         assert moved is False
         assert any("does not transfer" in r for r in reasons)
 
-    def test_the_stale_manifest_refusal_takes_precedence(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Integrity is checked before tree state, so a stale manifest is
-        reported even on a dirty tree -- the more fundamental problem wins.
-        """
+    def test_readiness_still_refuses_on_a_dirty_tree(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(rec, "working_tree_status", lambda repo_root=None: (False, ["M x"]))
-        with pytest.raises(rec.RecoveryError, match="changed since sealing"):
+        with pytest.raises(rec.RecoveryError, match="not clean"):
             rec.assert_ready_for_recovery()
 
     def test_readiness_still_refuses_if_2025_artifacts_change(
