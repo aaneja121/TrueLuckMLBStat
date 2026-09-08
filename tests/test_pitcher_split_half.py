@@ -197,3 +197,82 @@ class TestQuestionFStaysSecondary:
         assert result["pitcher_min_each_half_20"]["odd_even"]["n"] == 550
         assert "no exact prior value to reproduce" in result["known_discrepancy"].lower()
         assert "0.0 on every value" in result["batter_side_reproduction"]
+
+
+class TestTheReproductionControlIsScopedToItsOwnSeason:
+    """The sealed 2025 run reported `implementation_trustworthy = false`.
+
+    The post-replication audit traced that to the CONTROL's wiring, not to
+    the procedure: `reproduce_batter_side` compares against the fixed
+    `BATTER_SIDE_2024_REFERENCE`, but measures whatever artifacts its caller
+    hands it. `build_question_f_report` is called with the 2025 evaluation
+    artifacts during the replication, so the control compared a 2025
+    measurement against a 2024 reference -- a season mismatch that cannot
+    match regardless of whether the implementation is correct.
+
+    Run on the artifacts it was designed for (the 2024 development season,
+    via `make question-f-2024`) the same code reproduces the committed
+    Version 0.11 Phase 6 numbers to an absolute difference of 0.0.
+
+    These tests pin that diagnosis. They must not be "fixed" by editing
+    `pitcher_split_half`, which is frozen source file 15/15 -- changing it
+    would invalidate the freeze the sealed 2025 result is provenance-bound
+    to. See `docs/pitcher_replication_2025_question_f_erratum.md`.
+    """
+
+    def test_the_reference_is_a_fixed_constant_with_no_season_parameter(self) -> None:
+        """The control has no way to know which season it is measuring."""
+        import inspect
+
+        signature = inspect.signature(psh.reproduce_batter_side)
+        assert "season" not in signature.parameters
+        assert set(psh.BATTER_SIDE_2024_REFERENCE) == {"calendar", "odd_even"}
+
+    def test_the_control_cannot_pass_on_artifacts_from_another_population(
+        self, request: pytest.FixtureRequest
+    ) -> None:
+        """Foreign artifacts fail the control even though the procedure is
+        the same one that reproduces 2024 exactly.
+        """
+        reproduction = psh.reproduce_batter_side(_synthetic_artifacts(request))
+        assert reproduction["reproduces"] is False
+        for split in psh.SPLITS:
+            entry = reproduction["splits"][split]
+            assert entry["matches"] is False
+            # The reference side is untouched: only the measurement differs.
+            assert entry["reference"] == psh.BATTER_SIDE_2024_REFERENCE[split]
+            assert entry["measured"]["group"] == "batter"
+
+    def test_a_failed_control_still_reports_the_pitcher_figures(
+        self, request: pytest.FixtureRequest
+    ) -> None:
+        """`implementation_trustworthy` is a separate flag; it never blanks
+        or alters the pitcher split-half numbers themselves.
+        """
+        artifacts = _synthetic_artifacts(request)
+        report = psh.build_question_f_report(artifacts)
+        assert report["implementation_trustworthy"] is False
+        for split in psh.SPLITS:
+            standalone = psh.compute_split_half_reliability(artifacts, group="pitcher", split=split)
+            assert report["pitcher"][split] == standalone
+
+    def test_the_trustworthy_flag_never_reaches_the_package_classification(self) -> None:
+        """The classification reads `agrees` only. A false trustworthy flag
+        cannot move the verdict -- which is why the sealed REPLICATED
+        classification stands.
+        """
+        import pitcher_replication_questions as prq
+
+        answers = {
+            "A_population_and_centering": {"agrees": True},
+            "B_opportunity_heterogeneity": {"agrees": True},
+            "C_totals_vs_rate": {"agrees": True},
+            "D_reliever_single_play_dominance": {"agrees": True},
+            "E_rate_precision": {"agrees": True},
+            "F_persistence": {"agrees": True, "implementation_trustworthy": False},
+            "G_real_play_sanity_check": {"agrees": None},
+        }
+        verdict = prq.classify(answers)
+        assert verdict["classification"] == "REPLICATED"
+        assert verdict["primary_disagreements"] == []
+        assert verdict["secondary_disagreements"] == []
