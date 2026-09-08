@@ -36,11 +36,22 @@ def clean_tree(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rec, "working_tree_status", lambda repo_root=None: (True, []))
 
 
-class TestRecoveryAuthorizationIsAbsent:
-    def test_no_recovery_authorization_exists(self) -> None:
-        authorized, reasons = rec.resolve_recovery_authorization("any-hash")
+class TestRecoveryAuthorizationGate:
+    """The maintainer granted the recovery authorization on 2026-09-08. These
+    assert the gate's post-authorization contract; the earlier
+    "no authorization exists" versions were correct only before it.
+    """
+
+    def test_a_recovery_authorization_now_exists_and_binds(self) -> None:
+        live = rec.read_recovery_manifest().manifest_content_hash()
+        authorized, reasons = rec.resolve_recovery_authorization(live)
+        assert authorized is True, reasons
+
+    def test_it_still_refuses_any_manifest_it_does_not_name(self) -> None:
+        """Fail-closed: the sign-off is bound to one exact manifest hash."""
+        authorized, reasons = rec.resolve_recovery_authorization("0" * 64)
         assert authorized is False
-        assert any("no recovery authorization has been recorded" in r for r in reasons)
+        assert any("does not transfer" in r for r in reasons)
 
     def test_the_original_authorization_is_not_reused(self) -> None:
         """Behavioural, not textual: the ORIGINAL authorization still binds to
@@ -54,10 +65,12 @@ class TestRecoveryAuthorizationIsAbsent:
             "a spent one-time authorization must not satisfy the recovery gate"
         )
 
-    def test_readiness_refuses_solely_because_authorization_is_absent(
+    def test_readiness_refuses_a_manifest_the_authorization_does_not_cover(
         self, sealed_elsewhere: Path, clean_tree: None
     ) -> None:
-        """Every other precondition passes; only the missing sign-off blocks."""
+        """A manifest sealed elsewhere has a different hash, so the sign-off
+        does not apply and readiness refuses -- naming the spent original.
+        """
         rec.write_recovery_manifest(rec.build_recovery_manifest(), path=rec.RECOVERY_MANIFEST_PATH)
         with pytest.raises(rec.RecoveryError) as excinfo:
             rec.assert_ready_for_recovery()
@@ -66,9 +79,14 @@ class TestRecoveryAuthorizationIsAbsent:
         assert "CONSUMED by execution" in message
         assert "may not be reused as though unspent" in message
 
-    def test_a_recovery_run_therefore_cannot_execute(self) -> None:
-        with pytest.raises(rec.RecoveryError, match="No maintainer authorization|No recovery"):
-            rec.assert_ready_for_recovery()
+    def test_the_spent_original_authorization_is_never_consulted(self) -> None:
+        """Behavioural: the ORIGINAL authorization still binds to the freeze,
+        but it is a different mechanism and cannot satisfy the recovery gate.
+        """
+        binds, _ = prf.resolve_authorization(prf.read_freeze())
+        assert binds is True
+        authorized, _ = rec.resolve_recovery_authorization("not-the-recovery-manifest")
+        assert authorized is False
 
 
 class Test2025ArtifactIntegrity:
