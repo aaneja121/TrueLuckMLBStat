@@ -125,20 +125,36 @@ class TestOrderingAndIsolation:
             not in rec.RECOVERY_SOURCE_RELATIVE_PATHS
         )
 
-    def test_the_recovery_manifest_was_not_rebuilt_for_this_authorization(self) -> None:
+    def test_the_recovery_manifest_was_never_rebuilt_to_suit_this_authorization(self) -> None:
+        """The sealed v1 manifest is preserved byte-identically.
+
+        It no longer VALIDATES -- the recovery-control code was corrected
+        after the 2026-09-08 recovery-readiness bug, and that drift is
+        exactly what it exists to detect. Preserved is not the same as
+        current; it is never resealed.
+        """
         manifest = rec.read_recovery_manifest()
         assert manifest.manifest_content_hash() == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
-        assert rec.validate_recovery_manifest(manifest)["valid"] is True
+        with pytest.raises(rec.RecoveryError, match="changed since sealing|incident record"):
+            rec.validate_recovery_manifest(manifest)
 
     def test_the_research_freeze_was_not_rebuilt(self) -> None:
         report = prf.validate_freeze(prf.read_freeze())
         assert report["valid"] is True
         assert report["source_files_verified"] == 15
 
-    def test_the_originals_are_still_preserved(self) -> None:
+    def test_the_original_receipt_is_still_byte_identical(self) -> None:
         hashes = rec.assert_originals_preserved()
         assert hashes["execution_start_receipt"] == auth.ORIGINAL_RECEIPT_SHA256
-        assert hashes["incident_record"] == auth.INCIDENT_RECORD_SHA256
+
+    def test_the_incident_log_grew_by_append_not_by_edit(self) -> None:
+        """A second incident was appended, so the log hash necessarily moved.
+        The ORIGINAL record must still be there, unchanged, as entry 0.
+        """
+        records = inc.read_failure_records()
+        assert len(records) >= 2
+        assert records[0]["incident"] == "execution_failure_after_held_out_ingestion"
+        assert records[0]["execution_id"] == auth.ORIGINAL_EXECUTION_ID
 
 
 @pytest.fixture
@@ -154,29 +170,37 @@ def clean_tree(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rec, "working_tree_status", lambda repo_root=None: (True, []))
 
 
-class TestRecoveryReadiness:
-    def test_readiness_now_passes(self, clean_tree: None) -> None:
-        report = rec.assert_ready_for_recovery()
-        assert report["ready"] is True
-        assert report["valid"] is True
-        assert report["recovery_sources_verified"] == 7
-        assert report["artifacts_2025_verified"] == 3
-        assert report["originals_preserved"] is True
-        assert report["recovery_manifest_hash"] == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+class TestThisAuthorizationIsNowSuperseded:
+    """The 2026-09-08 recovery-readiness bug forced a recovery-control code
+    change. The manifest this authorization names therefore no longer
+    validates, and the authorization is void by its own fail-closed rule.
 
-    def test_readiness_still_refuses_once_a_recovery_receipt_exists(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_tree: None
+    That is the design working, not a defect: a NEW recovery manifest and a
+    NEW maintainer sign-off are required before any resumption.
+    """
+
+    def test_readiness_now_refuses_because_the_sealed_manifest_is_stale(
+        self, clean_tree: None
     ) -> None:
-        """Authorization does not bypass the one-attempt guard."""
-        receipt = tmp_path / "recovery_receipt.json"
-        receipt.write_text(json.dumps({"recovery_id": "x", "reopened_at_utc": "t"}))
-        monkeypatch.setattr(rec, "RECOVERY_RECEIPT_PATH", receipt)
-        with pytest.raises(rec.RecoveryError, match="permitted ONE attempt"):
+        with pytest.raises(rec.RecoveryError, match="changed since sealing|incident record"):
             rec.assert_ready_for_recovery()
 
-    def test_readiness_still_refuses_on_a_dirty_tree(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_the_authorization_did_not_transfer_to_the_corrected_code(self) -> None:
+        """It still binds to its own named hash and nothing else."""
+        authorized, _ = auth.recovery_authorization_binds_to(auth.AUTHORIZED_RECOVERY_MANIFEST_HASH)
+        assert authorized is True
+        moved, reasons = auth.recovery_authorization_binds_to("7" * 64)
+        assert moved is False
+        assert any("does not transfer" in r for r in reasons)
+
+    def test_the_stale_manifest_refusal_takes_precedence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Integrity is checked before tree state, so a stale manifest is
+        reported even on a dirty tree -- the more fundamental problem wins.
+        """
         monkeypatch.setattr(rec, "working_tree_status", lambda repo_root=None: (False, ["M x"]))
-        with pytest.raises(rec.RecoveryError, match="not clean"):
+        with pytest.raises(rec.RecoveryError, match="changed since sealing"):
             rec.assert_ready_for_recovery()
 
     def test_readiness_still_refuses_if_2025_artifacts_change(

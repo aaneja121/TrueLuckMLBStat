@@ -158,6 +158,23 @@ def _mint_authorization(freeze_hash: str, execution_manifest_hash: str) -> Repli
     )
 
 
+def mint_authorization_after_recovery_gate(
+    freeze_hash: str, recovery_manifest_hash: str
+) -> ReplicationAuthorization:
+    """Mint a token for the RECOVERY state machine.
+
+    There are exactly two minting entries in this package, one per gate:
+    `run_readiness_checks` (first look) and this function
+    (`pitcher_replication_recovery.run_recovery_readiness_checks`). Neither
+    can be reached without its gate having passed, which is what keeps
+    `allow_final_evaluation=True` behind a check in both paths.
+
+    Callers other than the recovery gate must not use this -- a test asserts
+    it has exactly one call site.
+    """
+    return _mint_authorization(freeze_hash, recovery_manifest_hash)
+
+
 def require_authorization(authorization: Any, fn_name: str) -> None:
     """The single choke point through which `allow_final_evaluation=True`
     becomes reachable.

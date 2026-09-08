@@ -194,7 +194,17 @@ def verify_2025_artifacts(data_dir: Path | None = None) -> dict[str, Any]:
             f"No incident record at {FAILURE_RECORD_PATH}; refusing to verify recovery "
             "inputs without the record they must match."
         )
-    recorded = {entry["path"].split("/")[-1]: entry for entry in records[-1]["artifacts_2025"]}
+    # The authoritative baseline is the FIRST record carrying an artifact
+    # inventory -- the incident that downloaded them. Later incidents (e.g. a
+    # recovery-readiness failure) record the same files under their own key,
+    # and must never be able to redefine what "unchanged" means.
+    baseline = next((r for r in records if r.get("artifacts_2025")), None)
+    if baseline is None:
+        raise RecoveryError(
+            "No incident record carries a 2025 artifact inventory; refusing to verify "
+            "recovery inputs without the baseline they must match."
+        )
+    recorded = {entry["path"].split("/")[-1]: entry for entry in baseline["artifacts_2025"]}
     if not recorded:
         raise RecoveryError("The incident record lists no 2025 artifacts to verify.")
 
@@ -219,6 +229,65 @@ def verify_2025_artifacts(data_dir: Path | None = None) -> dict[str, Any]:
         }
     if problems:
         raise RecoveryError("2025 artifact integrity FAILED: " + "; ".join(problems))
+    return verified
+
+
+def assert_no_completed_results(outputs_dir: Path | None = None) -> dict[str, Any]:
+    """No COMPLETED replication output may exist.
+
+    This is the recovery counterpart to the first-look namespace check, and
+    the distinction is the whole point of this module: a recovery REQUIRES
+    the cached 2025 inputs in `data/pitcher_replication/2025/` to exist, and
+    REFUSES any finished result in `outputs/pitcher_replication/v0_14/` or a
+    run seal. `pitcher_replication_freeze.assert_no_replication_outputs_exist`
+    conflates the two namespaces, which is correct before a first look and
+    wrong after one.
+
+    Raises:
+        RecoveryError: if any result artifact or run seal is present.
+    """
+    outputs_dir = outputs_dir if outputs_dir is not None else REPLICATION_OUTPUTS_DIR
+    results = (
+        sorted(
+            display_path(p) for p in outputs_dir.rglob("*") if p.is_file() and p.name != ".gitkeep"
+        )
+        if outputs_dir.exists()
+        else []
+    )
+    seal = ARTIFACTS_DIR / "pitcher_replication_2025_seal.json"
+    if results or seal.exists():
+        raise RecoveryError(
+            "A completed 2025 replication result already exists -- results: "
+            f"{results or 'none'}; run seal present: {seal.exists()}. The recovery may "
+            "reuse cached INPUTS, but it may never overwrite a finished replication."
+        )
+    return {"completed_results": [], "run_seal_exists": False}
+
+
+def assert_cached_inputs_exact(data_dir: Path | None = None) -> dict[str, Any]:
+    """The cached 2025 inputs must be EXACTLY the pinned set.
+
+    Stricter than `verify_2025_artifacts`: as well as requiring each pinned
+    file to be present and byte-identical, it refuses any EXTRA file in the
+    input directory. An unapproved artifact there could silently become an
+    input to the resumed run.
+
+    Raises:
+        RecoveryError: on a missing, altered, or extra cached input.
+    """
+    data_dir = data_dir if data_dir is not None else REPLICATION_DATA_DIR
+    verified = verify_2025_artifacts(data_dir)
+    present = (
+        {p.name for p in data_dir.rglob("*") if p.is_file() and p.name != ".gitkeep"}
+        if data_dir.exists()
+        else set()
+    )
+    extra = sorted(present - set(verified))
+    if extra:
+        raise RecoveryError(
+            f"Unapproved file(s) in the cached 2025 input directory: {extra}. The recovery "
+            "reuses exactly the artifacts the recovery manifest pins, and nothing else."
+        )
     return verified
 
 
@@ -573,7 +642,11 @@ def assert_ready_for_recovery(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     freeze = read_freeze()
     validate_freeze(freeze, repo_root)
     assert_originals_preserved()
-    verify_2025_artifacts()
+    # Cached INPUTS are REQUIRED here; completed OUTPUTS are refused. This is
+    # deliberately NOT assert_ready_for_2025, whose namespace-empty condition
+    # is a first-look guard and is incompatible with a resumption.
+    assert_cached_inputs_exact()
+    assert_no_completed_results()
 
     manifest = read_recovery_manifest()
     report = validate_recovery_manifest(manifest, repo_root)
@@ -595,6 +668,65 @@ def assert_ready_for_recovery(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     return {**report, "ready": True}  # pragma: no cover -- unreachable until authorized
 
 
+# ---------------------------------------------------------------------------
+# The recovery execution path -- structurally separate from the first look
+# ---------------------------------------------------------------------------
+
+
+def run_recovery_readiness_checks(
+    repo_root: Path = REPO_ROOT,
+) -> tuple[Any, RecoveryManifest, dict[str, Any]]:
+    """The recovery gate, and the only other place a token is minted.
+
+    Deliberately does NOT call `assert_ready_for_2025`: that is the
+    pre-first-look gate, and its namespace-empty condition is incompatible
+    with a resumption whose cached inputs must already exist.
+
+    Raises:
+        RecoveryError: on any failed recovery precondition.
+    """
+    from pitcher_replication_execution import mint_authorization_after_recovery_gate
+
+    report = assert_ready_for_recovery(repo_root)
+    manifest = read_recovery_manifest()
+    authorization = mint_authorization_after_recovery_gate(
+        manifest.freeze_content_hash, manifest.manifest_content_hash()
+    )
+    return authorization, manifest, report
+
+
+def run_recovery(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
+    """The ONE authorized technical recovery, end to end.
+
+    **Not a first look.** 2025 was opened by the original execution; this
+    resumes it over the same cached, hash-verified inputs and performs no
+    network operation.
+
+    The recovery receipt is written between the last check and the first
+    read, so the recovery authorization is spent at resumption rather than at
+    successful completion. There is no automatic retry.
+    """
+    import logging
+
+    from run_pitcher_replication_2025 import execute_replication_stages
+
+    log = logging.getLogger(__name__)
+    log.info("=== recovery readiness (no data is read during these) ===")
+    authorization, manifest, report = run_recovery_readiness_checks(repo_root)
+    log.info("recovery readiness passed: %s", json.dumps(report, sort_keys=True))
+
+    log.info("=== writing the recovery receipt: 2025 is about to be RE-opened ===")
+    receipt = write_recovery_receipt(manifest)
+    log.info("recovery authorization CONSUMED, recovery_id=%s", receipt["recovery_id"])
+
+    return execute_replication_stages(
+        authorization,
+        execution_id=receipt["recovery_id"],
+        execution_manifest_hash=manifest.manifest_content_hash(),
+        repo_root=repo_root,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -605,7 +737,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seal-recovery-manifest", action="store_true")
     parser.add_argument("--check-recovery-readiness", action="store_true")
     parser.add_argument("--verify-2025-artifacts", action="store_true")
+    parser.add_argument(
+        "--run-recovery",
+        action="store_true",
+        help=(
+            "Execute the ONE authorized recovery. RE-opens the cached 2025 inputs. Writes "
+            "a recovery receipt first and cannot be repeated."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.run_recovery:
+        results = run_recovery()
+        print(json.dumps(results["classification"], indent=2, sort_keys=True))
+        return 0
 
     if args.verify_2025_artifacts:
         print(json.dumps(verify_2025_artifacts(), indent=2, sort_keys=True))

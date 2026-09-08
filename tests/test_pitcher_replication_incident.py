@@ -230,7 +230,7 @@ class TestIncidentRecord:
         records = inc.read_failure_records()
         if not records:
             pytest.skip("no incident recorded in this checkout")
-        record = records[-1]
+        record = records[0]  # the ORIGINAL incident; later ones are appended after it
         assert record["exception_type"] == "FinalEvaluationError"
         assert record["guard_fired_before_model_fitting"] is True
         assert record["is_a_first_look"] is False

@@ -227,6 +227,64 @@ def build_failure_record(
     }
 
 
+def build_recovery_readiness_failure_record(
+    *,
+    exception_type: str,
+    exception_message: str,
+    stack_location: str,
+    notes: list[str] | None = None,
+) -> dict[str, Any]:
+    """A SECOND incident: an authorized recovery attempt that failed during
+    READINESS, before the recovery receipt and before any second read of 2025.
+
+    Distinct from the first incident, which failed after ingestion. Here
+    nothing was re-opened and the authorized recovery attempt was NOT
+    consumed -- `recovery_receipt_existed` records that explicitly.
+    """
+    from pitcher_replication_execution import EXECUTION_RECEIPT_PATH
+
+    recovery_receipt = ARTIFACTS_DIR / "recovery_receipt.json"
+    outputs_dir = REPO_ROOT / "outputs" / "pitcher_replication" / "v0_14"
+    result_files = (
+        [display_path(p) for p in outputs_dir.rglob("*") if p.is_file() and p.name != ".gitkeep"]
+        if outputs_dir.exists()
+        else []
+    )
+    receipt = json.loads(EXECUTION_RECEIPT_PATH.read_text())
+
+    return {
+        "recorded_at_utc": datetime.now(UTC).isoformat(),
+        "incident": "recovery_readiness_failure_before_receipt",
+        "sequence": 2,
+        "original_execution_id": receipt["execution_id"],
+        "exception_type": exception_type,
+        "exception_message": exception_message,
+        "stack_location": stack_location,
+        "stage_reached": "recovery readiness; before the recovery receipt and before any read",
+        "exposure": {
+            "recovery_receipt_existed": recovery_receipt.exists(),
+            "authorized_recovery_attempt_consumed": recovery_receipt.exists(),
+            "season_2025_reread_during_this_attempt": False,
+            "model_parameters_fit": False,
+            "questions_a_to_g_computed": False,
+            "classification_computed": False,
+            "result_artifact_exists": bool(result_files),
+            "result_files": result_files,
+            "season_2026_read": False,
+        },
+        "cached_2025_inputs_preserved": inventory_2025_artifacts(),
+        "originals_preserved": True,
+        "is_a_first_look": False,
+        "note": (
+            "The authorized recovery attempt failed during readiness and therefore did NOT "
+            "consume the authorization: no recovery receipt was written and 2025 was not "
+            "re-opened. The cached 2025 inputs were neither deleted, moved, regenerated nor "
+            "redownloaded."
+        ),
+        "notes": notes or [],
+    }
+
+
 def append_failure_record(record: dict[str, Any], *, path: Path | None = None) -> tuple[Path, str]:
     """Append one incident record. Never rewrites or truncates the log.
 

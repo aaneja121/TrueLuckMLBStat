@@ -322,10 +322,13 @@ class TestOriginalsArePreserved:
         assert receipt["one_time_use"] is True
 
     def test_the_incident_record_is_intact(self) -> None:
+        """The ORIGINAL incident is record 0 and never moves as more are
+        appended.
+        """
         records = inc.read_failure_records()
         assert records
-        assert records[-1]["exception_type"] == "FinalEvaluationError"
-        assert records[-1]["exposure"]["model_parameters_fit"] is False
+        assert records[0]["exception_type"] == "FinalEvaluationError"
+        assert records[0]["exposure"]["model_parameters_fit"] is False
 
 
 class TestOneRecoveryAttempt:
@@ -416,3 +419,146 @@ class TestScientificStateDidNotMove:
             else []
         )
         assert files == []
+
+
+class TestTwoSeparateStateMachines:
+    """The first-look gate and the recovery gate are structurally distinct.
+
+    The 2026-09-08 recovery-readiness bug was that the corrected runner still
+    routed through `assert_ready_for_2025`, whose namespace-empty condition is
+    a pre-first-look guard and is incompatible with a resumption over cached
+    inputs.
+    """
+
+    def test_the_first_look_guard_still_refuses_when_any_2025_artifact_exists(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """UNCHANGED and still protecting ordinary first executions.
+
+        The clean-tree check runs first, so it is stubbed to isolate the
+        namespace-empty condition under test.
+        """
+        monkeypatch.setattr(prf, "working_tree_status", lambda repo_root=None: (True, []))
+        with pytest.raises(prf.FreezeError, match="NOT empty"):
+            prf.assert_ready_for_2025(prf.read_freeze())
+
+    def test_the_first_look_guard_was_not_weakened(self) -> None:
+        source = Path(prf.__file__).read_text()
+        gate = source.split("def assert_ready_for_2025", 1)[1].split("\ndef ", 1)[0]
+        assert "assert_no_replication_outputs_exist()" in gate
+        assert "ignore_namespace" not in source
+        assert "skip_namespace" not in source
+
+    def test_the_recovery_gate_does_not_call_the_first_look_gate(self) -> None:
+        """Comments may NAME the first-look gate to explain the separation;
+        what must not appear is a CALL to it.
+        """
+        source = Path(rec.__file__).read_text()
+        gate = source.split("def assert_ready_for_recovery", 1)[1].split("\ndef ", 1)[0]
+        code = "\n".join(line for line in gate.splitlines() if not line.lstrip().startswith("#"))
+        assert "assert_ready_for_2025(" not in code
+        assert "assert_no_replication_outputs_exist(" not in code
+
+    def test_recovery_execution_does_not_call_the_first_look_gate(self) -> None:
+        source = Path(rec.__file__).read_text()
+        body = source.split("def run_recovery(", 1)[1].split("\ndef ", 1)[0]
+        assert "run_recovery_readiness_checks" in body
+        assert "assert_ready_for_2025" not in body
+        assert "run_readiness_checks(" not in body
+
+    def test_first_look_execution_still_calls_the_first_look_gate(self) -> None:
+        runner = Path(REPO_ROOT / "replication" / "run_pitcher_replication_2025.py").read_text()
+        body = runner.split("def run_replication(", 1)[1].split("\ndef ", 1)[0]
+        assert "run_readiness_checks(" in body
+
+    def test_both_paths_share_the_same_execution_stages(self) -> None:
+        """Only the gate differs; the science is identical either way."""
+        runner = Path(REPO_ROOT / "replication" / "run_pitcher_replication_2025.py").read_text()
+        assert "def execute_replication_stages(" in runner
+        first = runner.split("def run_replication(", 1)[1].split("\ndef ", 1)[0]
+        assert "execute_replication_stages(" in first
+        recovery = Path(rec.__file__).read_text().split("def run_recovery(", 1)[1]
+        assert "execute_replication_stages(" in recovery
+
+    def test_the_recovery_mint_has_exactly_one_call_site(self) -> None:
+        source = Path(rec.__file__).read_text()
+        assert source.count("mint_authorization_after_recovery_gate") == 2  # import + call
+        gate = source.split("def run_recovery_readiness_checks", 1)[1].split("\ndef ", 1)[0]
+        assert "mint_authorization_after_recovery_gate(" in gate
+
+
+class TestCachedInputsVersusCompletedOutputs:
+    """The distinction the bug conflated."""
+
+    def test_cached_inputs_are_required_not_refused(self) -> None:
+        verified = rec.assert_cached_inputs_exact()
+        assert len(verified) == 3
+
+    def test_a_missing_cached_input_refuses(self, tmp_path: Path) -> None:
+        empty = tmp_path / "2025"
+        empty.mkdir()
+        with pytest.raises(rec.RecoveryError, match="is missing"):
+            rec.assert_cached_inputs_exact(empty)
+
+    def test_changed_cached_bytes_refuse(self, tmp_path: Path) -> None:
+        decoy = tmp_path / "2025"
+        decoy.mkdir()
+        for name in (
+            "statcast_2025_regular_season.parquet",
+            "game_metadata_2025.parquet",
+            "sprint_speed_2025.parquet",
+        ):
+            (decoy / name).write_bytes(b"tampered")
+        with pytest.raises(rec.RecoveryError, match="bytes changed since the incident"):
+            rec.assert_cached_inputs_exact(decoy)
+
+    def test_an_extra_unapproved_cached_artifact_refuses(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        staged = tmp_path / "2025"
+        staged.mkdir()
+        for entry in inc.read_failure_records()[0]["artifacts_2025"]:
+            name = entry["path"].split("/")[-1]
+            (staged / name).write_bytes((prf.REPLICATION_DATA_DIR / name).read_bytes())
+        (staged / "sneaky_extra.parquet").write_bytes(b"unapproved")
+        with pytest.raises(rec.RecoveryError, match="Unapproved file"):
+            rec.assert_cached_inputs_exact(staged)
+
+    def test_no_completed_result_currently_exists(self) -> None:
+        report = rec.assert_no_completed_results()
+        assert report["completed_results"] == []
+        assert report["run_seal_exists"] is False
+
+    def test_a_completed_result_refuses(self, tmp_path: Path) -> None:
+        outputs = tmp_path / "v0_14"
+        outputs.mkdir()
+        (outputs / "pitcher_replication_2025_results.json").write_text("{}")
+        with pytest.raises(rec.RecoveryError, match="completed 2025 replication result"):
+            rec.assert_no_completed_results(outputs)
+
+    def test_completed_results_check_ignores_the_input_directory(self, tmp_path: Path) -> None:
+        """Cached inputs must never be mistaken for a finished result."""
+        empty_outputs = tmp_path / "v0_14"
+        empty_outputs.mkdir()
+        assert rec.assert_no_completed_results(empty_outputs)["completed_results"] == []
+
+
+class TestTheFailedRecoveryAttemptWasNotConsumed:
+    def test_no_recovery_receipt_was_created(self) -> None:
+        assert not rec.RECOVERY_RECEIPT_PATH.exists()
+
+    def test_the_second_incident_is_recorded(self) -> None:
+        records = inc.read_failure_records()
+        second = [r for r in records if r.get("sequence") == 2]
+        assert second, "the recovery-readiness failure must be recorded"
+        exposure = second[-1]["exposure"]
+        assert exposure["recovery_receipt_existed"] is False
+        assert exposure["authorized_recovery_attempt_consumed"] is False
+        assert exposure["season_2025_reread_during_this_attempt"] is False
+        assert exposure["season_2026_read"] is False
+
+    def test_the_incident_log_is_append_only_and_kept_both(self) -> None:
+        records = inc.read_failure_records()
+        assert len(records) >= 2
+        assert records[0]["incident"] == "execution_failure_after_held_out_ingestion"
+        assert records[-1]["incident"] == "recovery_readiness_failure_before_receipt"

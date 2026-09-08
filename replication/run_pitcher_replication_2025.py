@@ -86,7 +86,6 @@ for _extra in ("src", "evaluation", "replication"):
 from pitcher_replication_execution import (  # noqa: E402
     EXECUTION_RECEIPT_PATH,
     ExecutionError,
-    ExecutionManifest,
     ReplicationAuthorization,
     assert_within_namespace,
     build_execution_manifest,
@@ -425,13 +424,20 @@ def _play_record(row: pd.Series) -> dict[str, Any]:
 
 
 def run_replication(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
-    """The one-time held-out 2025 replication, end to end.
+    """The FIRST-LOOK 2025 replication, end to end.
+
+    This path is for a 2025 that has never been opened. Its gate is
+    `run_readiness_checks` -> `assert_ready_for_2025`, which requires the
+    replication namespace to be completely empty. That condition is
+    deliberately incompatible with a recovery, where the cached 2025 inputs
+    MUST already exist -- see `pitcher_replication_recovery.run_recovery`,
+    which is a structurally separate state machine with its own gate.
 
     Readiness runs FIRST and the receipt is written BEFORE any ingestion, so
     no 2025 byte is read until the authorization has been verified and
     consumed.
     """
-    logger.info("=== readiness checks (no data is read during these) ===")
+    logger.info("=== first-look readiness checks (no data is read during these) ===")
     authorization, manifest, readiness = run_readiness_checks(repo_root)
     logger.info("readiness passed: %s", json.dumps(readiness, sort_keys=True))
 
@@ -439,6 +445,29 @@ def run_replication(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     receipt = write_execution_start_receipt(authorization, manifest)
     logger.info("authorization CONSUMED, execution_id=%s", receipt["execution_id"])
 
+    return execute_replication_stages(
+        authorization,
+        execution_id=receipt["execution_id"],
+        execution_manifest_hash=manifest.manifest_content_hash(),
+        repo_root=repo_root,
+    )
+
+
+def execute_replication_stages(
+    authorization: ReplicationAuthorization,
+    *,
+    execution_id: str,
+    execution_manifest_hash: str,
+    repo_root: Path = REPO_ROOT,
+) -> dict[str, Any]:
+    """Everything AFTER a receipt has been written: ingest, score, answer the
+    frozen questions, classify, write and seal.
+
+    Shared verbatim by the first-look and recovery paths, so the science is
+    identical either way and only the GATE differs. It performs no readiness
+    check of its own -- it requires a `ReplicationAuthorization` that only a
+    passed gate can mint, and every ingestion call re-checks it.
+    """
     logger.info("=== ingesting 2025 into the isolated namespace ===")
     provenance = {
         "raw_statcast": ingest_2025_raw(authorization=authorization),
@@ -473,8 +502,8 @@ def run_replication(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
         "spec_version": freeze.spec_version,
         "freeze_content_hash": freeze.freeze_content_hash(),
         "spec_content_hash": freeze.spec_content_hash,
-        "execution_manifest_hash": manifest.manifest_content_hash(),
-        "execution_id": receipt["execution_id"],
+        "execution_manifest_hash": execution_manifest_hash,
+        "execution_id": execution_id,
         "repository_commit": get_git_commit_hash(repo_root),
         "date_range": list(PITCHER_REPLICATION_2025_DATE_RANGE),
         "pitcher_season_rows": int(len(frame)),
@@ -487,7 +516,7 @@ def run_replication(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
         ),
     }
     _write_outputs(results, provenance)
-    _write_seal(results, manifest, receipt, repo_root)
+    _write_seal(results, execution_id, execution_manifest_hash, repo_root)
     return results
 
 
@@ -500,17 +529,18 @@ def _write_outputs(results: dict[str, Any], provenance: dict[str, Any]) -> None:
 
 def _write_seal(
     results: dict[str, Any],
-    manifest: ExecutionManifest,
-    receipt: dict[str, Any],
+    execution_id: str,
+    execution_manifest_hash: str,
     repo_root: Path,
 ) -> None:
     assert_within_namespace(SEAL_PATH, ARTIFACTS_DIR, label="seal")
+    freeze = read_freeze()
     seal = {
         "sealed_at_utc": datetime.now(UTC).isoformat(),
-        "execution_id": receipt["execution_id"],
-        "execution_manifest_hash": manifest.manifest_content_hash(),
-        "freeze_content_hash": manifest.freeze_content_hash,
-        "spec_content_hash": manifest.spec_content_hash,
+        "execution_id": execution_id,
+        "execution_manifest_hash": execution_manifest_hash,
+        "freeze_content_hash": freeze.freeze_content_hash(),
+        "spec_content_hash": freeze.spec_content_hash,
         "repository_commit": get_git_commit_hash(repo_root),
         "classification": results["classification"]["classification"],
         "primary_disagreements": results["classification"]["primary_disagreements"],
