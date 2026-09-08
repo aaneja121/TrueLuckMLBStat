@@ -646,3 +646,168 @@ class TestThePitcherSurfaceHasNo2026Dependency:
             for marker in ("</header>", "site-header"):
                 assert marker not in content
             assert "2026" not in content, f"{page} names 2026 in its own content"
+
+
+class TestTheRetrospectiveCaveatIsPerSurface:
+    """The shared footer sentence names BATTING talent.
+
+    That is the right caveat on a hitter page and the wrong noun on a
+    pitcher one, so the two surfaces carry two sentences. These tests exist
+    to make swapping them a test failure rather than a copy review: the
+    failure mode is silent, because either sentence reads perfectly well
+    until you notice it is describing the other half of the game.
+    """
+
+    def test_the_dashboard_copy_matches_the_centralized_label(self):
+        """`dashboard/` may not import scoring code, so the string is
+        duplicated. This equality is what stops the copy drifting from
+        `public_labels`, which is the authority for public language.
+        """
+        from mlb_luck_score.scoring import public_labels
+
+        assert ppc.PITCHER_RETROSPECTIVE_LIMITATION == (
+            public_labels.PITCHER_RETROSPECTIVE_LIMITATION
+        )
+
+    def test_the_two_sentences_are_distinct_and_name_the_right_half(self):
+        from mlb_luck_score.scoring import public_labels
+
+        hitter = public_labels.RETROSPECTIVE_LIMITATION
+        pitcher = public_labels.PITCHER_RETROSPECTIVE_LIMITATION
+        assert hitter != pitcher
+        assert "batting talent" in hitter and "pitching talent" not in hitter
+        assert "pitching talent" in pitcher and "batting talent" not in pitcher
+        # Both must still carry the retrospective claim in full force.
+        for text in (hitter, pitcher):
+            assert "retrospective" in text.lower()
+            assert "future performance" in text.lower()
+
+    def test_the_pitcher_caveat_carries_no_banned_phrase(self):
+        from mlb_luck_score.scoring.public_labels import (
+            PITCHER_RETROSPECTIVE_LIMITATION,
+            check_text_for_banned_phrases,
+        )
+
+        assert check_text_for_banned_phrases(PITCHER_RETROSPECTIVE_LIMITATION) == []
+
+    def test_pitcher_routes_render_the_pitcher_caveat_only(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            text = page.read_text()
+            assert "stable pitching talent" in text, page
+            assert "stable batting talent" not in text, page
+
+    def test_hitter_routes_keep_the_hitter_caveat_only(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        """Including in a build that HAS the pitcher surface -- the override
+        must not leak onto the rest of the site.
+        """
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in out_dir.rglob("index.html"):
+            if "pitchers" in page.parts:
+                continue
+            text = page.read_text()
+            assert "stable batting talent" in text, page
+            assert "stable pitching talent" not in text, page
+
+
+class TestTheRankedQuantityIsNeverCalledAllowed:
+    """ "Contact Luck allowed" reads against the sign convention.
+
+    "Allowed" is the runs-allowed idiom, where more is worse for the
+    pitcher -- but a POSITIVE Pitcher Contact Luck total is favorable to the
+    pitcher. The label and the sign pointed in opposite directions.
+    """
+
+    def test_no_pitcher_page_says_contact_luck_allowed(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            assert "contact luck allowed" not in page.read_text().lower(), page
+
+    def test_the_ranked_quantity_label_is_the_full_form(self):
+        assert dashboard_build.PITCHER_RANKED_QUANTITY_LABEL == "Cumulative Contact Luck Runs"
+
+    def test_the_board_and_card_both_name_the_quantity(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        index = (out_dir / "pitchers" / "index.html").read_text()
+        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        # The compact table header may shorten to "Contact Luck Runs"; the
+        # card's hero names the quantity in full.
+        assert "Contact Luck Runs" in index
+        assert "Cumulative Contact Luck Runs" in card
+
+    def test_the_sign_convention_is_unchanged(self, tmp_path, snapshot_roots, fixture_path):
+        """Renaming the label must not have touched what the sign means."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        assert "better for the pitcher" in card
+        data = ppc.load_pitcher_prototype_data(fixture_path)
+        assert data.rows[0].cumulative_contact_luck_runs > 0
+
+
+class TestTheDataContextIsRouteAware:
+    """The site chrome names the snapshot the route is showing.
+
+    The pitcher surface is a 2024 development season and shares no data
+    with the 2026 prospective snapshot, so printing "Data through Sep. 1,
+    2026" above it would attribute a season those pages never read.
+    """
+
+    def _badge(self, page: Path) -> str:
+        match = re.search(r'<p class="data-through">(.*?)</p>', page.read_text(), re.S)
+        assert match is not None, f"{page} has no data-through badge"
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", match.group(1))).strip()
+
+    def test_pitcher_pages_identify_the_fixture_season(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        season = str(ppc.load_pitcher_prototype_data(fixture_path).season)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            badge = self._badge(page)
+            assert "Pitcher data" in badge, page
+            assert season in badge, page
+
+    def test_pitcher_pages_do_not_claim_the_snapshot_date(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            assert "Data through" not in self._badge(page), page
+
+    def test_hitter_pages_keep_the_snapshot_date(self, tmp_path, snapshot_roots, fixture_path):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "players").rglob("index.html"):
+            badge = self._badge(page)
+            assert "Data through" in badge
+            assert "Pitcher data" not in badge
+        home = self._badge(out_dir / "index.html")
+        assert "Data through" in home and "Pitcher data" not in home
+
+    def test_the_season_comes_from_the_fixture_not_a_constant(self, tmp_path, snapshot_roots):
+        """Change the fixture's season and the badge must follow it.
+
+        This is what makes the badge a fact read off approved data rather
+        than a hard-coded assumption that could outlive it.
+        """
+        payload = _fixture_payload()
+        payload["season"] = 2023
+        path = tmp_path / "alt_fixture.json"
+        path.write_text(json.dumps(payload))
+        out_dir = _build(tmp_path, snapshot_roots, path)
+        badge = self._badge(out_dir / "pitchers" / "index.html")
+        assert "2023" in badge and "2024" not in badge
+
+    def test_the_pitcher_chrome_is_absent_when_the_surface_is(self, tmp_path, snapshot_roots):
+        """A build with no pitcher fixture must render no pitcher chrome."""
+        out_dir = _build(tmp_path, snapshot_roots, None)
+        text = (out_dir / "index.html").read_text()
+        assert "Pitcher data" not in text
+        assert "stable pitching talent" not in text

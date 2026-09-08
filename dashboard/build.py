@@ -858,7 +858,7 @@ class BuildResult:
 #: The board's ordering quantity, named once. Every label on the surface
 #: that says what is being ranked reads from here, so no template can
 #: describe the board as ranking something it does not.
-PITCHER_RANKED_QUANTITY_LABEL = "Cumulative Contact Luck allowed, runs"
+PITCHER_RANKED_QUANTITY_LABEL = "Cumulative Contact Luck Runs"
 
 _PITCHER_BOARD_DEFINITIONS: dict[str, str] = {
     "starter_like": (
@@ -1004,6 +1004,29 @@ def _pitcher_board_view(
         # marked -- so that is where the marker is spent. The band counts
         # for BOTH boards are stated above every board regardless.
         "show_bands": role_bucket == "reliever_like",
+    }
+
+
+def _pitcher_chrome(data: ppc.PitcherPrototypeData) -> dict[str, Any]:
+    """The two pieces of shared chrome the pitcher surface overrides.
+
+    Both exist because this surface shows a DIFFERENT body of data from the
+    rest of the site: a 2024 development season, sharing nothing with the
+    2026 prospective snapshot the hitter routes render.
+
+    - `pitcher_data_season` replaces the "Data through <snapshot date>"
+      provenance badge. Read off the fixture's own metadata, never written
+      as a constant here, so it can only ever name the season the fixture
+      actually holds.
+    - `pitcher_footer_framing` replaces the footer's retrospective caveat,
+      which names batting talent and is the wrong noun here.
+
+    Passed ONLY on pitcher routes. Every other route supplies neither key
+    and renders the shared chrome unchanged.
+    """
+    return {
+        "pitcher_data_season": data.season,
+        "pitcher_footer_framing": ppc.PITCHER_RETROSPECTIVE_LIMITATION,
     }
 
 
@@ -1708,7 +1731,7 @@ def build_dashboard(
         board_rows = [r for r in pitcher_data.rows if r.on_board]
         pitcher_scale = v.ZeroScale.from_values(
             "pitcher_cumulative_runs",
-            f"Contact Luck allowed, cumulative runs, {pitcher_data.season}",
+            f"Cumulative Contact Luck Runs, {pitcher_data.season}",
             [r.cumulative_ci_low for r in board_rows] + [r.cumulative_ci_high for r in board_rows],
             zero_fraction=league_scale.zero_fraction,
         )
@@ -1723,6 +1746,7 @@ def build_dashboard(
             env.get_template("pitchers.html").render(
                 **base_context,
                 active_page="pitchers",
+                **_pitcher_chrome(pitcher_data),
                 pitchers=pitcher_data,
                 boards=boards,
                 pitcher_scale=pitcher_scale,
@@ -1763,6 +1787,7 @@ def build_dashboard(
                 pitcher_card_template.render(
                     **base_context,
                     active_page=None,
+                    **_pitcher_chrome(pitcher_data),
                     p=card,
                     pitcher_scale=pitcher_scale,
                     pitcher_scale_ticks=pitcher_scale_ticks,

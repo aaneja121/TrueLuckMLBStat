@@ -311,7 +311,7 @@ class TestZeroSpineDiscipline:
         adding it here and saying which zero-centred quantity it draws.
 
         - `.play-gap-field` -- expected vs. observed run value on one play.
-        - `.pitcher-board-table` -- cumulative Contact Luck allowed, runs
+        - `.pitcher-board-table` -- Cumulative Contact Luck Runs
           (Version 0.13.1 local prototype).
         - `.pitcher-mark-row` -- the same quantity on a pitcher card. It
           shares one grouped rule with `.pitcher-league-row`, the population

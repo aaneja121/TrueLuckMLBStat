@@ -35,6 +35,22 @@ RETROSPECTIVE_LIMITATION = (
     "stable batting talent and not a projection of future performance."
 )
 
+#: The same limitation, said for the PITCHER surface. `RETROSPECTIVE_
+#: LIMITATION` above names batting talent, which is the correct caveat on a
+#: hitter page and simply the wrong noun on a pitcher one -- so the pitcher
+#: routes get their own sentence rather than a reworded shared one that
+#: would be vague on both. The two are deliberately separate constants: a
+#: surface picks the one that describes it, and neither is a default for
+#: the other. The claim is identical in force -- retrospective, not talent,
+#: not a forecast -- and the sign convention it describes is the frozen one
+#: (positive = the realized outcome was more favorable to the pitcher than
+#: the contact predicted).
+PITCHER_RETROSPECTIVE_LIMITATION = (
+    "Pitcher Contact Luck is retrospective. It describes how favorable or unfavorable the "
+    "outcomes on a pitcher's contact were relative to what that contact predicted. It is "
+    "not a measure of stable pitching talent or of future performance."
+)
+
 #: Phase 7's leaderboard produces two directions -- the task explicitly asks
 #: that the unfavorable one NOT be called "worst players."
 MOST_FAVORABLE_LEADERBOARD_LABEL = "Most favorable realized luck"

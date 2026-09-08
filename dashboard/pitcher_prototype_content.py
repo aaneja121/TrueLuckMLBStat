@@ -46,6 +46,7 @@ __all__ = [
     "PitcherRow",
     "PitcherPrototypeError",
     "PlayHighlight",
+    "PITCHER_RETROSPECTIVE_LIMITATION",
     "ROLE_LABELS",
     "ROLE_USAGE_PHRASES",
     "WORKLOAD_BAND_LABELS",
@@ -74,6 +75,25 @@ ROLE_USAGE_PHRASES: dict[str, str] = {
     "reliever_like": "Reliever-like usage",
     "ambiguous": "Mixed usage",
 }
+
+#: The retrospective-limitation sentence for the PITCHER surface, duplicated
+#: verbatim from `mlb_luck_score.scoring.public_labels.
+#: PITCHER_RETROSPECTIVE_LIMITATION`.
+#:
+#: Duplicated rather than imported for the same reason every other public
+#: string on this surface is: no module under `dashboard/` may import
+#: scoring code (`CLAUDE.md` rule 6, enforced by
+#: `tests/test_dashboard_isolation.py`). The copy is bound to its source by
+#: an equality test, which is what stops the two drifting apart.
+#:
+#: The site footer's shared sentence names *batting* talent, which is right
+#: on a hitter page and wrong on this one. Pitcher routes render this
+#: instead; hitter routes are untouched.
+PITCHER_RETROSPECTIVE_LIMITATION = (
+    "Pitcher Contact Luck is retrospective. It describes how favorable or unfavorable the "
+    "outcomes on a pitcher's contact were relative to what that contact predicted. It is "
+    "not a measure of stable pitching talent or of future performance."
+)
 
 #: Display organization for the reliever-like board. These band a continuous
 #: workload axis for legibility; none of them is a qualification tier.

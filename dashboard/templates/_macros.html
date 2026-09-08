@@ -214,7 +214,7 @@
 
   Column tiers, shedding right to left (docs/design/tables.md):
     Identity (#, Pitcher)  never sheds
-    Verdict  (Contact Luck Allowed, runs)  never sheds
+    Verdict  (Contact Luck Runs)  never sheds
     Evidence (Opportunity: BBE, appearances)  sheds after Rate
     Rate     (per 100 + interval)  sheds first
 
@@ -266,7 +266,7 @@
 <div class="pitcher-scroll overflow-x">
 <table class="pitcher-board-table" id="pb-{{ board.slug }}">
   <caption class="visually-hidden">
-    {{ board.label }} pitchers, ordered by cumulative Contact Luck allowed in runs over the
+    {{ board.label }} pitchers, ordered by Cumulative Contact Luck Runs over the
     {{ board.season }} season. Each row also carries the batted balls that total was
     accumulated over and the same total normalized to 100 batted balls with its 95% interval.
     This board is ranked only against itself.
@@ -302,7 +302,7 @@
         <div class="verdict-inner">
           <div class="cl-axis-figure">
             <div class="cl-distribution" role="img"
-                 aria-label="Cumulative Contact Luck allowed across all {{ board.marks | length }} ranked {{ board.label | lower }} pitchers, from {{ board.marks[0].score | signed(1) }} to {{ board.marks[-1].score | signed(1) }} runs.">
+                 aria-label="Cumulative Contact Luck Runs across all {{ board.marks | length }} ranked {{ board.label | lower }} pitchers, from {{ board.marks[0].score | signed(1) }} to {{ board.marks[-1].score | signed(1) }} runs.">
               {% for mark in board.marks %}
               <span class="cl-distribution-mark {{ 'cl-scale-favorable' if mark.favorable else 'cl-scale-unfavorable' }}"
                     style="left: {{ mark.left }}"></span>
@@ -317,7 +317,7 @@
       <th scope="col" class="pcol-rank"><span class="visually-hidden">Position in this board</span><span aria-hidden="true">#</span></th>
       <th scope="col" class="pcol-name">Pitcher</th>
       <th scope="col" class="pcol-verdict">
-        Contact Luck allowed
+        Contact Luck Runs
         <span class="pcol-sub">cumulative runs, {{ board.season }}</span>
       </th>
       <th scope="col" class="pcol-evidence">

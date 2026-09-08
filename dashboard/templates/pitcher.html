@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
 {% block title %}{{ p.name }} · Pitcher Contact Luck ({{ p.season }} prototype){% endblock %}
-{% block meta_description %}{{ p.name }} allowed {{ p.total | signed(2) }} runs of Contact Luck over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} development season.{% endblock %}
+{% block meta_description %}{{ p.name }}: {{ p.total | signed(2) }} Cumulative Contact Luck Runs over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} development season.{% endblock %}
 {% block content %}
 {#
   Version 0.13.1 LOCAL PROTOTYPE -- the pitcher card.
@@ -48,7 +48,7 @@
      because "runs" and "runs per 100" are different answers to different
      questions and this page shows both. #}
   <div class="pitcher-hero {{ 'is-favorable' if p.favorable else 'is-unfavorable' }}">
-    <p class="pitcher-hero-eyebrow">Contact Luck allowed</p>
+    <p class="pitcher-hero-eyebrow">Cumulative Contact Luck Runs</p>
     <p class="pitcher-hero-value num">{{ p.total | signed(2) }}<span class="pitcher-hero-unit">runs</span></p>
 
     {# The sign, said in words next to the number that carries it. The two
@@ -83,7 +83,7 @@
       <p class="pitcher-plot-label">All {{ board_count }} ranked {{ p.role_label | lower }} pitchers</p>
       <div class="pitcher-league-row">
         <div class="cl-distribution" role="img"
-             aria-label="Cumulative Contact Luck allowed across all {{ board_marks | length }} ranked {{ p.role_label | lower }} pitchers, from {{ board_marks[0].score | signed(1) }} to {{ board_marks[-1].score | signed(1) }} runs.">
+             aria-label="Cumulative Contact Luck Runs across all {{ board_marks | length }} ranked {{ p.role_label | lower }} pitchers, from {{ board_marks[0].score | signed(1) }} to {{ board_marks[-1].score | signed(1) }} runs.">
           {% for mark in board_marks %}
           <span class="cl-distribution-mark {{ 'cl-scale-favorable' if mark.favorable else 'cl-scale-unfavorable' }}"
                 style="left: {{ mark.left }}"></span>
