@@ -263,7 +263,7 @@ def assert_2025_protection_intact() -> dict[str, Any]:
     }
 
 
-def _display_path(path: Path) -> str:
+def display_path(path: Path) -> str:
     """Repo-relative where possible, absolute otherwise. Never raises: these
     directories are module-level constants that a test (or a future runner
     with a relocated namespace) may point outside the repository, and a
@@ -278,7 +278,7 @@ def _display_path(path: Path) -> str:
 def _listing(directory: Path) -> list[str]:
     if not directory.exists():
         return []
-    return sorted(_display_path(p) for p in directory.rglob("*") if p.is_file())
+    return sorted(display_path(p) for p in directory.rglob("*") if p.is_file())
 
 
 def assert_no_replication_outputs_exist() -> dict[str, Any]:
@@ -297,8 +297,8 @@ def assert_no_replication_outputs_exist() -> dict[str, Any]:
             f"an outcome that already exists: {found}"
         )
     return {
-        "data_dir": _display_path(REPLICATION_DATA_DIR),
-        "outputs_dir": _display_path(REPLICATION_OUTPUTS_DIR),
+        "data_dir": display_path(REPLICATION_DATA_DIR),
+        "outputs_dir": display_path(REPLICATION_OUTPUTS_DIR),
         "data_dir_exists": REPLICATION_DATA_DIR.exists(),
         "outputs_dir_exists": REPLICATION_OUTPUTS_DIR.exists(),
         "files_present": [],

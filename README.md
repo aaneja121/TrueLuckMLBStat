@@ -2966,6 +2966,54 @@ UI before the result is reported; reading 2026; touching Contact Forecast; deplo
 **No other research line may read 2025 on the strength of this**, and it does not extend
 to 2026.
 
+### The execution runner (built, sealed, NOT run)
+
+`replication/run_pitcher_replication_2025.py` is the dedicated entry point, and the only
+code path permitted to open 2025 for this research line. It has been written, tested
+against synthetic data, committed, and its pre-execution manifest sealed. **It has not
+been run, and 2025 remains unopened.**
+
+Order of operations, enforced and tested:
+
+```
+run_readiness_checks()           freeze validates, 15/15 frozen sources, authorization
+                                 binds by hash, clean tree, 2025 protection intact,
+                                 namespace empty, no prior receipt, execution manifest
+                                 validates -- no data is read by any of this
+write_execution_start_receipt()  the authorization is CONSUMED here
+ingest 2025 ...                  the first byte of held-out data
+train_and_score_2025(...)        the frozen scoring path, reused unchanged
+questions A-G, classification
+write outputs and seal
+```
+
+Four properties are what make this safe to have in the repository:
+
+- **Nothing happens at import.** Every data-layer import is deferred into a function, so
+  importing the runner reads no file and opens no socket. A test imports it with every
+  pandas reader and every `requests` method armed to raise.
+- **`allow_final_evaluation=True` has one road in.** `require_authorization` is the only
+  place that grants it, and it accepts only a `ReplicationAuthorization` minted by
+  `run_readiness_checks` -- never a bare `True`, never a fabricated token.
+- **The receipt spends the authorization at first look, not at success.** It is written
+  between the last check and the first read. A failure afterwards does not entitle anyone
+  to a second look; recovery requires the documented procedure and a fresh sign-off.
+- **A separate pre-execution manifest**
+  (`artifacts/pitcher_replication/v0_14/pitcher_replication_execution_manifest.json`)
+  binds the frozen spec, the authorization, and the exact runner code. It is write-once
+  with **no** amendment path: changed execution code must seal a new manifest from a new
+  commit, so the original sealing record survives.
+
+The research freeze was **not** amended to accommodate the runner. It answers "what were
+we going to measure?"; the execution manifest answers "with what code, under whose
+sign-off, from what state?".
+
+```bash
+make seal-pitcher-replication-execution      # seals the manifest; opens no season
+make check-pitcher-replication-readiness     # read-only readiness report
+make run-pitcher-replication-2025            # OPENS 2025. Once. Ever.
+```
+
 ### Files
 
 | Module | Role |
@@ -2974,6 +3022,9 @@ to 2026.
 | `replication/pitcher_replication_estimators.py` | Question E's estimators, extracted from the fixture generator |
 | `replication/pitcher_split_half.py` | Question F, ported from the accepted Version 0.11 procedure |
 | `replication/pitcher_replication_authorization.py` | The maintainer's 2026-09-08 sign-off, bound to the freeze by hash |
+| `replication/pitcher_replication_execution.py` | Pre-execution manifest, readiness gate, unforgeable token, one-time receipt |
+| `replication/pitcher_replication_questions.py` | Questions A-G and the mechanical package classification |
+| `replication/run_pitcher_replication_2025.py` | The dedicated 2025 entry point (not yet run) |
 | `replication/pitcher_replication_freeze.py` | Hashing, guards, write-once artifact, amendment path, the 2025 gate |
 | `tests/test_pitcher_replication_freeze.py` | 94 tests, including proof that building the freeze reads no data |
 | `tests/test_pitcher_replication_estimators.py` | 26 tests, including exact reproduction of every Version 0.13.1 value |
