@@ -42,22 +42,20 @@ class TestRecoveryAuthorizationGate:
     "no authorization exists" versions were correct only before it.
     """
 
-    def test_the_recorded_authorization_binds_to_the_revision_it_names(self) -> None:
-        """It was granted for revision 1 and still binds to exactly that."""
+    def test_the_recorded_authorization_binds_to_the_current_revision(self) -> None:
+        """The revision-2 sign-off covers the manifest now on disk."""
+        current = rec.read_recovery_manifest().manifest_content_hash()
+        authorized, reasons = rec.resolve_recovery_authorization(current)
+        assert authorized is True, reasons
+
+    def test_it_does_not_cover_the_superseded_revision_1(self) -> None:
+        """Presenting the old manifest cannot replay the spent sign-off."""
         v1 = rec.read_recovery_manifest(
             rec.SUPERSEDED_RECOVERY_MANIFEST_PATHS[0]
         ).manifest_content_hash()
         authorized, reasons = rec.resolve_recovery_authorization(v1)
-        assert authorized is True, reasons
-
-    def test_it_does_not_cover_the_current_revision(self) -> None:
-        """Revision 2 was sealed after the recovery-control correction, so a
-        NEW maintainer sign-off is required before any resumption.
-        """
-        current = rec.read_recovery_manifest().manifest_content_hash()
-        authorized, reasons = rec.resolve_recovery_authorization(current)
         assert authorized is False
-        assert any("does not transfer" in r for r in reasons)
+        assert any("REVISION 1" in r and "superseded" in r for r in reasons)
 
     def test_it_still_refuses_any_manifest_it_does_not_name(self) -> None:
         """Fail-closed: the sign-off is bound to one exact manifest hash."""
