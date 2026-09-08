@@ -5338,3 +5338,57 @@ td.pcol-rate {
   .pitcher-usage-rate { display: none; }
   .pitcher-hero-value { font-size: var(--fs-700); }
 }
+
+/* ── Pitcher surface: sign key and the withheld-season index ─────────────
+   Version 0.14 productionization. Both reuse existing scale steps, colours
+   and spacing tokens only -- no new size, radius or hue is introduced here.
+
+   `.pitcher-sign-key` states what + and - mean in words. It sits outside
+   the collapsed disclosure and outside `.pitcher-axis-head` (which is
+   removed at <=767px) precisely so the sign is legible at every width: it
+   is the one thing on these pages that must not be left to a colour.
+
+   `.pitcher-offboard-index` lists the seasons the boards withhold. It is a
+   disclosure because the list is long and secondary, and a plain multi-
+   column list rather than a table because it carries no ranked quantity --
+   ordering it by score would rebuild a ranked board out of exactly the
+   seasons the display rules withheld from ranking. */
+.pitcher-sign-key {
+  margin: var(--sp-3) 0 0;
+  max-width: var(--measure-prose);
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
+}
+
+.pitcher-offboard-index {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-200);
+}
+.pitcher-offboard-index > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-thickness: var(--rule-hairline);
+  text-underline-offset: 0.12em;
+  cursor: pointer;
+}
+.pitcher-offboard-index > summary:hover { color: var(--text-primary); }
+
+.pitcher-offboard-list {
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  list-style: none;
+  columns: 4 14rem;
+  column-gap: var(--sp-5);
+}
+.pitcher-offboard-list > li {
+  break-inside: avoid;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+  color: var(--text-muted);
+}
+.pitcher-offboard-list .num { font-variant-numeric: tabular-nums lining-nums; }

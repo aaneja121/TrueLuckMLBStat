@@ -35,7 +35,7 @@
   <h1 class="player-name">{{ p.name }}</h1>
   <p class="player-apparatus">
     MLBAM&nbsp;<span class="num">{{ p.pitcher_id }}</span> ·
-    {{ p.role_label }} usage · {{ p.season }} development season
+    {{ p.role_usage_phrase }} · {{ p.season }} development season
   </p>
 
   <p class="proto-banner">
@@ -50,6 +50,17 @@
   <div class="pitcher-hero {{ 'is-favorable' if p.favorable else 'is-unfavorable' }}">
     <p class="pitcher-hero-eyebrow">Contact Luck allowed</p>
     <p class="pitcher-hero-value num">{{ p.total | signed(2) }}<span class="pitcher-hero-unit">runs</span></p>
+
+    {# The sign, said in words next to the number that carries it. The two
+       ends of this scale are the one thing a reader must not have to infer
+       from a colour: blue and red are the sign of the point estimate, but a
+       reader meeting this page first has no key for them yet. #}
+    <p class="pitcher-sign-key">
+      {% if p.favorable %}Positive: these batted balls turned out
+      <strong>better for the pitcher</strong> than the contact predicted.
+      {% else %}Negative: these batted balls turned out
+      <strong>worse for the pitcher</strong> than the contact predicted.{% endif %}
+    </p>
 
     <p class="pitcher-hero-opportunity">
       <span class="num">{{ p.bbe }}</span> {{ p.bbe_noun }} ·

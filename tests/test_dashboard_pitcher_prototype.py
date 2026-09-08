@@ -139,6 +139,20 @@ def _fixture_payload() -> dict:
                 band="below_board_minimum",
                 same_play=True,
             ),
+            # Clears the display minimum and is still on NO board, because
+            # its usage falls between the two descriptions. The second of the
+            # two reasons a season is withheld, and the one the landing page
+            # originally left unaccounted for.
+            _pitcher(
+                5,
+                "Mixed Usage",
+                total=6.0,
+                bbe=200,
+                appearances=22,
+                per_100=3.0,
+                role="ambiguous",
+                band="moderate",
+            ),
         ],
     }
 
@@ -417,3 +431,218 @@ class TestFixtureLoaderFailsClosed:
         data = ppc.load_pitcher_prototype_data(fixture_path)
         assert [r.name for r in data.board("reliever_like")] == ["Relief Leader"]
         assert data.find(4) is not None, "the withheld season keeps its own record"
+
+
+class TestEverySeasonTheBoardsWithholdIsStillReachable:
+    """The frozen display rule is "below the minimum, player-page-only".
+
+    That is only a true description if the page can be reached. The site's
+    player search indexes hitters, not pitchers, and no board links a
+    withheld season -- so before the withheld-season index existed, all 333
+    of the real fixture's off-board pages were built and orphaned, and
+    "player-page-only" named a page with no route in.
+    """
+
+    def _linked_ids(self, out_dir: Path) -> set[str]:
+        index = (out_dir / "pitchers" / "index.html").read_text()
+        return set(re.findall(r'href="[^"]*?/pitchers/(\d+)/"', index))
+
+    def test_no_pitcher_page_is_orphaned(self, tmp_path, snapshot_roots, fixture_path):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        built = {p.name for p in (out_dir / "pitchers").iterdir() if p.is_dir()}
+        assert built, "the fixture must produce pitcher pages"
+        assert built - self._linked_ids(out_dir) == set()
+
+    def test_the_below_minimum_season_is_linked_by_name(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        index = (out_dir / "pitchers" / "index.html").read_text()
+        assert "Tiny Sample" in index
+        assert "4" in self._linked_ids(out_dir)
+
+    def test_the_withheld_index_is_alphabetical_not_ranked(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        """Ordering the withheld seasons by score would rebuild a ranked
+        board out of exactly the seasons the display rules withheld from
+        ranking.
+        """
+        groups = dashboard_build._pitcher_off_board_groups(
+            ppc.load_pitcher_prototype_data(fixture_path), "/"
+        )
+        for group in groups:
+            names = [e["name"] for e in group["entries"]]
+            assert names == sorted(names)
+
+
+class TestMixedUsageSeasonsAreAccountedFor:
+    """A season can clear the batted-ball minimum and still be on no board.
+
+    That is a second, different reason, and the page that exists to say what
+    the boards leave out has to say it -- otherwise those seasons are simply
+    absent with no explanation.
+    """
+
+    def test_the_landing_page_states_the_mixed_usage_count(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        index = (out_dir / "pitchers" / "index.html").read_text()
+        assert "mixed-usage seasons" in index
+        assert "Mixed Usage" in index
+
+    def test_a_mixed_usage_season_is_on_neither_board(self, tmp_path, snapshot_roots, fixture_path):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        index = (out_dir / "pitchers" / "index.html").read_text()
+        for table in re.findall(r"<table.*?</table>", index, re.S):
+            assert "Mixed Usage" not in table
+
+    def test_the_two_withheld_reasons_are_never_merged(self, fixture_path):
+        groups = dashboard_build._pitcher_off_board_groups(
+            ppc.load_pitcher_prototype_data(fixture_path), "/"
+        )
+        ids = [{e["name"] for e in g["entries"]} for g in groups]
+        assert len(ids) == 2
+        assert ids[0].isdisjoint(ids[1]), "a season belongs to exactly one withheld reason"
+
+    def test_the_role_phrase_never_doubles_the_word_usage(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        """`ROLE_LABELS["ambiguous"]` already carries the noun, so a template
+        appending " usage" rendered "Mixed usage usage".
+        """
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            assert "usage usage" not in page.read_text().lower()
+
+    def test_every_role_bucket_has_a_usage_phrase(self):
+        assert set(ppc.ROLE_USAGE_PHRASES) == set(ppc.ROLE_LABELS)
+        for phrase in ppc.ROLE_USAGE_PHRASES.values():
+            assert phrase.lower().count("usage") <= 1
+
+
+class TestTheSignIsStatedInWords:
+    """Blue and red carry the sign, but a reader meeting the surface has no
+    key for them. The frozen product contract fixes what the sign MEANS, so
+    the page says it in words rather than leaving it to a colour.
+    """
+
+    def test_the_board_page_states_both_directions_outside_any_disclosure(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        index = (out_dir / "pitchers" / "index.html").read_text()
+        key = re.search(r'<p class="pitcher-sign-key">(.*?)</p>', index, re.S)
+        assert key is not None, "the board page must carry a sign key"
+        text = key.group(1)
+        assert "better for the" in text and "worse" in text
+        # Not tucked inside the collapsed "What the number means" disclosure,
+        # and not inside the axis caption, which is removed under 767px.
+        before = index[: index.index('<p class="pitcher-sign-key">')]
+        assert before.count("<details") == before.count("</details>")
+
+    def test_a_favorable_card_says_better_and_an_unfavorable_card_says_worse(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        favorable = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        assert "better for the pitcher" in favorable
+        assert "worse for the pitcher" not in favorable
+
+    def test_the_sign_key_follows_the_point_estimate(self, tmp_path, snapshot_roots, fixture_path):
+        """Sign copy and sign colour must never disagree: both follow the
+        point estimate, whether or not the interval crosses zero.
+        """
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        page = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        assert "is-favorable" in page
+        assert "better for the pitcher" in page
+
+
+class TestTheSecondaryQuantityAlwaysCarriesItsCaveats:
+    """Frozen contract: wherever /100 is shown meaningfully, resolved BBE and
+    the 95% interval are shown with it.
+    """
+
+    def test_the_card_shows_per_100_with_bbe_and_interval(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        page = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        assert "Per 100 batted balls" in page
+        assert "95% interval" in page
+        assert "resolved batted ball" in page
+
+    def test_the_board_shows_an_interval_beside_every_rate(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        index = (out_dir / "pitchers" / "index.html").read_text()
+        rates = re.findall(r'<td class="pcol-rate[^"]*">(.*?)</td>', index, re.S)
+        assert rates, "the board must render a rate column"
+        for cell in rates:
+            assert "," in cell and "[" in cell, "each rate cell carries its interval"
+
+    def test_both_largest_plays_are_rendered_with_their_contact(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        page = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        assert "Largest favorable batted ball" in page
+        assert "Largest unfavorable batted ball" in page
+        assert "mph" in page and "fly ball" in page
+
+
+class TestNoRankOnAPitcherCard:
+    """Frozen contract: pitcher player cards carry no board rank.
+
+    A rank on the card would import the board's ordering onto a page that is
+    also served for seasons the board withheld -- including the ones that
+    have no board at all.
+    """
+
+    def test_no_card_prints_a_board_rank(self, tmp_path, snapshot_roots, fixture_path):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            if page.parent.name == "pitchers":
+                continue
+            body = page.read_text()
+            # The card's own content only. The shared chrome carries the
+            # hitter search payload, whose escaped apostrophes (`&#39;`) are
+            # not ranks.
+            content = body[body.index("<main") : body.index("</main>")]
+            assert "pcol-rank" not in content
+            assert not re.search(r"(?<!&)#\s*\d+", content), f"{page} appears to print a rank"
+            assert "Rank" not in content
+
+    def test_the_board_still_ranks(self, tmp_path, snapshot_roots, fixture_path):
+        """The complement: removing rank from the card must not remove it
+        from the board.
+        """
+        index = _build(tmp_path, snapshot_roots, fixture_path) / "pitchers" / "index.html"
+        assert 'class="pcol-rank num"' in index.read_text()
+
+
+class TestThePitcherSurfaceHasNo2026Dependency:
+    """2026 is prospective and unopened for this line. The pitcher surface is
+    2024 development data and must not acquire a dependency on the snapshot
+    season the rest of the site renders.
+    """
+
+    def test_the_fixture_is_a_development_season(self, fixture_path):
+        data = ppc.load_pitcher_prototype_data(fixture_path)
+        assert data.season == 2024
+        assert data.season not in (2025, 2026)
+
+    def test_no_pitcher_page_mentions_2026(self, tmp_path, snapshot_roots, fixture_path):
+        """The shared chrome names the snapshot date; the pitcher CONTENT
+        must not, or the surface would be claiming a season it never read.
+        """
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            body = page.read_text()
+            content = body[body.index("<main") : body.index("</main>")]
+            for marker in ("</header>", "site-header"):
+                assert marker not in content
+            assert "2026" not in content, f"{page} names 2026 in its own content"

@@ -47,6 +47,7 @@ __all__ = [
     "PitcherPrototypeError",
     "PlayHighlight",
     "ROLE_LABELS",
+    "ROLE_USAGE_PHRASES",
     "WORKLOAD_BAND_LABELS",
     "load_pitcher_prototype_data",
 ]
@@ -58,6 +59,19 @@ __all__ = [
 ROLE_LABELS: dict[str, str] = {
     "starter_like": "Starter-like",
     "reliever_like": "Reliever-like",
+    "ambiguous": "Mixed usage",
+}
+
+#: The same three buckets, phrased as a standalone usage description.
+#: `ROLE_LABELS["ambiguous"]` already carries the noun, so a template that
+#: appended " usage" to it rendered "Mixed usage usage" on every ambiguous
+#: pitcher's page. The phrase is written out once here rather than assembled
+#: in a template, for the same reason `ROLE_LABELS` is: this surface's role
+#: vocabulary is fixed, and a template must not be able to compose a new
+#: variant of it.
+ROLE_USAGE_PHRASES: dict[str, str] = {
+    "starter_like": "Starter-like usage",
+    "reliever_like": "Reliever-like usage",
     "ambiguous": "Mixed usage",
 }
 

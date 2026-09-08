@@ -847,7 +847,6 @@ class BuildResult:
     out_dir: Path
 
 
-
 # ══ Version 0.13.1 LOCAL PROTOTYPE · pitcher views ═══════════════════════
 #
 # Every function below is a PROJECTION of already-scored fixture values into
@@ -915,9 +914,7 @@ _BAND_SHORT_LABELS: dict[str, str] = {
 }
 
 
-def _pitcher_row_view(
-    row: ppc.PitcherRow, scale: v.ZeroScale, root_prefix: str
-) -> dict[str, Any]:
+def _pitcher_row_view(row: ppc.PitcherRow, scale: v.ZeroScale, root_prefix: str) -> dict[str, Any]:
     """One pitcher, projected onto the cumulative-runs scale.
 
     The scale field is built from the CUMULATIVE interval, never the per-100
@@ -1008,6 +1005,59 @@ def _pitcher_board_view(
         # for BOTH boards are stated above every board regardless.
         "show_bands": role_bucket == "reliever_like",
     }
+
+
+def _pitcher_off_board_groups(
+    data: ppc.PitcherPrototypeData, root_prefix: str
+) -> list[dict[str, Any]]:
+    """Name-and-link index of every pitcher-season the boards withhold.
+
+    Two disjoint groups, for the two different reasons a season is on no
+    board: below the display minimum, or usage that falls between the two
+    descriptions. A season below the minimum is listed under the minimum
+    even when its usage is also ambiguous -- one season, one reason, the
+    one that actually withheld it.
+
+    This exists because "player-page-only" has to mean the page is
+    reachable. The site's player search covers hitters, and no board links
+    a withheld season, so these pages have no other route in.
+
+    Alphabetical by name, never by score: this is an index, and ordering it
+    by the quantity the boards rank would make it a third ranked board of
+    exactly the seasons the display rules withheld from ranking.
+    """
+
+    def entries(rows: list[ppc.PitcherRow]) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": r.name,
+                "url": f"{root_prefix}pitchers/{r.pitcher_id}/",
+                "bbe": r.eligible_batted_balls,
+            }
+            for r in sorted(rows, key=lambda r: r.name)
+        ]
+
+    below = [r for r in data.rows if not r.on_board]
+    mixed = [r for r in data.rows if r.on_board and r.role_bucket == "ambiguous"]
+    groups = []
+    if below:
+        groups.append(
+            {
+                "summary": (
+                    f"All {len(below)} seasons under "
+                    f"{data.board_display_minimum_bbe} resolved batted balls"
+                ),
+                "entries": entries(below),
+            }
+        )
+    if mixed:
+        groups.append(
+            {
+                "summary": f"All {len(mixed)} mixed-usage seasons",
+                "entries": entries(mixed),
+            }
+        )
+    return groups
 
 
 def _pitcher_play_view(play: ppc.PlayHighlight, label: str) -> dict[str, Any]:
@@ -1113,13 +1163,9 @@ def _pitcher_card_view(
         plays.append(_pitcher_play_view(favorable_play, "The season's only batted ball"))
     else:
         if favorable_play is not None:
-            plays.append(
-                _pitcher_play_view(favorable_play, "Largest favorable batted ball")
-            )
+            plays.append(_pitcher_play_view(favorable_play, "Largest favorable batted ball"))
         if unfavorable_play is not None:
-            plays.append(
-                _pitcher_play_view(unfavorable_play, "Largest unfavorable batted ball")
-            )
+            plays.append(_pitcher_play_view(unfavorable_play, "Largest unfavorable batted ball"))
     if not row.on_board:
         off_board_reason: str | None = ppc.REASON_BELOW_BOARD_MINIMUM
     elif row.role_bucket == "ambiguous":
@@ -1140,6 +1186,7 @@ def _pitcher_card_view(
     view.update(
         {
             "season": data.season,
+            "role_usage_phrase": ppc.ROLE_USAGE_PHRASES[row.role_bucket],
             "off_board_reason": off_board_reason,
             "single_play_season": single_play,
             "degenerate_interval": degenerate_interval,
@@ -1232,8 +1279,7 @@ def build_dashboard(
     # at build time so no rank semantics are ever decided in JavaScript
     # (`CLAUDE.md` rule 6).
     _qualification_by_id = {
-        record["batter_id"]: record.get("qualification_status")
-        for record in payloads.public_score
+        record["batter_id"]: record.get("qualification_status") for record in payloads.public_score
     }
     player_index_json = json.dumps(
         [
@@ -1432,9 +1478,7 @@ def build_dashboard(
             axis_unit_label=league_scale.unit_label,
             distribution_marks=league_distribution_marks,
             favorable_rows=_leaderboard_view_rows(favorable_rows, league_scale, root_prefix),
-            unfavorable_rows=_leaderboard_view_rows(
-                unfavorable_rows, league_scale, root_prefix
-            ),
+            unfavorable_rows=_leaderboard_view_rows(unfavorable_rows, league_scale, root_prefix),
             qualified_count=status_data.qualified_count,
             player_count=len(player_index),
             proof_examples=_homepage_proof_examples(demo_page_data),
@@ -1562,7 +1606,10 @@ def build_dashboard(
         shutil.copy(explore_showcase_path, explore_dir / "showcase.json")
         shutil.copytree(explore_players_dir, explore_dir / "players", dirs_exist_ok=True)
         shutil.copytree(explore_games_dir, explore_dir / "games", dirs_exist_ok=True)
-        if explore_showcase_sensitivity_dir is not None and explore_showcase_sensitivity_dir.is_dir():
+        if (
+            explore_showcase_sensitivity_dir is not None
+            and explore_showcase_sensitivity_dir.is_dir()
+        ):
             shutil.copytree(
                 explore_showcase_sensitivity_dir,
                 explore_dir / "showcase-sensitivity",
@@ -1662,8 +1709,7 @@ def build_dashboard(
         pitcher_scale = v.ZeroScale.from_values(
             "pitcher_cumulative_runs",
             f"Contact Luck allowed, cumulative runs, {pitcher_data.season}",
-            [r.cumulative_ci_low for r in board_rows]
-            + [r.cumulative_ci_high for r in board_rows],
+            [r.cumulative_ci_low for r in board_rows] + [r.cumulative_ci_high for r in board_rows],
             zero_fraction=league_scale.zero_fraction,
         )
         pitcher_scale_ticks = _axis_ticks(pitcher_scale)
@@ -1682,6 +1728,21 @@ def build_dashboard(
                 pitcher_scale=pitcher_scale,
                 pitcher_scale_ticks=pitcher_scale_ticks,
                 below_minimum_count=sum(1 for r in pitcher_data.rows if not r.on_board),
+                # Seasons that CLEAR the display minimum and are still on no
+                # board, because their usage falls between the two
+                # descriptions. Counted separately and stated separately:
+                # folding them into the below-minimum sentence would give
+                # them a reason that is not theirs, and leaving them out
+                # entirely -- which the first version of this page did --
+                # meant 16 seasons with real workload were absent from the
+                # surface without explanation.
+                mixed_usage_count=sum(
+                    1 for r in pitcher_data.rows if r.role_bucket == "ambiguous" and r.on_board
+                ),
+                off_board_groups=_pitcher_off_board_groups(pitcher_data, root_prefix),
+                off_board_total=sum(
+                    1 for r in pitcher_data.rows if not r.on_board or r.role_bucket == "ambiguous"
+                ),
             )
         )
 
