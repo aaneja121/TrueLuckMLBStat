@@ -66,6 +66,18 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "replication"))
+
+# Version 0.14: the question-E estimators are RESEARCH code and live in
+# `replication/`, so the replication freeze does not depend on this
+# presentation-side generator for them. This script is now a consumer of
+# that module, which is what guarantees the committed fixture and the
+# replication are computed by the same functions rather than two copies.
+from pitcher_replication_estimators import (  # noqa: E402
+    PRACTICAL_WORKLOAD_FLOORS,
+    rate_precision_report,
+    resolving_power_report,
+)
 
 from mlb_luck_score.config import TABLES_DIR  # noqa: E402
 from mlb_luck_score.scoring.pitching_contact_luck import (  # noqa: E402
@@ -253,57 +265,6 @@ def _display_name(raw: Any) -> str | None:
     return f"{first.strip()} {last.strip()}"
 
 
-def _resolving_power(
-    frame: pd.DataFrame, *, min_bbe: int, drop_zero_width: bool = False
-) -> dict[str, Any]:
-    """How large the SPREAD in true per-100 rates is relative to the
-    measurement noise on a single season, for rows at or above `min_bbe`.
-
-    Variance decomposition, not a model: the observed spread of a season
-    rate contains both real between-pitcher differences and the sampling
-    error the bootstrap already measured, so
-
-        var_observed = var_signal + mean(var_measurement)
-
-    with `var_measurement` read off each row's own 95% interval
-    (`half_width / 1.96`, the normal-approximation SD the interval implies).
-    `resolving_power = sd_signal / sd_measurement`. Below 1 the typical
-    difference between two pitchers is smaller than the error bar on either
-    of them, so a ranking on this quantity is mostly ordering noise.
-
-    `var_signal` is reported RAW, including when it comes out negative --
-    a negative estimate means the observed spread is no wider than
-    measurement error alone would produce, which is the finding, not a
-    number to clip to zero and present as if it were near-zero-but-real.
-    """
-    rows = frame[frame["eligible_batted_balls"] >= min_bbe]
-    zero_width = (rows["per_100_ci_high"] - rows["per_100_ci_low"]).abs() < 1e-9
-    n_zero_width = int(zero_width.sum())
-    if drop_zero_width:
-        rows = rows[~zero_width]
-    if len(rows) < 2:
-        return {"min_bbe": min_bbe, "n_rows": int(len(rows)), "resolving_power": None}
-    measurement_sd = (rows["per_100_ci_high"] - rows["per_100_ci_low"]) / (2 * 1.96)
-    var_measurement = float(np.mean(measurement_sd**2))
-    var_observed = float(np.var(rows["contact_luck_per_100"], ddof=1))
-    var_signal = var_observed - var_measurement
-    return {
-        "min_bbe": min_bbe,
-        "n_rows": int(len(rows)),
-        "n_zero_width_intervals": n_zero_width,
-        "zero_width_intervals_dropped": drop_zero_width,
-        "sd_observed_per_100": round(float(np.sqrt(var_observed)), 4),
-        "mean_sd_measurement_per_100": round(float(np.sqrt(var_measurement)), 4),
-        "var_signal_per_100": round(var_signal, 4),
-        "resolving_power": (
-            round(float(np.sqrt(var_signal) / np.sqrt(var_measurement)), 4)
-            if var_signal > 0
-            else 0.0
-        ),
-        "signal_variance_is_negative": bool(var_signal <= 0),
-    }
-
-
 def _hitter_totals_vs_rate(player_season: pd.DataFrame) -> dict[str, Any]:
     """The control that keeps the HITTER product unchanged: at the shipped
     qualified bar, ranking hitters by cumulative runs and by runs/100 give
@@ -427,9 +388,10 @@ def build_research_report(
             ),
             "below_board_minimum": int((bbe < BOARD_DISPLAY_MINIMUM_BBE).sum()),
         },
-        "rate_precision_requirements": _rate_precision_requirements(frame),
+        "rate_precision_requirements": rate_precision_report(frame),
         "resolving_power_by_workload_floor": [
-            _resolving_power(frame, min_bbe=floor) for floor in (1, 60, 150, 300, 450)
+            resolving_power_report(frame, min_bbe=floor)
+            for floor in (1, *PRACTICAL_WORKLOAD_FLOORS)
         ],
         # The >=1 floor's 1.94 is an ARTIFACT, not a finding: the bootstrap
         # resamples games within a pitcher-season, so a one-appearance season
@@ -437,34 +399,11 @@ def build_research_report(
         # estimate, and its measurement variance is recorded as zero. The
         # decomposition then books that row's (enormous) spread entirely as
         # signal. This pair is what makes that verifiable rather than asserted.
-        "resolving_power_all_rows_excluding_zero_width": _resolving_power(
+        "resolving_power_all_rows_excluding_zero_width": resolving_power_report(
             frame, min_bbe=1, drop_zero_width=True
         ),
         "single_appearance_rows": int((frame["appearances"] == 1).sum()),
         "hitter_totals_vs_rate_control": _hitter_totals_vs_rate(player_season),
-    }
-
-
-def _rate_precision_requirements(frame: pd.DataFrame) -> dict[str, Any]:
-    """How many resolved BBE a season needs before its 95% rate interval is
-    narrower than a given half-width, estimated from the observed
-    interval-width-vs-exposure relationship on this season's own rows.
-
-    Fitted as half_width ~ k / sqrt(bbe) (the sqrt-n form a per-100 rate
-    obeys), with k the median of `half_width * sqrt(bbe)` across rows -- a
-    description of THIS season's measured intervals, never a model.
-    """
-    usable = frame[frame["eligible_batted_balls"] >= 30]
-    half_width = (usable["per_100_ci_high"] - usable["per_100_ci_low"]) / 2.0
-    k = float(np.median(half_width * np.sqrt(usable["eligible_batted_balls"])))
-    return {
-        "form": "half_width_runs_per_100 = k / sqrt(bbe)",
-        "k": round(k, 3),
-        "fitted_on_rows_with_min_bbe": 30,
-        "n_rows": int(len(usable)),
-        "bbe_required": {
-            f"plus_minus_{target}": int(round((k / target) ** 2)) for target in (5, 4, 3, 2)
-        },
     }
 
 

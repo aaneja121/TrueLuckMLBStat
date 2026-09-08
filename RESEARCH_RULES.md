@@ -84,6 +84,29 @@ loosen any guard above, or to make 2025 reachable from a second code path -- tre
 as a new, separate decision requiring the user's explicit sign-off, not a natural
 extension of this one.
 
+### A second sealed 2025 evaluation has been SPECIFIED but NOT authorized
+
+Version 0.14 (`replication/`) pre-registers a one-time held-out 2025 replication of the
+pitcher findings: the questions, the estimators, and the classification rule are frozen
+and hashed, deliberately before any 2025 data is opened. **Freezing the specification is
+not the sign-off.** That replication is exactly the "second final evaluation through a
+second code path" the paragraph above reserves for a separate decision, and no such
+decision has been recorded.
+
+Consequently: `replication/` may not download, read, score, or aggregate 2025 rows, and
+nothing in it may pass `allow_final_evaluation=True`. Its
+`assert_ready_for_2025` gate always raises while
+`maintainer_authorized_second_sealed_evaluation` is False, and additionally requires a
+clean tree, a non-provisional freeze, intact 2025 protection, an empty replication
+namespace, and a validating freeze. Do not treat the existence of the freeze artifact,
+the namespace, or a `make` target as authorization to proceed -- ask first, in that
+moment, exactly as this section requires.
+
+If that sign-off is later given, everything in the numbered list above (isolated
+namespaces, a locally-defined date range, a dedicated entry point, provenance recording,
+fail-fast guards, synthetic-data testing before real access, a clean committed tree)
+applies to it unchanged.
+
 ## Version 1.1: prospective 2026 scoring
 
 Version 1.1 (`prospective/run_v1_1_2026_scoring.py`) applies the exact frozen Version

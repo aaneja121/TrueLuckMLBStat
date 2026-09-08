@@ -2770,6 +2770,203 @@ York Yankees at San Francisco Giants, 2026-03-25; the official schedule confirms
 game was played), recorded in `PROSPECTIVE_2026_SEASON_START_SOURCE`/`PROSPECTIVE_2026_
 SEASON_START_VERIFIED_AT`.
 
+## Version 0.14: the 2025 pitcher-replication PRE-REGISTRATION freeze
+
+Freezes Versions 0.2-0.13.1 completely. **This version computes nothing, scores nothing,
+and opens no season.** It writes down, and hashes, the pitcher specification and the
+questions a future held-out 2025 replication would have to answer -- before any 2025
+pitcher output exists.
+
+Status: **specification frozen; the 2025 run is NOT authorized.** See "Authorization"
+below, which is the most important paragraph in this section.
+
+### Why a freeze precedes the data
+
+The 2024 pitcher work (Versions 0.13, 0.13.1) is development. A replication is only
+evidence if the questions, the estimators and the rule that classifies the answers are
+fixed before the answers are visible. Otherwise "does it replicate?" collapses into
+"which cut of 2025 supports what we already built?"
+
+Three separable things are frozen, and conflating them is the failure mode this version
+exists to prevent:
+
+| frozen thing | where |
+|---|---|
+| the measured quantity | `PLAY_LEVEL_DEFINITION`, `PRIMARY_QUANTITY`, `SECONDARY_QUANTITY`, `DENOMINATOR` |
+| the presentation architecture | `ROLE_LIKE_GROUPING`, `PRESENTATION_RULES` |
+| the questions and the classification rule | `REPLICATION_QUESTIONS`, `FROZEN_ESTIMATORS`, `CLASSIFICATION_RULE` |
+
+### What is frozen
+
+- **Play level.** `pitcher_contact_luck = expected_run_value - observed_run_value`,
+  which is `-1 x batting_contact_luck` on the same play. The frozen scoring architecture
+  is reused: no pitcher-specific contact model, no retraining, no second scoring path.
+- **Primary season quantity.** Cumulative Contact Luck runs. Exact for the observed
+  plays, conditional on the frozen scoring model. Retrospective and deliberately
+  workload-sensitive; never skill, talent, persistence, quality, or a forecast.
+- **Secondary quantity.** Contact Luck per 100 resolved eligible BBE, never the ranking
+  key, always shown with its resolved BBE and a 95% interval from the frozen bootstrap.
+- **Denominator.** The repository's existing resolved eligible BBE, unchanged.
+  `field_error` and `fielders_choice` are marked ambiguous by
+  `mlb_luck_score.eligibility` and never reach the resolved set, so they contribute to
+  neither numerator nor denominator nor the games count; `fielders_choice_out` is a
+  distinct, unambiguous event and is included. `games` counts distinct games containing
+  at least one resolved eligible batted ball.
+- **Role-like grouping.** Starter-like >=10 BBE/appearance, reliever-like <=8,
+  ambiguous between. Descriptive only. The repository has no authoritative role
+  metadata, so "closer", "starter" and "reliever" remain banned as official labels.
+- **Presentation rules.** Separate boards, totals-first ordering, BBE always visible,
+  per-100 never primary, no board rank on the player card, largest favorable and
+  unfavorable plays surfaced, and the sub-60-BBE board exclusion as a display rule that
+  is explicitly not qualification. These are not reopened after 2025 is seen unless the
+  replication is FIRST reported and frozen as REVISE or NO-GO.
+
+### The seven pre-registered questions
+
+Each names what it reports, its structural hypothesis, and what disagreement would look
+like. **None requires 2025 to reproduce a 2024 number** -- each asks whether a structural
+relationship holds.
+
+| | question | structural hypothesis |
+|---|---|---|
+| A | population / centering | shape comparable to 2024; play-level mean near zero |
+| B | opportunity heterogeneity | opportunity drives magnitude, only weakly drives sign |
+| C | totals vs. rate | all-pitcher rate ordering stays vulnerable to tiny-sample extremes |
+| D | reliever single-play dominance | the phenomenon stays materially present |
+| E | rate precision | resolving power stays below 1 at every practical floor |
+| F | persistence | approximately zero, which confirms the retrospective framing |
+| G | real-play sanity check | large contributions stay baseball-sensible |
+
+Question E's estimators live in `replication/pitcher_replication_estimators.py` as of
+Version 0.14. They were previously inside `demo/build_pitcher_prototype_fixture.py`, which
+meant the freeze depended on presentation code and a purely visual edit could invalidate
+it. The extraction is a relocation, not a rewrite: it reproduces **every** Version 0.13.1
+value exactly (k = 70.588; 199 / 311 / 554 / 1,246; resolving power 0.508 / 0.4486 / 0.0 /
+0.5007; the artifact pair 1.9386 -> 0.8766 over 73 zero-width rows). The fixture generator
+now IMPORTS that module, so the committed dashboard fixture and the replication are
+computed by the same functions and cannot drift apart. **The frozen source set contains
+research code only** -- nothing under `demo/` or `dashboard/`.
+
+Question E carries a **mandatory guard**, now enforced in code rather than remembered: the
+>=1 BBE floor is excluded from `PRACTICAL_WORKLOAD_FLOORS`, because a game-clustered
+bootstrap gives one-appearance seasons zero-width intervals, records their measurement
+variance as zero, and books their enormous spread as signal. On 2024 that produced a
+spurious 1.94 against 0.877 with those 73 rows removed. Every report returns
+`n_zero_width_intervals`, and negative signal variance is returned raw, never clipped.
+
+Question F is **implemented and frozen** (`replication/pitcher_split_half.py`), resolving
+the gap the first freeze recorded. It is a PORT of the accepted Version 0.11 Phase 6
+procedure, not a new estimator: the split rules, the inclusion threshold
+(`MIN_ELIGIBLE_EACH_HALF = 20`) and the metric are **imported** from
+`evaluate_aggregation_stability`, never restated, so "the same design" holds by
+construction. The only change is the grouping key.
+
+Both splits are game-clustered -- `calendar` (`game_date <= median`) and `odd_even`
+(`game_pk % 2 == 1`), the latter splitting on whole GAMES so no appearance is divided.
+Denominators and grouping are inherited unchanged. The pitcher sign flip is irrelevant to
+a correlation, which is invariant under a common sign change.
+
+**2024 result** (this repository's first recorded pitcher measurement):
+
+| inclusion bar | split | n | Pearson | Spearman |
+|---|---|---|---|---|
+| >=20 each half (primary) | calendar | 439 | +0.102 | +0.072 |
+| >=20 each half (primary) | odd/even | 550 | +0.077 | +0.055 |
+| >=50 each half | calendar | 335 | +0.046 | +0.027 |
+| >=50 each half | odd/even | 392 | +0.001 | +0.022 |
+| >=100 each half | calendar | 134 | −0.160 | −0.099 |
+| >=100 each half | odd/even | 150 | +0.075 | +0.079 |
+
+Approximately zero at every workload examined, with the highest bar turning negative --
+what a non-persistent quantity looks like, and a confirmation of the retrospective
+framing rather than an indictment of the metric.
+
+**The implementation is validated by exact reproduction.** Run on the BATTER key it
+reproduces the committed Version 0.11 Phase 6 numbers to **0.0 absolute difference** on
+every value (calendar n=399, Pearson 0.050297542421047836, Spearman 0.07131881210564099;
+odd/even n=487, Pearson 0.09654304470474931, Spearman 0.11889983530505965).
+
+Two things are documented rather than tuned away. First, **no precise 2024 pitcher
+split-half figure was ever recorded** -- the prior claim was the qualitative
+"approximately zero at all pitcher workloads" -- so there is no exact prior pitcher value
+to reproduce, and the batter-side exact match is what validates the port. Second, that
+wording implies a by-workload breakdown while the accepted procedure reports one number
+per split; rather than invent a by-workload reliability estimator, the sweep re-runs the
+SAME estimator at three frozen values of its own existing `min_eligible_each_half`
+parameter. The >=20 row is primary.
+
+**Question F is secondary.** It is not a success criterion on its own and cannot override
+the package-level classification.
+
+### The classification rule
+
+`REPLICATED` / `REVISE` / `NO_GO`, decided on the prespecified findings **as a package**.
+Statistical significance on one arbitrary statistic is explicitly not the rule. Every
+question that disagrees with its hypothesis is reported, including under a REPLICATED
+verdict, and the classification is reported and frozen before any presentation rule
+changes in response to it.
+
+### Provenance and write-once
+
+`make freeze-pitcher-replication` writes
+`artifacts/pitcher_replication/v0_14/pitcher_replication_freeze.json` (gitignored, same
+convention as the Version 1.0 seal), containing the specification verbatim, its content
+hash, the frozen constants resolved from their real modules, a SHA-256 for each of **15**
+frozen source files, the repository commit, the working-tree state, and a pre-outcome
+attestation evidenced by the replication namespace being empty.
+
+The frozen set is research code only: twelve `mlb_luck_score` modules (including
+`models/evaluate_aggregation_stability.py`, which question F imports its split rules from,
+and which is therefore a frozen input) plus the three `replication/` modules. It
+deliberately excludes `demo/build_pitcher_prototype_fixture.py`.
+
+It is write-once. An identical rebuild is idempotent; a different one is refused and
+points at `amend_freeze`, which writes a new numbered revision beside the original and
+appends to `amendments.jsonl` -- never mutating or deleting a revision, and refusing
+unless the caller attests the amendment precedes any 2025 access (re-checked against the
+filesystem, not taken on trust). The one narrow exception is `--rebuild-provisional`,
+which supersedes a freeze built on a dirty tree while the specification is still being
+written; it archives the outgoing copy under `superseded/` and stops working once a
+freeze has been written from a clean tree.
+
+### Authorization: the 2025 run is NOT approved
+
+**A 2025 pitcher replication is a SECOND sealed evaluation through a SECOND code path.**
+`RESEARCH_RULES.md` permits 2025 to enter this repository exactly once, through
+`evaluation/run_v1_final_evaluation.py`, and states that being asked to run a second
+final evaluation, loosen a guard, or make 2025 reachable from another code path is "a
+new, separate decision requiring the user's explicit sign-off, not a natural extension of
+this one."
+
+That sign-off has not been given. `assert_ready_for_2025` therefore always raises, and
+would additionally require a clean tree, a non-provisional freeze, intact 2025 protection
+in `mlb_luck_score.config`, an empty replication namespace, and full freeze validation.
+Freezing the specification first is the correct order of operations; it is not the
+approval.
+
+### Files
+
+| Module | Role |
+|---|---|
+| `replication/pitcher_replication_spec.py` | The pre-registration itself: constants only, no I/O |
+| `replication/pitcher_replication_estimators.py` | Question E's estimators, extracted from the fixture generator |
+| `replication/pitcher_split_half.py` | Question F, ported from the accepted Version 0.11 procedure |
+| `replication/pitcher_replication_freeze.py` | Hashing, guards, write-once artifact, amendment path, the 2025 gate |
+| `tests/test_pitcher_replication_freeze.py` | 94 tests, including proof that building the freeze reads no data |
+| `tests/test_pitcher_replication_estimators.py` | 26 tests, including exact reproduction of every Version 0.13.1 value |
+| `tests/test_pitcher_split_half.py` | 18 tests, including that the procedure is imported, not copied |
+
+```bash
+make freeze-pitcher-replication
+# still writing the spec, superseding a dirty-tree freeze:
+make freeze-pitcher-replication REBUILD_PROVISIONAL=1
+
+# replication/ is a plain script directory like evaluation/ and prospective/,
+# so `make check` does not lint or typecheck it -- run these explicitly:
+.venv/bin/python -m ruff format replication && .venv/bin/python -m ruff check replication
+.venv/bin/python -m mypy replication
+```
+
 ## Version 1.2: dashboard deployment and operations
 
 Version 1.2 (`dashboard/`) is a read-only, static-site presentation layer over Version

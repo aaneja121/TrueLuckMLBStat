@@ -2,7 +2,7 @@
 
 **Contact Luck** is an MLB batted-ball metric: how much more or less favorable a batter's
 realized contact outcomes were than expected, in runs. The repository has two halves — a
-Python research/scoring pipeline (`src/mlb_luck_score/`, `prospective/`, `evaluation/`)
+Python research/scoring pipeline (`src/mlb_luck_score/`, `prospective/`, `evaluation/`, `replication/`)
 and a static public dashboard (`dashboard/`, live at https://contactluck.com).
 
 This file is a router, not a rulebook. Load only the document your task needs; do not read
@@ -13,7 +13,7 @@ keep the two in sync when routing changes.)
 
 | Your task | Read |
 |---|---|
-| Modeling, scoring, data, seasons — anything under `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `demo/`, `scripts/`, `notebooks/` | **`RESEARCH_RULES.md`, in full, before editing.** Required. |
+| Modeling, scoring, data, seasons — anything under `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `replication/`, `demo/`, `scripts/`, `notebooks/` | **`RESEARCH_RULES.md`, in full, before editing.** Required. |
 | Product intent, page purpose, user framing, user-facing copy | `PRODUCT.md` |
 | Metric and baseball terminology | `CONTEXT.md` |
 | Repo structure, data flow, build/run/test commands | `ARCHITECTURE.md` |

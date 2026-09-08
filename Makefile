@@ -12,7 +12,7 @@
 	notebook-infield-opportunity compare-advancement-models notebook-advancement \
 	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation \
 	run-public-score notebook-public-score run-prospective-scoring notebook-prospective-review \
-	build-demo-fixture
+	build-demo-fixture freeze-pitcher-replication question-f-2024
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -429,3 +429,25 @@ notebook-prospective-review:
 # network access.
 build-demo-fixture:
 	$(PY) demo/build_demo_fixture.py
+
+# Version 0.14: builds/validates the write-once pre-registration freeze for the
+# one-time 2025 held-out Pitcher Contact Luck replication. Reads NO season's
+# data -- it records constants, source hashes and the repository commit, and
+# writes only into artifacts/pitcher_replication/v0_14/ (gitignored). It does
+# NOT authorize a 2025 run: 2025 is FINAL_TEST_SEASONS and a second sealed
+# evaluation needs the maintainer's explicit sign-off (see RESEARCH_RULES.md
+# and replication/pitcher_replication_spec.AUTHORIZATION_STATUS). Pass
+# REBUILD_PROVISIONAL=1 only while the specification is still being written,
+# to supersede a freeze built on a dirty tree.
+freeze-pitcher-replication:
+	$(PY) replication/pitcher_replication_freeze.py \
+		$(if $(REBUILD_PROVISIONAL),--rebuild-provisional,)
+
+# Version 0.14: recomputes the 2024 DEVELOPMENT question-F split-half figures
+# recorded in replication/pitcher_replication_spec.py, including the batter-side
+# control that reproduces the committed Version 0.11 Phase 6 numbers. 2024 only;
+# season protection is inherited from build_player_season_report. Requires the
+# local gitignored development parquet; no network access. Exits non-zero if the
+# batter-side reproduction fails.
+question-f-2024:
+	$(PY) replication/pitcher_split_half.py

@@ -8,7 +8,7 @@ the modeling/data-safety rules, `README.md` (184 KB) for full version history.
 
 | | Research half | Presentation half |
 |---|---|---|
-| Code | `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `demo/`, `scripts/`, `notebooks/` | `dashboard/` |
+| Code | `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `replication/`, `demo/`, `scripts/`, `notebooks/` | `dashboard/` |
 | Job | download → clean → train → score → snapshot | read a snapshot → render static HTML |
 | Rules | `RESEARCH_RULES.md` (read in full) | `PRODUCT.md` + this file |
 | Enforced boundary | — | `tests/test_dashboard_isolation.py`: **no module under `dashboard/` may import `mlb_luck_score`, training, scoring, or download code** |
@@ -190,8 +190,11 @@ in the templates. **Do not change scoring or renderer behaviour to make either g
 ## Tests & tooling
 
 - `make check` = `ruff format` + `ruff check` + `mypy` + `pytest`.
-  **`ruff`/`mypy` target `src` and `tests` only — not `dashboard/`.** Dashboard
-  correctness is covered by pytest alone.
+  **`ruff`/`mypy` target `src` and `tests` only — not `dashboard/`, `evaluation/`,
+  `prospective/`, `demo/`, or `replication/`.** Those are plain script directories,
+  importable in tests via `pyproject.toml`'s pytest `pythonpath`; lint and typecheck them
+  explicitly (`ruff format/check replication`, `mypy replication`). Dashboard correctness
+  is covered by pytest alone.
 - Dashboard tests: `tests/test_dashboard_build.py`, `test_dashboard_build_cli.py`,
   `test_dashboard_content.py`, `test_dashboard_visuals.py`,
   `test_dashboard_snapshot_discovery.py`, `test_dashboard_isolation.py`,
