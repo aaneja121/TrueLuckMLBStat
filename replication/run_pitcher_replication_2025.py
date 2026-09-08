@@ -451,8 +451,17 @@ def run_replication(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     logger.info("=== scoring via the frozen Version 1.0 path (trains on 2021-2023 only) ===")
     from run_v1_final_evaluation import DEVELOPMENT_INPUT_PATH, train_and_score_2025
 
+    from mlb_luck_score.config import TRAIN_SEASONS
+
+    # `train_and_score_2025`'s first parameter is NAMED development_df but its
+    # contract is training data already filtered to TRAIN_SEASONS -- it
+    # VALIDATES that precondition, it does not filter. Passing the unfiltered
+    # 2021-2024 parquet is what failed execution 8edc32d6ca8830ce on
+    # 2026-09-08. This is the same expression the Version 1.0 caller applies
+    # before the identical call; see docs/pitcher_replication_2025_recovery_plan.md.
     development_df = pd.read_parquet(DEVELOPMENT_INPUT_PATH)
-    artifacts, _trained = train_and_score_2025(development_df, evaluation_df)
+    training_df = development_df[development_df["season"].isin(TRAIN_SEASONS)].copy()
+    artifacts, _trained = train_and_score_2025(training_df, evaluation_df)
 
     logger.info("=== answering the frozen questions A-G ===")
     frame, play_level_mean = build_pitcher_frame(artifacts)

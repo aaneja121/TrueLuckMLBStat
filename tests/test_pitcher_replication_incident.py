@@ -77,17 +77,33 @@ class TestReproducesTheBug:
         ):
             assert fn.index(fit_call) > guard, f"{fit_call} must come after the guard"
 
-    def test_the_runner_still_passes_the_unfiltered_frame(self) -> None:
-        """The defect is still present: the recovery has NOT been applied."""
+    def test_the_runner_now_filters_before_calling_the_frozen_scorer(self) -> None:
+        """The correction IS applied: the defect assertion is inverted.
+
+        This is the regression guard. If the filter is ever removed the run
+        would again pass 2024 into training, and the frozen guard would again
+        refuse -- after 2025 had been re-opened.
+        """
         runner = Path("replication/run_pitcher_replication_2025.py").resolve().read_text()
         body = runner.split("def run_replication", 1)[1]
-        assert "train_and_score_2025(development_df, evaluation_df)" in body
-        assert "isin(TRAIN_SEASONS)" not in body, (
-            "the correction must not be applied until a recovery is authorized"
+        assert 'development_df["season"].isin(TRAIN_SEASONS)' in body
+        assert "train_and_score_2025(training_df, evaluation_df)" in body
+        assert "train_and_score_2025(development_df, evaluation_df)" not in body, (
+            "the unfiltered call is the defect that failed execution 8edc32d6ca8830ce"
         )
 
+    def test_the_runner_filters_before_it_calls(self) -> None:
+        """Ordering, not just presence: the filter must precede the call."""
+        body = (
+            Path("replication/run_pitcher_replication_2025.py")
+            .resolve()
+            .read_text()
+            .split("def run_replication", 1)[1]
+        )
+        assert body.index("isin(TRAIN_SEASONS)") < body.index("train_and_score_2025(training_df")
 
-class TestTheProposedCorrection:
+
+class TestTheAppliedCorrection:
     def test_filtering_yields_exactly_the_frozen_training_seasons(self) -> None:
         training = inc.select_training_frame(_development_like())
         assert inc.training_seasons_of(training) == {2021, 2022, 2023}
@@ -128,6 +144,19 @@ class TestTheProposedCorrection:
         """
         source = Path("evaluation/run_v1_final_evaluation.py").resolve().read_text()
         assert 'full_development_df[full_development_df["season"].isin(TRAIN_SEASONS)]' in source
+
+    def test_the_frozen_scorer_still_performs_its_own_guard(self) -> None:
+        """The correction does not remove the callee's precondition check --
+        belt and braces, both must remain.
+        """
+        source = Path("evaluation/run_v1_final_evaluation.py").resolve()
+        fn = source.read_text().split("def train_and_score_2025(", 1)[1].split("\ndef ", 1)[0]
+        assert "Training data contains season(s) outside TRAIN_SEASONS" in fn
+        assert "Evaluation dataset must contain ONLY season" in fn
+
+    def test_the_raw_development_frame_may_still_contain_2021_to_2024(self) -> None:
+        """The source parquet is unchanged; only what is PASSED changes."""
+        assert inc.training_seasons_of(_development_like()) == {2021, 2022, 2023, 2024}
 
     def test_filtering_changes_no_scientific_setting(self) -> None:
         """Nothing in the frozen spec moves. The correction is plumbing."""
