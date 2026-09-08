@@ -624,7 +624,19 @@ class TestControlPathsResolveAtCallTime:
             Path(__file__).resolve().parent.parent
             / "artifacts/pitcher_replication/v0_14/execution_start_receipt.json"
         )
-        assert not real.exists(), "a test must never write a receipt into the real namespace"
+        # A real run has since written a receipt here. The guard is that a test
+        # must neither create nor MUTATE it -- absence is no longer the check.
+        assert real.read_bytes() == self._real_receipt_bytes, (
+            "a test must never write to, or overwrite, the real receipt"
+        )
+
+    @pytest.fixture(autouse=True)
+    def _capture_real_receipt(self) -> None:
+        real = (
+            Path(__file__).resolve().parent.parent
+            / "artifacts/pitcher_replication/v0_14/execution_start_receipt.json"
+        )
+        self._real_receipt_bytes = real.read_bytes() if real.exists() else None
 
     def test_manifest_writes_honour_a_redirected_path(
         self, isolated_namespace: Path, clean_tree: None
@@ -633,9 +645,35 @@ class TestControlPathsResolveAtCallTime:
         assert (isolated_namespace / "pitcher_replication_execution_manifest.json").exists()
 
 
-class TestNoRealSeasonNeeded:
-    def test_the_replication_namespace_is_still_empty(self) -> None:
-        assert prf.assert_no_replication_outputs_exist()["files_present"] == []
+class TestPostExposureInvariants:
+    """2025 was opened on 2026-09-08 and the run failed inside the frozen
+    scorer. These assert what must hold AFTER that exposure -- the earlier
+    "nothing exists yet" versions of these tests were correct only before it.
+    """
 
-    def test_no_execution_receipt_exists_yet(self) -> None:
-        assert not pre.EXECUTION_RECEIPT_PATH.exists()
+    def test_the_execution_receipt_is_preserved(self) -> None:
+        """The receipt records that the one-time authorization is spent. It
+        must never be deleted to make a rerun look like a first look.
+        """
+        assert pre.EXECUTION_RECEIPT_PATH.exists()
+        receipt = json.loads(pre.EXECUTION_RECEIPT_PATH.read_text())
+        assert receipt["one_time_use"] is True
+        assert receipt["execution_id"]
+
+    def test_a_rerun_is_refused_while_the_receipt_stands(self) -> None:
+        with pytest.raises(pre.ExecutionError, match="already been opened"):
+            pre.assert_no_execution_receipt()
+
+    def test_no_replication_result_was_produced(self) -> None:
+        """Ingestion happened; scoring did not. No A-G, no classification."""
+        outputs = REPO_ROOT / "outputs" / "pitcher_replication" / "v0_14"
+        files = (
+            [p for p in outputs.rglob("*") if p.is_file() and p.name != ".gitkeep"]
+            if outputs.exists()
+            else []
+        )
+        assert files == []
+        assert not (prf.ARTIFACTS_DIR / "pitcher_replication_2025_seal.json").exists()
+
+    def test_the_research_freeze_survived_the_incident(self) -> None:
+        assert prf.validate_freeze(prf.read_freeze())["valid"] is True
