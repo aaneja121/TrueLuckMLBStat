@@ -242,14 +242,24 @@ class TestIncidentRecord:
         assert exposure["classification_computed"] is False
         assert json.dumps(record, default=str)
 
-    def test_no_replication_result_exists(self) -> None:
-        outputs = Path("outputs/pitcher_replication/v0_14")
-        files = (
-            [p for p in outputs.rglob("*") if p.is_file() and p.name != ".gitkeep"]
-            if outputs.exists()
-            else []
-        )
-        assert files == [], "no A-G, no classification, no results may exist"
+    def test_the_incidents_own_claim_of_no_result_still_holds_for_that_execution(self) -> None:
+        """RETARGETED after the sealed run.
+
+        The pre-execution form asserted the output namespace was empty. That
+        was correct only until the one authorized recovery completed. The
+        incident's claim was always about ITS OWN execution
+        (`8edc32d6ca8830ce`), which produced no result -- and that stays true
+        permanently. What exists now was produced by a different, later,
+        separately authorized execution.
+        """
+        record = inc.read_failure_records()[0]
+        assert record["exposure"]["result_artifact_exists"] is False
+        assert record["exposure"]["result_files"] == []
+        assert record["execution_id"] == "8edc32d6ca8830ce"
+
+        results = Path("outputs/pitcher_replication/v0_14/pitcher_replication_2025_results.json")
+        assert results.is_file(), "the later authorized recovery did produce a result"
+        assert json.loads(results.read_text())["execution_id"] != record["execution_id"]
 
     def test_the_receipt_is_still_present(self) -> None:
         from pitcher_replication_execution import EXECUTION_RECEIPT_PATH

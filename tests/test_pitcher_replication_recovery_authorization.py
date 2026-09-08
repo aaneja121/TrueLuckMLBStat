@@ -7,6 +7,7 @@ reads 2026. The authorization is checked by hash and by behaviour.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -18,6 +19,11 @@ import pitcher_replication_recovery_authorization as auth
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _sha256(path: Path) -> str:
+    """Byte hash of a sealed artifact. Reads bytes, never parses a result."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 class TestBindsToTheExactRecoveryManifest:
@@ -207,31 +213,66 @@ def clean_tree(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rec, "working_tree_status", lambda repo_root=None: (True, []))
 
 
+@pytest.fixture
+def outputs_sealed_elsewhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the completed-output and seal lookups at an empty directory.
+
+    The sealed run means `assert_no_completed_results` is now the FIRST gate
+    to refuse, permanently. It would mask every later gate, so tests that
+    exist to prove a LATER guard still has teeth isolate it this way -- the
+    same stubbing convention this suite already uses for the clean-tree
+    check. Nothing real is moved or written.
+    """
+    empty = tmp_path / "outputs"
+    empty.mkdir()
+    monkeypatch.setattr(rec, "REPLICATION_OUTPUTS_DIR", empty)
+    monkeypatch.setattr(rec, "ARTIFACTS_DIR", tmp_path / "artifacts")
+    return empty
+
+
 class TestRecoveryReadiness:
-    """Revision 2 is authorized, so readiness now PASSES -- while every other
-    guard keeps its teeth.
+    """RETARGETED after the sealed run.
+
+    Revision 2 was authorized and the one permitted recovery RAN. Readiness
+    therefore no longer passes and never will again: the completed result is
+    now itself a permanent refusal. The earlier "readiness now passes" form
+    was correct only in the window between the sign-off and the run.
     """
 
-    def test_readiness_now_passes(self, clean_tree: None) -> None:
-        report = rec.assert_ready_for_recovery()
-        assert report["ready"] is True
-        assert report["valid"] is True
-        assert report["recovery_sources_verified"] == 7
-        assert report["artifacts_2025_verified"] == 3
-        assert report["originals_preserved"] is True
-        assert report["recovery_manifest_hash"] == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+    def test_readiness_now_permanently_refuses_because_the_recovery_completed(
+        self, clean_tree: None
+    ) -> None:
+        with pytest.raises(rec.RecoveryError, match="completed 2025 replication result") as excinfo:
+            rec.assert_ready_for_recovery()
+        assert "may never overwrite a finished replication" in str(excinfo.value)
+
+    def test_the_authorization_itself_still_binds_and_was_not_revoked(self) -> None:
+        """The refusal above is a STATE refusal, not an authorization failure.
+
+        Preserved from the pre-execution suite: revision 2 is still the
+        authorized manifest. Recovery is closed because it has been used, not
+        because the sign-off went missing.
+        """
+        current = rec.read_recovery_manifest().manifest_content_hash()
+        assert current == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+        authorized, reasons = rec.resolve_recovery_authorization(current)
+        assert authorized is True, reasons
 
     def test_readiness_still_refuses_once_a_recovery_receipt_exists(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_tree: None
+        self, outputs_sealed_elsewhere: Path, clean_tree: None
     ) -> None:
-        """Authorization does not bypass the one-attempt guard."""
-        receipt = tmp_path / "recovery_receipt.json"
-        receipt.write_text(json.dumps({"recovery_id": "x", "reopened_at_utc": "t"}))
-        monkeypatch.setattr(rec, "RECOVERY_RECEIPT_PATH", receipt)
+        """Authorization does not bypass the one-attempt guard.
+
+        The real receipt now exists, so this guard fires on the REAL path --
+        no fixture receipt is needed any more.
+        """
+        assert rec.RECOVERY_RECEIPT_PATH.is_file()
         with pytest.raises(rec.RecoveryError, match="permitted ONE attempt"):
             rec.assert_ready_for_recovery()
 
-    def test_readiness_still_refuses_on_a_dirty_tree(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_readiness_still_refuses_on_a_dirty_tree(
+        self, outputs_sealed_elsewhere: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(rec, "working_tree_status", lambda repo_root=None: (False, ["M x"]))
         with pytest.raises(rec.RecoveryError, match="not clean"):
             rec.assert_ready_for_recovery()
@@ -261,18 +302,48 @@ class TestRecoveryReadiness:
             rec.validate_recovery_manifest(v1)
 
 
-class TestNothingHasBeenExecuted:
-    def test_no_recovery_receipt_exists(self) -> None:
-        assert not rec.RECOVERY_RECEIPT_PATH.exists()
+class TestTheAuthorizedRecoveryHasBeenExecuted:
+    """RETARGETED after the sealed run.
 
-    def test_no_replication_result_exists(self) -> None:
+    This class asserted that nothing had been executed yet. The one
+    authorized recovery has since run to completion, so the invariant it must
+    now protect is the mirror image: the receipt and the result exist, are
+    unchanged, and close the path behind them.
+    """
+
+    def test_the_recovery_receipt_exists_and_records_the_consumed_attempt(self) -> None:
+        assert rec.RECOVERY_RECEIPT_PATH.is_file()
+        receipt = json.loads(rec.RECOVERY_RECEIPT_PATH.read_text())
+        assert receipt["recovery_id"] == "780aa2e2b8ec43f5"
+        assert receipt["one_recovery_attempt_only"] is True
+        assert receipt["is_a_first_look"] is False
+        assert receipt["supersedes_execution_id"] == auth.ORIGINAL_EXECUTION_ID
+        assert receipt["recovery_manifest_hash"] == auth.AUTHORIZED_RECOVERY_MANIFEST_HASH
+
+    def test_the_receipt_pins_the_original_receipt_it_superseded(self) -> None:
+        """The recovery receipt records the original's hash, so deleting or
+        rewriting the original to fake a first look is detectable.
+        """
+        receipt = json.loads(rec.RECOVERY_RECEIPT_PATH.read_text())
+        assert receipt["original_receipt_sha256"] == _sha256(pre.EXECUTION_RECEIPT_PATH)
+
+    def test_a_second_recovery_is_refused_on_the_real_receipt(self) -> None:
+        with pytest.raises(rec.RecoveryError, match="permitted ONE attempt"):
+            rec.assert_no_recovery_receipt()
+
+    def test_the_sealed_replication_result_exists_and_matches_its_seal(self) -> None:
         outputs = REPO_ROOT / "outputs" / "pitcher_replication" / "v0_14"
-        files = (
-            [p for p in outputs.rglob("*") if p.is_file() and p.name != ".gitkeep"]
-            if outputs.exists()
-            else []
-        )
-        assert files == []
+        results = outputs / "pitcher_replication_2025_results.json"
+        provenance = outputs / "pitcher_replication_2025_provenance.json"
+        seal_path = REPO_ROOT / "artifacts" / "pitcher_replication" / "v0_14"
+        seal_path = seal_path / "pitcher_replication_2025_seal.json"
+        assert results.is_file() and provenance.is_file() and seal_path.is_file()
+
+        seal = json.loads(seal_path.read_text())
+        assert seal["results_sha256"] == _sha256(results)
+        assert seal["classification"] == "REPLICATED"
+        assert seal["primary_disagreements"] == []
+        assert seal["execution_id"] == "780aa2e2b8ec43f5"
 
     def test_the_original_receipt_still_records_the_only_exposure(self) -> None:
         receipt = json.loads(pre.EXECUTION_RECEIPT_PATH.read_text())

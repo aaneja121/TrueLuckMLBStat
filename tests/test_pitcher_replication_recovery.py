@@ -75,19 +75,27 @@ class TestRecoveryAuthorizationGate:
             "a spent one-time authorization must not satisfy the recovery gate"
         )
 
-    def test_readiness_refuses_a_manifest_the_authorization_does_not_cover(
-        self, sealed_elsewhere: Path, clean_tree: None
-    ) -> None:
-        """A manifest sealed elsewhere has a different hash, so the sign-off
-        does not apply and readiness refuses -- naming the spent original.
+    def test_a_manifest_the_authorization_does_not_cover_is_refused(self) -> None:
+        """RETARGETED after the sealed run.
+
+        The pre-execution form drove this through `assert_ready_for_recovery`,
+        which now refuses earlier and permanently at the completed-result
+        gate. The invariant under test -- an uncovered manifest hash does not
+        satisfy the sign-off, and the refusal names the spent original -- is
+        asserted directly on the resolver, so it keeps its teeth without
+        depending on gate ordering.
         """
-        rec.write_recovery_manifest(rec.build_recovery_manifest(), path=rec.RECOVERY_MANIFEST_PATH)
-        with pytest.raises(rec.RecoveryError) as excinfo:
+        authorized, reasons = rec.resolve_recovery_authorization("a-manifest-nobody-signed-off")
+        assert authorized is False
+        message = "; ".join(reasons)
+        assert "recovery manifest hash mismatch" in message
+        assert "does not transfer to a different recovery manifest" in message
+
+    def test_readiness_is_now_permanently_refused(self, clean_tree: None) -> None:
+        """The completed result closes the recovery path for good."""
+        with pytest.raises(rec.RecoveryError, match="completed 2025 replication result") as excinfo:
             rec.assert_ready_for_recovery()
-        message = str(excinfo.value)
-        assert "No maintainer authorization for this recovery" in message
-        assert "CONSUMED by execution" in message
-        assert "may not be reused as though unspent" in message
+        assert "may never overwrite a finished replication" in str(excinfo.value)
 
     def test_the_spent_original_authorization_is_never_consulted(self) -> None:
         """Behavioural: the ORIGINAL authorization still binds to the freeze,
@@ -342,8 +350,24 @@ class TestOriginalsArePreserved:
 
 
 class TestOneRecoveryAttempt:
-    def test_no_recovery_receipt_exists_yet(self) -> None:
-        assert not rec.RECOVERY_RECEIPT_PATH.exists()
+    def test_the_recovery_receipt_now_exists_and_is_unchanged(self) -> None:
+        """RETARGETED after the sealed run.
+
+        The one permitted attempt has been consumed. The receipt that proves
+        it must exist, must name the successful recovery, and must keep
+        recording that this was a resumption rather than a first look.
+        """
+        assert rec.RECOVERY_RECEIPT_PATH.is_file()
+        receipt = json.loads(rec.RECOVERY_RECEIPT_PATH.read_text())
+        assert receipt["recovery_id"] == "780aa2e2b8ec43f5"
+        assert receipt["is_a_first_look"] is False
+        assert receipt["one_recovery_attempt_only"] is True
+        assert receipt["supersedes_execution_id"] == "8edc32d6ca8830ce"
+        assert "no_automatic_retry" in receipt
+
+    def test_the_real_receipt_refuses_a_further_attempt(self) -> None:
+        with pytest.raises(rec.RecoveryError, match="permitted ONE attempt"):
+            rec.assert_no_recovery_receipt()
 
     def test_a_second_attempt_is_refused(self, sealed_elsewhere: Path, clean_tree: None) -> None:
         manifest = rec.build_recovery_manifest()
@@ -421,14 +445,21 @@ class TestScientificStateDidNotMove:
             "G_real_play_sanity_check",
         )
 
-    def test_no_replication_result_exists(self) -> None:
+    def test_the_only_thing_that_moved_is_the_sealed_result(self) -> None:
+        """RETARGETED after the sealed run.
+
+        The class's point stands: the frozen SCIENCE did not move. The freeze
+        and the question set are asserted unchanged above. What changed is
+        that the authorized recovery produced a result -- and it classified
+        REPLICATED with no primary disagreements.
+        """
         outputs = REPO_ROOT / "outputs" / "pitcher_replication" / "v0_14"
-        files = (
-            [p for p in outputs.rglob("*") if p.is_file() and p.name != ".gitkeep"]
-            if outputs.exists()
-            else []
-        )
-        assert files == []
+        results = outputs / "pitcher_replication_2025_results.json"
+        assert results.is_file()
+        payload = json.loads(results.read_text())
+        assert payload["classification"]["classification"] == "REPLICATED"
+        assert payload["classification"]["primary_disagreements"] == []
+        assert payload["spec_content_hash"] == prf.read_freeze().spec_content_hash
 
 
 class TestTwoSeparateStateMachines:
@@ -534,10 +565,18 @@ class TestCachedInputsVersusCompletedOutputs:
         with pytest.raises(rec.RecoveryError, match="Unapproved file"):
             rec.assert_cached_inputs_exact(staged)
 
-    def test_no_completed_result_currently_exists(self) -> None:
-        report = rec.assert_no_completed_results()
-        assert report["completed_results"] == []
-        assert report["run_seal_exists"] is False
+    def test_a_completed_result_now_exists_and_refuses_permanently(self) -> None:
+        """RETARGETED after the sealed run.
+
+        The pre-execution form asserted this check passed. It must now refuse,
+        naming both the finished outputs and the run seal -- that refusal is
+        what makes the sealed replication un-overwritable.
+        """
+        with pytest.raises(rec.RecoveryError, match="completed 2025 replication result") as excinfo:
+            rec.assert_no_completed_results()
+        message = str(excinfo.value)
+        assert "pitcher_replication_2025_results.json" in message
+        assert "run seal present: True" in message
 
     def test_a_completed_result_refuses(self, tmp_path: Path) -> None:
         outputs = tmp_path / "v0_14"
@@ -546,16 +585,38 @@ class TestCachedInputsVersusCompletedOutputs:
         with pytest.raises(rec.RecoveryError, match="completed 2025 replication result"):
             rec.assert_no_completed_results(outputs)
 
-    def test_completed_results_check_ignores_the_input_directory(self, tmp_path: Path) -> None:
-        """Cached inputs must never be mistaken for a finished result."""
+    def test_completed_results_check_ignores_the_input_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cached inputs must never be mistaken for a finished result.
+
+        Unchanged in intent. The seal lookup is module-level and the real seal
+        now exists, so it is isolated here to keep this test about the
+        outputs/inputs distinction it was written for.
+        """
+        monkeypatch.setattr(rec, "ARTIFACTS_DIR", tmp_path / "artifacts")
         empty_outputs = tmp_path / "v0_14"
         empty_outputs.mkdir()
         assert rec.assert_no_completed_results(empty_outputs)["completed_results"] == []
 
 
 class TestTheFailedRecoveryAttemptWasNotConsumed:
-    def test_no_recovery_receipt_was_created(self) -> None:
-        assert not rec.RECOVERY_RECEIPT_PATH.exists()
+    def test_the_receipt_on_disk_is_the_later_successful_attempt(self) -> None:
+        """RETARGETED after the sealed run.
+
+        This class is about the FIRST recovery attempt, which failed during
+        readiness and wrote no receipt -- so it did not spend the
+        authorization. That remains true. The receipt now on disk belongs to
+        the SECOND, successful attempt, and the incident log still records
+        that the first one consumed nothing.
+        """
+        assert rec.RECOVERY_RECEIPT_PATH.is_file()
+        assert json.loads(rec.RECOVERY_RECEIPT_PATH.read_text())["recovery_id"] == (
+            "780aa2e2b8ec43f5"
+        )
+        failed_attempt = [r for r in inc.read_failure_records() if r.get("sequence") == 2][-1]
+        assert failed_attempt["exposure"]["recovery_receipt_existed"] is False
+        assert failed_attempt["exposure"]["authorized_recovery_attempt_consumed"] is False
 
     def test_the_second_incident_is_recorded(self) -> None:
         records = inc.read_failure_records()

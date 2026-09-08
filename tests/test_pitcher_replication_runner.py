@@ -664,16 +664,30 @@ class TestPostExposureInvariants:
         with pytest.raises(pre.ExecutionError, match="already been opened"):
             pre.assert_no_execution_receipt()
 
-    def test_no_replication_result_was_produced(self) -> None:
-        """Ingestion happened; scoring did not. No A-G, no classification."""
+    def test_the_sealed_result_was_produced_by_the_authorized_recovery(self) -> None:
+        """RETARGETED after the sealed run.
+
+        The original execution ingested 2025 and then failed before scoring,
+        so it produced nothing -- the pre-execution form of this test was
+        correct for that window. The separately authorized recovery has since
+        completed, so a sealed result and its seal must now exist, and must
+        be attributed to the RECOVERY execution rather than the failed one.
+        """
         outputs = REPO_ROOT / "outputs" / "pitcher_replication" / "v0_14"
-        files = (
-            [p for p in outputs.rglob("*") if p.is_file() and p.name != ".gitkeep"]
-            if outputs.exists()
-            else []
-        )
-        assert files == []
-        assert not (prf.ARTIFACTS_DIR / "pitcher_replication_2025_seal.json").exists()
+        seal_path = prf.ARTIFACTS_DIR / "pitcher_replication_2025_seal.json"
+        assert (outputs / "pitcher_replication_2025_results.json").is_file()
+        assert (outputs / "pitcher_replication_2025_provenance.json").is_file()
+        assert seal_path.is_file()
+
+        seal = json.loads(seal_path.read_text())
+        failed_execution_id = json.loads(pre.EXECUTION_RECEIPT_PATH.read_text())["execution_id"]
+        assert seal["execution_id"] != failed_execution_id
+        assert seal["classification"] == "REPLICATED"
+
+    def test_a_further_first_look_run_is_permanently_refused(self) -> None:
+        """The populated namespace now closes the ordinary execution path."""
+        with pytest.raises(pre.ExecutionError, match="already populated"):
+            pre.assert_output_namespace_available()
 
     def test_the_research_freeze_survived_the_incident(self) -> None:
         assert prf.validate_freeze(prf.read_freeze())["valid"] is True
