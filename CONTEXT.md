@@ -34,7 +34,7 @@ Positive = outcomes more favorable to the **pitcher** than the contact predicted
 no new model — it re-aggregates the same frozen ledger. **Not scored for 2025 or 2026 and
 not in the public-score schema.** The **2024** season is published at `/pitchers/2024/`
 from the committed fixture; `scripts/publish_snapshot.sh` passes
-`--pitcher-prototype-fixture` explicitly, and `dashboard_config.PITCHER_PUBLIC_SEASONS`
+`--pitcher-season-fixture` explicitly, and `dashboard_config.PITCHER_PUBLIC_SEASONS`
 gates which seasons may ever be published (2024 only — see RESEARCH_RULES.md "Public
 launch of the 2024 pitcher surface"). See README "Pitching Contact
 Luck (Version 0.13, research spike)" and "Pitching Contact Luck presentation research

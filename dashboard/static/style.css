@@ -540,6 +540,25 @@ summary:focus-visible,
   color: var(--text-primary);
   text-decoration: none;
   font-size: var(--fs-300);
+  /* Takes the slack so the apparatus to its right packs together instead
+     of one label drifting to the middle under `space-between`. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* WHICH SURFACE a result is -- "Hitter", "Pitcher · 2024". One person can
+   hold both pages, so every result says which it is rather than one being
+   silently chosen. Set one ink step above the unqualified note beside it:
+   both are apparatus, but this one distinguishes two results a reader is
+   choosing between, where the note qualifies a single result. Not an
+   uppercase eyebrow -- that means "this labels a measured quantity"
+   everywhere else on the site (DESIGN.md principle 5), and a surface name
+   is not one. */
+.global-search-kind {
+  flex: 0 0 auto;
+  font-size: var(--fs-200);
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 /* Hover and keyboard-active render identically -- the active option is the
    same state whichever device drove it. Recessed tint, no colour. */
@@ -553,6 +572,7 @@ summary:focus-visible,
    never de-emphasised (docs/design/guardrails.md, preserved invariants).
    Neutral muted apparatus, same register as the batter id elsewhere. */
 .global-search-note {
+  flex: 0 0 auto;
   font-size: var(--fs-200);
   color: var(--text-muted);
   white-space: nowrap;
@@ -4899,8 +4919,8 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   .play-gap-caption-value { font-size: var(--fs-300); }
 }
 
-/* ══ Version 0.13.1 LOCAL PROTOTYPE · Pitcher Contact Luck ════════════════
-   Present only in a build given `--pitcher-prototype-fixture`. Deliberately
+/* ══ Pitcher Contact Luck ════════════════════════════════════════════════
+   Present only in a build given `--pitcher-season-fixture`. Deliberately
    built from the SAME primitives as the hitter surfaces -- `.cl-scale-field`,
    `.cl-axis-tick`, `.verdict-inner`, `.num`, the three radii, the 9-step type
    scale, the 8px spacing scale -- rather than a second visual system. Every
@@ -4918,11 +4938,8 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    in the lede because it qualifies everything under it.
 
    `.proto-banner` was this rule's only name while the surface was a local
-   prototype. The class is kept as an alias rather than deleted so no
-   unrelated template that still wears it loses its styling in the same
-   commit that changes the pitcher copy; `.pitcher-provenance` is the name
-   the pitcher routes use now. */
-.proto-banner,
+   prototype. Nothing wears that class any more -- the alias kept for one
+   commit while the copy changed has been retired with the name. */
 .pitcher-provenance {
   margin: var(--sp-3) 0 0;
   padding-left: var(--sp-3);
@@ -4932,10 +4949,10 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
   max-width: var(--measure-prose);
 }
 
-/* The prototype's nav entry is a SIXTH item in a header row whose five
+/* The pitcher nav entry is a SIXTH item in a header row whose five
    shipped items already fill their 1200px track exactly. At 1280 the sixth
    pushed the data-through badge 80px past the viewport -- a page-level
-   horizontal overflow on EVERY route in a prototype build, including the
+   horizontal overflow on EVERY route in such a build, including the
    hitter leaderboard, which this work is not allowed to change.
 
    Scoped with `:has()` to the nav list that actually contains the pitcher

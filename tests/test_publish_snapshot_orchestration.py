@@ -372,8 +372,8 @@ class TestTheBuildStagePublishesThePitcherSurface:
         self, fake_project: Path, tmp_path: Path
     ) -> None:
         argv = self._build_argv(fake_project, tmp_path)
-        assert "--pitcher-prototype-fixture" in argv
-        assert "dashboard/pitcher_prototype_fixture.json" in argv
+        assert "--pitcher-season-fixture" in argv
+        assert "dashboard/pitcher_season_fixture.json" in argv
 
     def test_the_build_stage_still_receives_the_explorer_artifacts(
         self, fake_project: Path, tmp_path: Path
@@ -391,4 +391,4 @@ class TestTheBuildStagePublishesThePitcherSurface:
         _run(fake_project, log, "--skip-deploy")
         for line in _argv_lines(log):
             if not line.startswith("build "):
-                assert "--pitcher-prototype-fixture" not in line, line
+                assert "--pitcher-season-fixture" not in line, line

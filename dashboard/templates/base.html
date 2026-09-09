@@ -67,7 +67,7 @@
              The link is season-scoped (`pitcher_nav_url`), pointing at the
              season this build actually published rather than at the
              season-less path, so the nav never depends on a redirect. #}
-          {% if pitcher_prototype_available %}
+          {% if pitcher_surface_available %}
           <li><a href="{{ pitcher_nav_url }}"{% if active_page == 'pitchers' %} class="is-active" aria-current="page"{% endif %}>Pitchers</a></li>
           {% endif %}
           <li><a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="is-active" aria-current="page"{% endif %}>How It Works</a></li>
@@ -135,7 +135,7 @@
       {# The retrospective caveat, per surface. The shared sentence names
          BATTING talent, which is the right caveat on a hitter page and the
          wrong noun on a pitcher one. Pitcher routes pass their own sentence
-         (`pitcher_prototype_content.PITCHER_RETROSPECTIVE_LIMITATION`,
+         (`pitcher_season_content.PITCHER_RETROSPECTIVE_LIMITATION`,
          bound by test to `public_labels`); every other route renders the
          shared one below, unchanged. Neither is a fallback for the other:
          a route that supplies nothing gets the hitter sentence, which is

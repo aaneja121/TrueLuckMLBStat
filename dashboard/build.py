@@ -56,7 +56,7 @@ import content as c
 import demo_content as dc
 import demo_counterfactual_content as dcc
 import explore_content as ec
-import pitcher_prototype_content as ppc
+import pitcher_season_content as ppc
 import snapshot_data as sd
 import visuals as v
 from dashboard_config import (
@@ -864,7 +864,7 @@ class BuildResult:
     out_dir: Path
 
 
-# ══ Version 0.13.1 LOCAL PROTOTYPE · pitcher views ═══════════════════════
+# ══ Pitcher views ════════════════════════════════════════════════════════
 #
 # Every function below is a PROJECTION of already-scored fixture values into
 # layout percentages and display strings. Nothing here computes a score, a
@@ -1003,7 +1003,7 @@ def _pitcher_band_summary(rows: list[ppc.PitcherRow]) -> str:
 
 
 def _pitcher_board_view(
-    data: ppc.PitcherPrototypeData,
+    data: ppc.PitcherSeasonData,
     role_bucket: str,
     scale: v.ZeroScale,
     root_prefix: str,
@@ -1049,7 +1049,7 @@ def _pitcher_board_view(
     }
 
 
-def _pitcher_chrome(data: ppc.PitcherPrototypeData) -> dict[str, Any]:
+def _pitcher_chrome(data: ppc.PitcherSeasonData) -> dict[str, Any]:
     """The two pieces of shared chrome the pitcher surface overrides.
 
     Both exist because this surface shows a DIFFERENT body of data from the
@@ -1078,7 +1078,7 @@ def _pitcher_chrome(data: ppc.PitcherPrototypeData) -> dict[str, Any]:
 
 
 def _pitcher_off_board_groups(
-    data: ppc.PitcherPrototypeData, root_prefix: str
+    data: ppc.PitcherSeasonData, root_prefix: str
 ) -> list[dict[str, Any]]:
     """Name-and-link index of every pitcher-season the boards withhold.
 
@@ -1209,7 +1209,7 @@ def _largest_play_sentence(row: ppc.PitcherRow) -> str:
 
 def _pitcher_card_view(
     row: ppc.PitcherRow,
-    data: ppc.PitcherPrototypeData,
+    data: ppc.PitcherSeasonData,
     scale: v.ZeroScale,
     root_prefix: str,
 ) -> dict[str, Any]:
@@ -1289,7 +1289,7 @@ def build_dashboard(
     explore_metadata_path: Path | None = None,
     explore_showcase_path: Path | None = None,
     explore_showcase_sensitivity_dir: Path | None = None,
-    pitcher_prototype_fixture_path: Path | Sequence[Path] | None = None,
+    pitcher_season_fixture_path: Path | Sequence[Path] | None = None,
     repo_root: Path = PROJECT_ROOT,
     build_timestamp: str | None = None,
 ) -> BuildResult:
@@ -1351,18 +1351,8 @@ def build_dashboard(
     _qualification_by_id = {
         record["batter_id"]: record.get("qualification_status") for record in payloads.public_score
     }
-    player_index_json = json.dumps(
-        [
-            {
-                "batter_id": e.batter_id,
-                "batter_name": e.batter_name,
-                "url": f"{root_prefix}players/{e.batter_id}/",
-                "ranked": _qualification_by_id.get(e.batter_id) == "qualified",
-            }
-            for e in player_index
-        ],
-        sort_keys=True,
-    )
+    # The search index itself is assembled further down, once the pitcher
+    # seasons this build publishes are known -- one index, both surfaces.
 
     status_data = c.build_status_page_data(payloads, history)
 
@@ -1391,18 +1381,18 @@ def build_dashboard(
     # produce a site at all.
     #
     # One fixture per season: the flag is repeatable, so publishing a second
-    # season once one is authorized is another `--pitcher-prototype-fixture`
+    # season once one is authorized is another `--pitcher-season-fixture`
     # rather than a rewrite. A single path is still accepted unchanged.
     _pitcher_paths: list[Path] = []
-    if pitcher_prototype_fixture_path is not None:
+    if pitcher_season_fixture_path is not None:
         _pitcher_paths = (
-            [pitcher_prototype_fixture_path]
-            if isinstance(pitcher_prototype_fixture_path, Path)
-            else list(pitcher_prototype_fixture_path)
+            [pitcher_season_fixture_path]
+            if isinstance(pitcher_season_fixture_path, Path)
+            else list(pitcher_season_fixture_path)
         )
-    pitcher_datasets: list[ppc.PitcherPrototypeData] = []
+    pitcher_datasets: list[ppc.PitcherSeasonData] = []
     for _path in _pitcher_paths:
-        _data = ppc.load_pitcher_prototype_data(_path)
+        _data = ppc.load_pitcher_season_data(_path)
         if _data.season not in PITCHER_PUBLIC_SEASONS:
             raise DashboardBuildError(
                 f"{_path}: pitcher season {_data.season} is "
@@ -1419,9 +1409,71 @@ def build_dashboard(
             )
         pitcher_datasets.append(_data)
     pitcher_datasets.sort(key=lambda d: d.season, reverse=True)
-    pitcher_prototype_available = bool(pitcher_datasets)
+    pitcher_surface_available = bool(pitcher_datasets)
     # The newest published season is the surface's front door.
     pitcher_primary_season = pitcher_datasets[0].season if pitcher_datasets else None
+
+    # ── The global search index ──────────────────────────────────────────
+    # ONE index over BOTH published surfaces. Assembled here rather than
+    # beside the hitter payloads because it can only be correct once the
+    # pitcher seasons this build publishes are known.
+    #
+    # The pitcher half is derived from `pitcher_datasets` and from nothing
+    # else. That list has already passed the `PITCHER_PUBLIC_SEASONS` gate
+    # above, so an unauthorized season cannot reach the index by any route:
+    # it never becomes a dataset in the first place, and the build fails
+    # before this line. No unauthorized fixture is opened to build a search
+    # entry, and no season list is written down a second time here.
+    #
+    # Entries are neutral about who they describe -- `mlbam_id`/`name`, not
+    # `batter_id`/`batter_name` -- because hitters and pitchers are the same
+    # MLBAM person register, the same reason `headshot_url` is keyed that
+    # way. `kind` and `label` are resolved HERE, at build time: what a
+    # result IS and what it is called are product facts, not something
+    # JavaScript should decide (`CLAUDE.md` rule 6).
+    search_entries: list[dict[str, Any]] = [
+        {
+            "kind": "hitter",
+            "label": "Hitter",
+            "mlbam_id": e.batter_id,
+            "name": e.batter_name or f"Player {e.batter_id}",
+            "url": f"{root_prefix}players/{e.batter_id}/",
+            # Redesign Phase 2: an unqualified hitter is MARKED, never
+            # suppressed -- a preserved product invariant.
+            "ranked": _qualification_by_id.get(e.batter_id) == "qualified",
+        }
+        for e in player_index
+    ]
+    for _dataset in pitcher_datasets:
+        for _row in _dataset.rows:
+            search_entries.append(
+                {
+                    "kind": "pitcher",
+                    # The season is part of the label because it is part of
+                    # the identity: a pitcher-season is the unit this surface
+                    # publishes, and a second published season would make an
+                    # unlabelled "Pitcher" ambiguous.
+                    "label": f"Pitcher · {_dataset.season}",
+                    "mlbam_id": _row.pitcher_id,
+                    "name": _row.name or f"Player {_row.pitcher_id}",
+                    "url": pitcher_route(root_prefix, _dataset.season, _row.pitcher_id),
+                    "season": _dataset.season,
+                }
+            )
+    # Name, then hitter before pitcher, then season descending. A person with
+    # both surfaces gets TWO adjacent results rather than one arbitrary
+    # winner -- picking one silently would answer a question the reader did
+    # not ask, and the two pages say different things about different halves
+    # of the game.
+    search_entries.sort(
+        key=lambda e: (
+            e["name"].casefold(),
+            0 if e["kind"] == "hitter" else 1,
+            -int(e.get("season") or 0),
+            e["mlbam_id"],
+        )
+    )
+    player_index_json = json.dumps(search_entries, sort_keys=True)
 
     # Version 1.4.0 Phase 4: the Play Explorer artifact directory is
     # OPTIONAL at build time (unlike the demo fixture/counterfactual grid
@@ -1562,7 +1614,7 @@ def build_dashboard(
         "build_timestamp_display": _display_timestamp(build_timestamp),
         "player_index_json": player_index_json,
         "explore_available": explore_available,
-        "pitcher_prototype_available": pitcher_prototype_available,
+        "pitcher_surface_available": pitcher_surface_available,
         # The nav's pitcher link, and the season switcher's source. Built
         # from the seasons this build actually published rather than from
         # `PITCHER_PUBLIC_SEASONS` directly, so neither the nav nor the
@@ -1798,13 +1850,12 @@ def build_dashboard(
             )
         )
 
-    # ── "/pitchers/" + "/pitchers/<pitcher_id>/" · Version 0.13.1 LOCAL
-    #    PROTOTYPE ────────────────────────────────────────────────────────
+    # ── "/pitchers/<season>/" + "/pitchers/<season>/<pitcher_id>/" ───────
     #
-    # A FOURTH `ZeroScale`. `visuals.ZeroScale`'s docstring says the product
-    # has exactly three and that adding one is a design review rather than a
-    # code change -- so this is that decision made deliberately and written
-    # down, not slipped in. The reason a fourth is needed: this surface's
+    # A FOURTH `ZeroScale`. `visuals.ZeroScale` says the product has exactly
+    # four and that adding a fifth is a design review rather than a code
+    # change -- this was that decision, made deliberately and written down
+    # rather than slipped in. The reason a fourth is needed: this surface's
     # ranked quantity is a CUMULATIVE RUN TOTAL, which no existing scale
     # measures. Drawing it on `league_per_100` would place a +20-run season
     # off the end of a rate axis; drawing it on `run_value` would put a
@@ -1814,7 +1865,7 @@ def build_dashboard(
     # built with `from_values(..., zero_fraction=league_scale.zero_fraction)`,
     # so zero sits at the SAME `--cl-zero` every other figure on the site
     # registers against. Invariant D deliberately does NOT apply (same
-    # exception the `run_value` scale takes): this is a development-season
+    # exception the `run_value` scale takes): this is a completed-season
     # population, not the snapshot's own comparison population. The price of
     # the exception, per that docstring, is paid in the template -- both
     # boards and every card print this scale's own ticks and its own unit,
@@ -2011,14 +2062,14 @@ def _build_cli_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--pitcher-prototype-fixture",
+        "--pitcher-season-fixture",
         type=Path,
         action="append",
         default=None,
-        dest="pitcher_prototype_fixture",
+        dest="pitcher_season_fixture",
         help=(
             "Path to the committed Pitcher Contact Luck fixture "
-            "(dashboard/pitcher_prototype_fixture.json), enabling the pitcher surface at "
+            "(dashboard/pitcher_season_fixture.json), enabling the pitcher surface at "
             "/pitchers/<season>/. NOT defaulted: omitting this flag builds the site with "
             "no pitcher route and no nav entry. scripts/publish_snapshot.sh passes it "
             "explicitly, exactly as it passes --explore-artifacts-dir, so publication is "
@@ -2058,7 +2109,7 @@ def main(
         "explore_metadata_path": metadata_path,
         "explore_showcase_path": showcase_path,
         "explore_showcase_sensitivity_dir": showcase_sensitivity_dir,
-        "pitcher_prototype_fixture_path": args.pitcher_prototype_fixture,
+        "pitcher_season_fixture_path": args.pitcher_season_fixture,
     }
     if outputs_root is not None:
         kwargs["outputs_root"] = outputs_root

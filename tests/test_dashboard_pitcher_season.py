@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import build as dashboard_build
-import pitcher_prototype_content as ppc
+import pitcher_season_content as ppc
 import pytest
 
 from dashboard_snapshot_fixtures import default_player_record, write_snapshot
@@ -79,7 +79,7 @@ def _pitcher(
 
 def _fixture_payload() -> dict:
     return {
-        "pitcher_prototype_fixture_version": "0.1",
+        "pitcher_season_fixture_version": "0.1",
         "season": 2024,
         "metric": "pitching_contact_luck",
         "sign_convention": "expected run value - observed run value",
@@ -160,7 +160,7 @@ def _fixture_payload() -> dict:
 
 @pytest.fixture
 def fixture_path(tmp_path: Path) -> Path:
-    path = tmp_path / "pitcher_prototype_fixture.json"
+    path = tmp_path / "pitcher_season_fixture.json"
     path.write_text(json.dumps(_fixture_payload()))
     return path
 
@@ -253,7 +253,7 @@ def _build(tmp_path: Path, snapshot_roots: tuple[Path, Path], fixture: Path | No
         out_dir=out_dir,
         outputs_root=outputs_root,
         artifacts_root=artifacts_root,
-        pitcher_prototype_fixture_path=fixture,
+        pitcher_season_fixture_path=fixture,
     )
     return out_dir
 
@@ -452,11 +452,11 @@ class TestSmallSampleHonesty:
 class TestFixtureLoaderFailsClosed:
     def test_unknown_schema_version_is_refused(self, tmp_path):
         payload = _fixture_payload()
-        payload["pitcher_prototype_fixture_version"] = "9.9"
+        payload["pitcher_season_fixture_version"] = "9.9"
         path = tmp_path / "f.json"
         path.write_text(json.dumps(payload))
-        with pytest.raises(ppc.PitcherPrototypeError, match="not one of"):
-            ppc.load_pitcher_prototype_data(path)
+        with pytest.raises(ppc.PitcherSeasonError, match="not one of"):
+            ppc.load_pitcher_season_data(path)
 
     def test_failed_batter_side_self_check_is_refused_at_display_time(self, tmp_path):
         """The generator already refuses to WRITE such a fixture. This is the
@@ -467,19 +467,19 @@ class TestFixtureLoaderFailsClosed:
         payload["batter_side_reproduction"] = {"reproduces": False, "max_abs_difference": 0.4}
         path = tmp_path / "f.json"
         path.write_text(json.dumps(payload))
-        with pytest.raises(ppc.PitcherPrototypeError, match="not trustworthy"):
-            ppc.load_pitcher_prototype_data(path)
+        with pytest.raises(ppc.PitcherSeasonError, match="not trustworthy"):
+            ppc.load_pitcher_season_data(path)
 
     def test_unknown_role_bucket_is_refused(self, tmp_path):
         payload = _fixture_payload()
         payload["pitchers"][0]["role_bucket"] = "closer"
         path = tmp_path / "f.json"
         path.write_text(json.dumps(payload))
-        with pytest.raises(ppc.PitcherPrototypeError, match="unknown role bucket"):
-            ppc.load_pitcher_prototype_data(path)
+        with pytest.raises(ppc.PitcherSeasonError, match="unknown role bucket"):
+            ppc.load_pitcher_season_data(path)
 
     def test_boards_exclude_below_minimum_rows(self, fixture_path):
-        data = ppc.load_pitcher_prototype_data(fixture_path)
+        data = ppc.load_pitcher_season_data(fixture_path)
         assert [r.name for r in data.board("reliever_like")] == ["Relief Leader"]
         assert data.find(4) is not None, "the withheld season keeps its own record"
 
@@ -520,7 +520,7 @@ class TestEverySeasonTheBoardsWithholdIsStillReachable:
         ranking.
         """
         groups = dashboard_build._pitcher_off_board_groups(
-            ppc.load_pitcher_prototype_data(fixture_path), "/"
+            ppc.load_pitcher_season_data(fixture_path), "/"
         )
         for group in groups:
             names = [e["name"] for e in group["entries"]]
@@ -551,7 +551,7 @@ class TestMixedUsageSeasonsAreAccountedFor:
 
     def test_the_two_withheld_reasons_are_never_merged(self, fixture_path):
         groups = dashboard_build._pitcher_off_board_groups(
-            ppc.load_pitcher_prototype_data(fixture_path), "/"
+            ppc.load_pitcher_season_data(fixture_path), "/"
         )
         ids = [{e["name"] for e in g["entries"]} for g in groups]
         assert len(ids) == 2
@@ -682,7 +682,7 @@ class TestThePitcherSurfaceHasNo2026Dependency:
     """
 
     def test_the_fixture_is_a_development_season(self, fixture_path):
-        data = ppc.load_pitcher_prototype_data(fixture_path)
+        data = ppc.load_pitcher_season_data(fixture_path)
         assert data.season == 2024
         assert data.season not in (2025, 2026)
 
@@ -799,7 +799,7 @@ class TestTheRankedQuantityIsNeverCalledAllowed:
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
         card = _card_page(out_dir, 1).read_text()
         assert "better for the pitcher" in card
-        data = ppc.load_pitcher_prototype_data(fixture_path)
+        data = ppc.load_pitcher_season_data(fixture_path)
         assert data.rows[0].cumulative_contact_luck_runs > 0
 
 
@@ -820,7 +820,7 @@ class TestTheDataContextIsRouteAware:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        season = str(ppc.load_pitcher_prototype_data(fixture_path).season)
+        season = str(ppc.load_pitcher_season_data(fixture_path).season)
         for page in _pitcher_pages(out_dir):
             badge = self._badge(page)
             assert "Pitcher data" in badge, page
@@ -1098,7 +1098,7 @@ class TestNoPlayerIsExcludedByIdentity:
         """Every season that clears the display minimum AND lands in one of
         the two usage descriptions is on its board; every one that does not
         is on a page instead. Nothing else decides."""
-        data = ppc.load_pitcher_prototype_data(fixture_path)
+        data = ppc.load_pitcher_season_data(fixture_path)
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
         board = _board_page(out_dir).read_text()
         for row in data.rows:
@@ -1386,7 +1386,7 @@ class TestTheSeasonSwitcherIsBuiltButHidden:
     def _two_season_site(self, tmp_path, snapshot_roots):
         """Two synthetic seasons, both authorized and both BUILT -- which is
         what publishing a second season actually looks like: another
-        `--pitcher-prototype-fixture`, not a rewrite."""
+        `--pitcher-season-fixture`, not a rewrite."""
         paths = [self._fixture_for(1901, tmp_path), self._fixture_for(1902, tmp_path)]
         with _authorized_seasons(1901, 1902):
             return _build(tmp_path, snapshot_roots, paths)
@@ -1645,19 +1645,19 @@ class TestTheProductionPublishPathPublishesTheSurface:
 
     def test_the_publish_script_passes_the_fixture(self):
         script = PUBLISH_SCRIPT.read_text()
-        assert "--pitcher-prototype-fixture dashboard/pitcher_prototype_fixture.json" in script
+        assert "--pitcher-season-fixture dashboard/pitcher_season_fixture.json" in script
 
     def test_it_is_passed_to_the_dashboard_build_stage(self):
         """Not to the explorer stage, and not in a stray comment."""
         build_stage = PUBLISH_SCRIPT.read_text().split("dashboard/build.py", 1)[1]
-        assert "--pitcher-prototype-fixture" in build_stage.split("\n\n", 1)[0]
+        assert "--pitcher-season-fixture" in build_stage.split("\n\n", 1)[0]
 
     def test_the_flag_still_has_no_default(self):
         """Fail-closed survives productionization: publication is one named
         line in the publish path, never something a bare build inherits."""
         parser = dashboard_build._build_cli_arg_parser()
         args = parser.parse_args([])
-        assert args.pitcher_prototype_fixture is None
+        assert args.pitcher_season_fixture is None
 
 
 class TestTheHeaderStillFitsWithAPitcherEntry:

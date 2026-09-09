@@ -217,9 +217,11 @@ class TestGlobalSearchCombobox:
 
 class TestSearchIndexMarksUnrankedPlayers:
     def test_index_carries_a_build_time_ranked_flag(self, built_site: Path) -> None:
+        """`name`/`mlbam_id`, not `batter_name`/`batter_id`: the index now
+        covers hitters AND pitchers, which are one MLBAM person register."""
         html = (built_site / "index.html").read_text()
         raw = html.split('id="player-index-data">', 1)[1].split("</script>", 1)[0]
-        index = {row["batter_name"]: row for row in json.loads(raw)}
+        index = {row["name"]: row for row in json.loads(raw) if row["kind"] == "hitter"}
         assert index["Alice Alpha"]["ranked"] is True
         # Searchable, present, and marked -- never suppressed.
         assert index["Carl Gamma"]["ranked"] is False

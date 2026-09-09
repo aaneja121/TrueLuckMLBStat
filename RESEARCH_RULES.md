@@ -138,7 +138,7 @@ What is authorized:
 
 - Publishing `/pitchers/<season>/` and `/pitchers/<season>/<pitcher_id>/` for the **2024**
   season, from the committed development fixture
-  (`dashboard/pitcher_prototype_fixture.json`), through the ordinary
+  (`dashboard/pitcher_season_fixture.json`), through the ordinary
   `scripts/publish_snapshot.sh` path.
 
 Applied in exactly one place: **`dashboard_config.PITCHER_PUBLIC_SEASONS`**. That tuple is

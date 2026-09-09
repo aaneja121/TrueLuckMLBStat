@@ -48,7 +48,7 @@ network access):
 
     .venv/bin/python demo/build_pitcher_prototype_fixture.py
 
-Writes `dashboard/pitcher_prototype_fixture.json` (committed reviewed
+Writes `dashboard/pitcher_season_fixture.json` (committed reviewed
 reference data, same convention as `dashboard/demo_fixture.json`) and
 `outputs/tables/pitcher_prototype_research_report.json` (gitignored
 research output backing the Version 0.13.1 README section).
@@ -91,7 +91,7 @@ from mlb_luck_score.scoring.run_season_aggregation import (  # noqa: E402
 DEV_DATA_PATH = (
     REPO_ROOT / "data" / "processed" / "cleaned_development_data_with_sprint_speed.parquet"
 )
-FIXTURE_PATH = REPO_ROOT / "dashboard" / "pitcher_prototype_fixture.json"
+FIXTURE_PATH = REPO_ROOT / "dashboard" / "pitcher_season_fixture.json"
 RESEARCH_REPORT_PATH = REPO_ROOT / "outputs" / "tables" / "pitcher_prototype_research_report.json"
 
 FIXTURE_VERSION = "0.1"
@@ -229,7 +229,7 @@ def build_fixture(
     pitchers.sort(key=lambda p: -p["cumulative_contact_luck_runs"])
 
     fixture = {
-        "pitcher_prototype_fixture_version": FIXTURE_VERSION,
+        "pitcher_season_fixture_version": FIXTURE_VERSION,
         "season": PROTOTYPE_SEASON,
         "metric": "pitching_contact_luck",
         "sign_convention": (

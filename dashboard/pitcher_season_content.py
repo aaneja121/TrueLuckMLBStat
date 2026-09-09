@@ -1,9 +1,9 @@
-"""Version 0.13.1 LOCAL PROTOTYPE: turns the committed Pitcher Contact Luck
-development fixture into page-ready view-models.
+"""Turns the committed Pitcher Contact Luck season fixture into page-ready
+view-models.
 
 Same contract as every other module under `dashboard/`: it recomputes
 nothing. Every run total, rate, interval, batted-ball count and per-play
-value below is read verbatim from `dashboard/pitcher_prototype_fixture.json`,
+value below is read verbatim from `dashboard/pitcher_season_fixture.json`,
 which `demo/build_pitcher_prototype_fixture.py` produced offline from real
 2024 development data. This module derives no score, rank, interval or
 probability, and imports no scoring code (`CLAUDE.md` rule 6, enforced by
@@ -11,12 +11,18 @@ probability, and imports no scoring code (`CLAUDE.md` rule 6, enforced by
 
 ## What this surface is, and is not
 
-It is a LOCAL prototype of a presentation, gated behind an explicit
-`dashboard/build.py --pitcher-prototype-fixture PATH` flag exactly like the
-Play Explorer's `--explore-artifacts-dir`: omit the flag and the route is
-not built and does not appear in navigation. It is 2024 development data
-only -- never a 2026 prospective snapshot, never part of the published
-site's snapshot contract, and never a claim about a future season.
+It is PUBLISHED, and gated twice. `dashboard/build.py --pitcher-season-fixture
+PATH` decides whether a pitcher surface is built at all, exactly like the Play
+Explorer's `--explore-artifacts-dir`: omit the flag and the route is not built
+and does not appear in navigation. `dashboard_config.PITCHER_PUBLIC_SEASONS`
+decides which SEASONS may be built, and the build fails outright on any other.
+
+It is a **season fixture, not a snapshot** -- which is why neither this module
+nor its fixture is named for one. The site's snapshots are dated, discovered,
+integrity-checked and replaced as a season progresses (`snapshot_data.py`).
+This is the opposite: one completed season, committed, undated, never updated.
+It shares none of the snapshot contract and must never be read as though it
+did.
 
 ## Two vocabulary rules this module enforces rather than assumes
 
@@ -44,9 +50,9 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
-    "PitcherPrototypeData",
+    "PitcherSeasonData",
     "PitcherRow",
-    "PitcherPrototypeError",
+    "PitcherSeasonError",
     "PlayHighlight",
     "PITCHER_EXPOSURE_SCOPE",
     "PITCHER_RETROSPECTIVE_LIMITATION",
@@ -54,7 +60,7 @@ __all__ = [
     "ROLE_LABELS",
     "ROLE_USAGE_PHRASES",
     "WORKLOAD_BAND_LABELS",
-    "load_pitcher_prototype_data",
+    "load_pitcher_season_data",
 ]
 
 #: The ONLY role vocabulary this surface may use. Deliberately hyphenated
@@ -159,8 +165,8 @@ REASON_BELOW_BOARD_MINIMUM = (
 SUPPORTED_FIXTURE_VERSIONS: frozenset[str] = frozenset({"0.1"})
 
 
-class PitcherPrototypeError(Exception):
-    """The prototype fixture is missing, unparseable, or written against a
+class PitcherSeasonError(Exception):
+    """The season fixture is missing, unparseable, or written against a
     schema version this module does not accept. Never a reason to render the
     route with partial data.
     """
@@ -204,7 +210,7 @@ class PitcherRow:
 
 
 @dataclass(frozen=True)
-class PitcherPrototypeData:
+class PitcherSeasonData:
     season: int
     sign_convention: str
     board_display_minimum_bbe: int
@@ -250,17 +256,17 @@ def _play(record: dict[str, Any] | None) -> PlayHighlight | None:
     )
 
 
-def load_pitcher_prototype_data(path: Path) -> PitcherPrototypeData:
+def load_pitcher_season_data(path: Path) -> PitcherSeasonData:
     """Read and validate the committed fixture. Fails closed."""
     try:
         raw = json.loads(Path(path).read_text())
     except (OSError, json.JSONDecodeError) as exc:
-        raise PitcherPrototypeError(f"failed to load {path}: {exc}") from exc
+        raise PitcherSeasonError(f"failed to load {path}: {exc}") from exc
 
-    version = raw.get("pitcher_prototype_fixture_version")
+    version = raw.get("pitcher_season_fixture_version")
     if version not in SUPPORTED_FIXTURE_VERSIONS:
-        raise PitcherPrototypeError(
-            f"{path}: pitcher_prototype_fixture_version {version!r} is not one of "
+        raise PitcherSeasonError(
+            f"{path}: pitcher_season_fixture_version {version!r} is not one of "
             f"{sorted(SUPPORTED_FIXTURE_VERSIONS)} -- refusing to render it."
         )
 
@@ -272,7 +278,7 @@ def load_pitcher_prototype_data(path: Path) -> PitcherPrototypeData:
         # two-layer principle the prospective cache-coverage guard follows:
         # never let a single upstream check be the only thing standing
         # between untrustworthy values and a rendered page.
-        raise PitcherPrototypeError(
+        raise PitcherSeasonError(
             f"{path}: batter_side_reproduction did not pass ({reproduction}) -- the pitcher "
             "values in this fixture are not trustworthy and must not be displayed."
         )
@@ -301,7 +307,7 @@ def load_pitcher_prototype_data(path: Path) -> PitcherPrototypeData:
     ]
     unknown_roles = {r.role_bucket for r in rows} - set(ROLE_LABELS)
     if unknown_roles:
-        raise PitcherPrototypeError(
+        raise PitcherSeasonError(
             f"{path}: unknown role bucket(s) {sorted(unknown_roles)} -- this surface has a "
             "fixed, descriptive role vocabulary and never invents a label for a new one."
         )
@@ -311,7 +317,7 @@ def load_pitcher_prototype_data(path: Path) -> PitcherPrototypeData:
     # present a different quantity as the ranking key.
     rows.sort(key=lambda r: -r.cumulative_contact_luck_runs)
 
-    return PitcherPrototypeData(
+    return PitcherSeasonData(
         season=int(raw["season"]),
         sign_convention=str(raw["sign_convention"]),
         board_display_minimum_bbe=int(rules["board_display_minimum_bbe"]),

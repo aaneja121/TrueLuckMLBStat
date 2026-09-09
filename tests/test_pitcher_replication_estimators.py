@@ -14,17 +14,76 @@ import numpy as np
 import pandas as pd
 import pitcher_replication_estimators as est
 import pytest
+from _pytest.outcomes import Skipped
 
-FIXTURE_PATH = (
-    Path(__file__).resolve().parent.parent / "dashboard" / "pitcher_prototype_fixture.json"
-)
+FIXTURE_PATH = Path(__file__).resolve().parent.parent / "dashboard" / "pitcher_season_fixture.json"
+
+
+def load_fixture_frame(path: Path = FIXTURE_PATH) -> pd.DataFrame:
+    """Read the committed pitcher season fixture, or FAIL.
+
+    This used to `pytest.skip` on a missing file, which was a live hazard
+    rather than a convenience: `FIXTURE_PATH` is a hard-coded path into
+    another half of the repository, so a rename or a move on the dashboard
+    side would not break this suite -- it would SILENTLY DISABLE it, and the
+    frozen question-E formulas would stop being checked with every test
+    still reporting green. That is the worst failure mode available to a
+    test that guards a sealed specification.
+
+    A missing fixture now fails loudly and says what to do about it. The
+    fixture is committed, so its absence is a real defect in every case: it
+    means a rename left this path behind, or the working tree is broken.
+    """
+    if not path.is_file():
+        raise AssertionError(
+            f"pitcher season fixture not found at {path}. This file is COMMITTED, so its "
+            "absence means a rename or move left this path behind -- fix the path rather "
+            "than skipping, or the frozen question-E estimator formulas stop being "
+            "checked while this suite still reports green."
+        )
+    return pd.DataFrame(json.loads(path.read_text())["pitchers"])
 
 
 @pytest.fixture(scope="module")
 def fixture_frame() -> pd.DataFrame:
-    if not FIXTURE_PATH.is_file():
-        pytest.skip("pitcher prototype fixture not present")
-    return pd.DataFrame(json.loads(FIXTURE_PATH.read_text())["pitchers"])
+    return load_fixture_frame()
+
+
+class TestTheFixtureGuardFailsRatherThanSkips:
+    """The control for the change above.
+
+    Without this, "it fails instead of skipping" is an assertion about code
+    nobody exercises -- which is exactly the position the suite was already
+    in. These tests prove the guard fires, and that it fires on the path the
+    suite actually uses.
+    """
+
+    def test_a_missing_fixture_raises_rather_than_skipping(self, tmp_path: Path) -> None:
+        missing = tmp_path / "definitely_not_here.json"
+        with pytest.raises(AssertionError, match="pitcher season fixture not found"):
+            load_fixture_frame(missing)
+
+    def test_the_failure_is_not_a_skip(self, tmp_path: Path) -> None:
+        """`pytest.skip` raises `Skipped`, which `pytest.raises(AssertionError)`
+        would not catch -- so assert the negative explicitly rather than
+        inferring it."""
+        missing = tmp_path / "definitely_not_here.json"
+        try:
+            load_fixture_frame(missing)
+        except BaseException as exc:  # noqa: BLE001 -- the point is WHICH type
+            assert not isinstance(exc, Skipped), "a missing fixture must fail, never skip"
+            assert isinstance(exc, AssertionError)
+        else:
+            raise AssertionError("a missing fixture must raise")
+
+    def test_the_real_fixture_path_exists_and_is_the_one_the_suite_reads(self) -> None:
+        """The assertion a rename breaks. It names the current path, so
+        moving the fixture again fails HERE, loudly, instead of quietly
+        turning this file into a no-op."""
+        assert FIXTURE_PATH.is_file(), FIXTURE_PATH
+        assert FIXTURE_PATH.name == "pitcher_season_fixture.json"
+        frame = load_fixture_frame()
+        assert not frame.empty
 
 
 class TestFrozenFormulas:

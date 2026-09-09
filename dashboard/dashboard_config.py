@@ -102,7 +102,7 @@ FROZEN_PUBLIC_TERMINOLOGY = {
 }
 
 
-# Version 0.13.1 LOCAL PROTOTYPE: the committed Pitcher Contact Luck
+# The committed Pitcher Contact Luck season fixture -- the published
 # development fixture -- same committed-reference-data convention as
 # DEMO_FIXTURE_PATH / EXPLORE_PLAYERS_PATH above, produced ONCE, offline,
 # by `demo/build_pitcher_prototype_fixture.py` (which trains the frozen
@@ -113,12 +113,12 @@ FROZEN_PUBLIC_TERMINOLOGY = {
 #
 # Like EXPLORE_PLAYERS_PATH and unlike DEMO_FIXTURE_PATH, this path is NOT a
 # default for `build.py`: the pitcher route is fail-closed and must be opted
-# into with `--pitcher-prototype-fixture PATH`. `scripts/publish_snapshot.sh`
+# into with `--pitcher-season-fixture PATH`. `scripts/publish_snapshot.sh`
 # now passes it explicitly, exactly as it already passes
 # `--explore-artifacts-dir` -- so the surface is published deliberately, by
 # one named line in the publish path, and an ad-hoc `build.py` run still
 # emits no pitcher route at all.
-PITCHER_PROTOTYPE_FIXTURE_PATH = DASHBOARD_SOURCE_ROOT / "pitcher_prototype_fixture.json"
+PITCHER_SEASON_FIXTURE_PATH = DASHBOARD_SOURCE_ROOT / "pitcher_season_fixture.json"
 
 #: THE PUBLICATION GATE for pitcher seasons. This tuple -- and nothing else
 #: -- decides which pitcher seasons reach the public site.
