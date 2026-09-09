@@ -19,6 +19,13 @@ Read with `docs/design/responsive.md` (how these hold across breakpoints).
   relationship, not compression.
 - **Grid:** 12 columns ≥ 1024. The leaderboard takes the full data measure. The player page
   is an 8/4 split (score + evidence / context and trend), not a stack of full-width bands.
+  The **pitcher card** follows the same rule as of 2026-09-09: ≥ 1024 the hero is a grid —
+  numeral left, the sentence that gives it its sign beside it, the figure across the full
+  measure. It was a stack of narrow bands (a 720 px figure in a 1152 px column), which is
+  the wasted-space shape named above, not a measure problem: `--measure-data` already gives
+  every route 1152 px of usable content at ≥ 1248. **The data measure is not per-route** —
+  `.page-shell` is worn by the header, main and footer alike, so widening it for one
+  surface would move the wordmark between routes.
 
 ---
 

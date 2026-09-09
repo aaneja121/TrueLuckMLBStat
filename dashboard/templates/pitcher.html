@@ -2,6 +2,9 @@
 {% import "_macros.html" as macros %}
 {% block title %}{{ p.name }} · Pitcher Contact Luck ({{ p.season }} prototype){% endblock %}
 {% block meta_description %}{{ p.name }}: {{ p.total | signed(2) }} Cumulative Contact Luck Runs over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} development season.{% endblock %}
+{% block head_extra %}
+  <link rel="preconnect" href="{{ headshot_origin }}" crossorigin>
+{% endblock %}
 {% block content %}
 {#
   Version 0.13.1 LOCAL PROTOTYPE -- the pitcher card.
@@ -32,11 +35,26 @@
 </nav>
 
 <article class="player-verdict">
-  <h1 class="player-name">{{ p.name }}</h1>
-  <p class="player-apparatus">
-    MLBAM&nbsp;<span class="num">{{ p.pitcher_id }}</span> ·
-    {{ p.role_usage_phrase }} · {{ p.season }} development season
-  </p>
+  {# The profile head. Identity is still name-first (`DESIGN.md` rule 9):
+     the portrait is the same fixed reservation the boards use, at the
+     card's size, so the name and the apparatus line sit at the same x and
+     the same baseline whether it loads, fails, or is a pitcher the CDN has
+     no photo of. Same helper, same CDN, same `contain` framing, same
+     initials fallback -- one contract, larger box. #}
+  <div class="pitcher-profile-head">
+    <span class="player-portrait pitcher-profile-portrait" aria-hidden="true"
+          data-initials="{{ p.initials }}">
+      <img class="player-portrait-img" src="{{ p.portrait_url }}" alt=""
+           width="72" height="72" loading="lazy" decoding="async">
+    </span>
+    <div class="pitcher-profile-identity">
+      <h1 class="player-name">{{ p.name }}</h1>
+      <p class="player-apparatus">
+        MLBAM&nbsp;<span class="num">{{ p.pitcher_id }}</span> ·
+        {{ p.role_usage_phrase }} · {{ p.season }} development season
+      </p>
+    </div>
+  </div>
 
   <p class="proto-banner">
     <strong>Development prototype.</strong> {{ p.season }} data only. Not a projection.

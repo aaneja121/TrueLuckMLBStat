@@ -4971,7 +4971,12 @@ table.pitcher-board-table {
   min-width: 760px;
 }
 .pitcher-board-table col.pcol-rank { width: 3rem; }
-.pitcher-board-table col.pcol-name { width: 13rem; }
+/* Grew by exactly the portrait's footprint (34px box + an 8px gap =
+   2.625rem), the same compensation `--lb-player` makes on the hitter
+   board: the NAME keeps the width it had before portraits existed, so no
+   name wraps that did not wrap before and no row grows past the ceiling
+   `docs/design/tables.md` sets. */
+.pitcher-board-table col.pcol-name { width: 15.625rem; }
 .pitcher-board-table col.pcol-verdict { width: auto; }
 .pitcher-board-table col.pcol-evidence { width: 11rem; }
 .pitcher-board-table col.pcol-rate { width: 11.5rem; }
@@ -5112,6 +5117,26 @@ td.pcol-rate {
 .pitcher-note p { margin: 0 0 var(--sp-3); }
 
 /* ══ The pitcher card ════════════════════════════════════════════════════ */
+
+/* The profile head: the same portrait primitive as the boards, at the
+   card's size. `.player-portrait` supplies the fixed reservation, the
+   `contain` framing and the initials fallback; this modifier changes the
+   box and nothing else. The negative block margins the board rows use are
+   a table-density guard and are explicitly undone here -- there is no row
+   rule to clear on a card. */
+.pitcher-profile-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.pitcher-profile-portrait {
+  width: 72px;
+  height: 80px;
+  margin-block: 0;
+}
+.pitcher-profile-portrait::after { font-size: var(--fs-500); }
+.pitcher-profile-identity { min-width: 0; }
+
 .pitcher-hero { margin: var(--sp-5) 0 var(--sp-6); }
 .pitcher-hero-eyebrow {
   margin: 0;
@@ -5287,7 +5312,7 @@ td.pcol-rate {
   .pitcher-board-table col.pcol-rate { width: 0; }
   .pitcher-board-table th.pcol-rate,
   .pitcher-board-table td.pcol-rate { display: none; }
-  .pitcher-board-table col.pcol-name { width: 11rem; }
+  .pitcher-board-table col.pcol-name { width: 13.625rem; }
   .pitcher-board-table col.pcol-evidence { width: 9.5rem; }
 }
 
@@ -5296,6 +5321,19 @@ td.pcol-rate {
      plot field, so a caption asserting "both boards below are drawn on this
      one scale" would be false here. */
   .pitcher-axis-head { display: none; }
+  /* The portrait sheds here, one step BEFORE the name would have to. Below
+     768 this table's identity column is `width: auto` in a four-column
+     table on a 358px canvas, so the portrait's 42px footprint comes
+     straight out of the name -- and a truncated or three-line name is a
+     worse row than one with no picture in it. Identity is name-first
+     (`DESIGN.md` rule 9), which is exactly what makes this shed legal:
+     the portrait is `aria-hidden` decoration with no interaction, so
+     nothing operable or announced is removed (guardrails anti-pattern 7
+     does not apply), and the row is complete with the name alone. The
+     hitter leaderboard keeps its portrait at this width because its
+     mobile row is a full-width band with 322px of identity, not a column
+     in a four-column table. */
+  .pitcher-board-table .player-portrait { display: none; }
   .pitcher-board-table col.pcol-rank { width: 2rem; }
   .pitcher-board-table col.pcol-name { width: auto; }
   /* The verdict cell now holds only its numeral, so it needs numeral width
@@ -5392,3 +5430,124 @@ td.pcol-rate {
   color: var(--text-muted);
 }
 .pitcher-offboard-list .num { font-variant-numeric: tabular-nums lining-nums; }
+
+
+/* ══ Pitcher surfaces at desktop width ═══════════════════════════════════
+   Manual review, 2026-09-09: at 1512 the pitcher surfaces read as a
+   reduced research document rather than a finished board. Two measured
+   causes, and neither of them is the page shell -- `.page-shell` already
+   delivers 1152px of usable content at every viewport >= 1248 (the data
+   measure, 1200px, less two 24px gutters), which is inside the 1000-1200
+   target and is the same width the hitter leaderboard gets.
+
+   1. THE CARD NEVER USED THE CANVAS. `/pitchers/<id>/` was a stack of
+      narrow bands in a 1152px column: the figure was capped at 720px and
+      the prose at the prose measure, so ~430px of every desktop viewport
+      was empty beside them. `docs/design/layout.md` names this exact
+      shape -- "a 260px diagram centred in a 1140px column with empty
+      gutters is wasted space, not breathing room" -- and specifies a real
+      grid for a player page rather than a stack of full-width bands.
+   2. THE BOARD WAS SET AT THE SMALL STEPS. Rows at `--fs-300`, the ranked
+      total at `--fs-500`, opportunity at `--fs-200`. Legible, but set for
+      a narrower column than the one they are in.
+
+   Everything below moves between EXISTING steps on the nine-step scale
+   (`docs/design/typography.md`) -- no new size, no nudge, no transform,
+   no zoom. Mark geometry is untouched: the 2px interval line and the 9px
+   point dot already meet `docs/design/dataviz.md`'s spec, so the figures
+   gain readability from width and from field height, which is what a
+   strip plot on a shared domain actually reads on.
+
+   Scoped to `.pitcher-*` throughout: the hitter routes are not in this
+   change and do not move. */
+@media (min-width: 1280px) {
+  /* The board. One step up per tier, hierarchy unchanged: the cumulative
+     total stays the largest thing in the row, opportunity stays second,
+     and the secondary rate stays smaller than both and still uncoloured
+     and unmarked. */
+  table.pitcher-board-table { font-size: var(--fs-400); }
+  table.pitcher-board-table th { font-size: var(--fs-200); }
+  /* The column-head SUB-labels stay at `--fs-100`. They are apparatus, not
+     a tier of the row, and they are the longest strings in the two
+     narrowest columns -- stepping them up wrapped "resolved BBE ·
+     appearances" onto three lines and bought the header 40px of height
+     for no gain in the rows underneath. */
+  .pitcher-board-table .verdict-value { font-size: var(--fs-600); }
+  .pitcher-board-table td.pcol-evidence { font-size: var(--fs-300); }
+  .pitcher-board-table .pitcher-bbe { font-size: var(--fs-600); }
+  .pitcher-board-table .pitcher-band-tag { font-size: var(--fs-200); }
+  .pitcher-board-table .pitcher-rate { font-size: var(--fs-400); }
+  .pitcher-board-table .pitcher-rate-interval { font-size: var(--fs-300); }
+  /* The axis the rows are drawn against is read at the same distance as
+     the rows; `--fs-200` is the scale's floor and was set for the phone. */
+  .pitcher-board-table .cl-axis-tick,
+  .pitcher-axis .cl-axis-tick { font-size: var(--fs-300); }
+
+  /* The two fixed right-hand columns, sized to their MEASURED widest
+     content at the larger type rather than to a round number: the widest
+     usage line is 150px and the widest interval 105px, so 11rem and 8rem
+     hold every row of the 2024 fixture with the cell padding included.
+     Every pixel not spent here goes to the plot field, which is the only
+     column a reader takes a position off. (The sub-labels in the two
+     headings are longer than their columns and wrap to a second line;
+     they already do that at narrower widths.) */
+  .pitcher-board-table col.pcol-evidence { width: 11rem; }
+  .pitcher-board-table col.pcol-rate { width: 8rem; }
+
+  /* A little more air around the marks. Deliberately small: the row also
+     carries a 44px link target, so every pixel here is a row that does
+     not fit above the fold, and the marks themselves are unchanged --
+     2px line, 9px dot, both already at `docs/design/dataviz.md`'s spec. */
+  .pitcher-board-table .verdict-inner { min-height: 30px; }
+
+  /* The lede. `.proto-banner` is a third item in this flex row, which is
+     what squeezed the opening line to 380px and left the band looking
+     like three narrow columns with voids between them. Giving the line
+     the prose measure as its basis lets the banner drop to its own row
+     instead of competing for the same one. */
+  .pitcher-board-lede .lede-line { flex: 1 1 var(--measure-prose); }
+  .pitcher-board-lede .proto-banner { flex: 1 1 100%; margin-top: 0; }
+}
+
+/* The card, at every desktop width. The figure is the widest thing on the
+   page because it is the only thing on the page a reader takes a position
+   off; the prose beside the numeral stays at the prose measure, which is
+   the design (`DESIGN.md` principle 4), not an unfilled gap.
+
+   The DOM order is untouched, so the reading order for assistive
+   technology is still total -> sign -> opportunity -> figure. */
+@media (min-width: 1024px) {
+  .pitcher-hero {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    column-gap: var(--sp-7);
+    align-items: start;
+  }
+  .pitcher-hero-eyebrow { grid-column: 1; grid-row: 1; }
+  .pitcher-hero-value { grid-column: 1; grid-row: 2; }
+  /* The sign, in words, on the numeral's own baseline instead of stacked
+     under it -- the void beside a 44px numeral is where the sentence that
+     explains it belongs. */
+  .pitcher-hero .pitcher-sign-key {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: end;
+    margin: 0 0 var(--sp-2);
+  }
+  .pitcher-hero-opportunity { grid-column: 1 / -1; grid-row: 3; }
+  /* Was capped at 720px inside a 1152px column. The cap is what made the
+     scale unreadable, not the mark sizes. */
+  .pitcher-hero-plot { grid-column: 1 / -1; grid-row: 4; max-width: none; }
+  .pitcher-mark-row { height: 32px; }
+  .pitcher-league-row .cl-distribution { height: 34px; }
+}
+
+@media (min-width: 1280px) {
+  /* One step, on the one numeral this page exists to show. */
+  .pitcher-hero-value { font-size: var(--fs-900); }
+  .pitcher-hero-opportunity { font-size: var(--fs-500); }
+  .pitcher-sign-key { font-size: var(--fs-300); }
+  .pitcher-rate-item > dd { font-size: var(--fs-600); }
+  .pitcher-play-value { font-size: var(--fs-700); }
+  .pitcher-play-contact { font-size: var(--fs-400); }
+}

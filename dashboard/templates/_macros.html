@@ -336,7 +336,24 @@
     {% for row in board.rows %}
     <tr>
       <td class="pcol-rank num">{{ row.board_rank }}</td>
-      <td class="pcol-name"><a class="player-link" href="{{ row.url }}">{{ row.name }}</a></td>
+      {# Identity. The SAME portrait primitive the hitter leaderboard uses --
+         same `.player-identity` unit, same fixed `.player-portrait`
+         reservation, same `object-fit: contain` framing, same
+         `aria-hidden` + empty `alt`, same `data-initials` fallback that
+         `app.js` reveals on a failed request. The pitcher board is drawn
+         from the same MLBAM person register as the hitter board, so it
+         gets the contract rather than a second one. Name-first still
+         holds: the box is a reservation, so a missing, failed or slow
+         portrait changes no row height, no name x and no column width. #}
+      <td class="pcol-name">
+        <span class="player-identity">
+          <span class="player-portrait" aria-hidden="true" data-initials="{{ row.initials }}">
+            <img class="player-portrait-img" src="{{ row.portrait_url }}" alt=""
+                 width="34" height="34" loading="lazy" decoding="async">
+          </span>
+          <a class="player-link" href="{{ row.url }}">{{ row.name }}</a>
+        </span>
+      </td>
 
       {# ── The verdict cell: the ranked quantity, and the only one drawn ── #}
       <td class="pcol-verdict verdict {{ 'is-favorable' if row.favorable else 'is-unfavorable' }}">

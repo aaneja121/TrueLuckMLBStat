@@ -811,3 +811,383 @@ class TestTheDataContextIsRouteAware:
         text = (out_dir / "index.html").read_text()
         assert "Pitcher data" not in text
         assert "stable pitching talent" not in text
+
+
+STYLE_CSS = Path(__file__).resolve().parents[1] / "dashboard" / "static" / "style.css"
+APP_JS = Path(__file__).resolve().parents[1] / "dashboard" / "static" / "app.js"
+
+
+def _css() -> str:
+    return STYLE_CSS.read_text()
+
+
+class TestPitcherPortraitsReuseTheHitterContract:
+    """The pitcher surfaces draw portraits with the SAME contract the hitter
+    leaderboard already uses -- not a second image system.
+
+    What "the same contract" means, and what each test here pins:
+    one construction site for the URL (`build.headshot_url`), keyed on an
+    MLBAM person id; the CDN's own silhouette as the first fallback; the
+    initials the markup already carries as the second; the name alone as
+    the third; `contain` framing that cannot crop; lazy loading with
+    intrinsic dimensions; and decorative semantics, because the name is
+    right beside it.
+
+    The failure this guards against is a plausible one: a per-player image
+    map, a second CDN, or a hand-written `<img src>` on the pitcher side
+    that drifts from the hitter side without anything noticing.
+    """
+
+    def test_the_url_helper_is_the_one_construction_site(self) -> None:
+        """Same function, same template, differing only in the id. If a
+        pitcher URL could be built any other way, "the same contract" would
+        be an assertion about today's source rather than a property."""
+        assert dashboard_build.headshot_url(669060) == dashboard_build.HEADSHOT_URL_TEMPLATE.format(
+            mlbam_id=669060
+        )
+        hitter = dashboard_build.headshot_url(605141)
+        pitcher = dashboard_build.headshot_url(669060)
+        assert hitter.replace("605141", "<id>") == pitcher.replace("669060", "<id>")
+        assert pitcher.startswith(dashboard_build.HEADSHOT_ORIGIN)
+        assert pitcher.endswith("/v1/people/669060/headshot/silo/current")
+
+    def test_the_helper_is_keyed_on_a_person_id_not_on_a_batter(self) -> None:
+        """The rename that makes the shared contract honest: hitters and
+        pitchers are one people register, so the template's placeholder is
+        named for the key rather than for the surface that used it first."""
+        assert "{mlbam_id}" in dashboard_build.HEADSHOT_URL_TEMPLATE
+        assert "{batter_id}" not in dashboard_build.HEADSHOT_URL_TEMPLATE
+
+    def test_every_board_row_carries_its_own_mlbam_portrait(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        board = (out_dir / "pitchers" / "index.html").read_text()
+        for slug in ("starter-like", "reliever-like"):
+            body = board.split(f'id="pb-{slug}"', 1)[1].split("</table>", 1)[0]
+            body = body.split("<tbody>", 1)[1]
+            rows = body.count("<tr>")
+            srcs = re.findall(r'class="player-portrait-img" src="([^"]+)"', body)
+            assert len(srcs) == rows
+            assert all(re.search(r"/v1/people/\d+/headshot/silo/current$", s) for s in srcs)
+
+    def test_the_row_portrait_is_the_row_s_own_pitcher(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        """The id in the URL is the id in the row's own link -- the check
+        that catches a portrait column built from the wrong key."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        board = (out_dir / "pitchers" / "index.html").read_text()
+        cells = re.findall(r'<td class="pcol-name">(.*?)</td>', board, flags=re.DOTALL)
+        assert cells
+        for cell in cells:
+            src = re.search(r'player-portrait-img" src="([^"]+)"', cell).group(1)
+            href = re.search(r'href="[^"]*pitchers/(\d+)/"', cell).group(1)
+            assert src == dashboard_build.headshot_url(href)
+
+    def test_the_card_carries_the_same_portrait_in_its_profile_head(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        head = card.split('class="pitcher-profile-head"', 1)[1].split("</div>", 1)[0]
+        assert dashboard_build.headshot_url(1) in head
+        assert "pitcher-profile-portrait" in head
+        # Name-first: the portrait never replaces the name, it precedes it.
+        assert "Big Total" in card
+
+    def test_portraits_are_lazy_and_carry_intrinsic_dimensions(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        """Intrinsic width/height are what stop a portrait arriving late
+        from reflowing the row it is in."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            for img in re.findall(
+                r"<img class=\"player-portrait-img\".*?>", page.read_text(), re.S
+            ):
+                assert 'loading="lazy"' in img
+                assert 'decoding="async"' in img
+                assert re.search(r'width="\d+"', img) and re.search(r'height="\d+"', img)
+
+    def test_the_portrait_is_decorative_in_the_accessibility_tree(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        """The name is right beside it on both surfaces, so a portrait that
+        announced itself would say every pitcher's name twice."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        board = (out_dir / "pitchers" / "index.html").read_text()
+        cell = board.split('<td class="pcol-name">', 1)[1].split("</td>", 1)[0]
+        assert 'aria-hidden="true"' in cell
+        assert 'alt=""' in cell
+        assert not re.search(r'alt="[^"]+"', cell)
+
+        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        head = card.split('class="pitcher-profile-head"', 1)[1].split("</div>", 1)[0]
+        assert 'aria-hidden="true"' in head
+        assert 'alt=""' in head
+        assert not re.search(r'alt="[^"]+"', head)
+
+    def test_three_fallbacks_stand_behind_every_portrait(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        """The CDN's own neutral silhouette for a pitcher it has no photo
+        of; the initials in the same box if the REQUEST fails; and the name,
+        which never depended on either."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        board = (out_dir / "pitchers" / "index.html").read_text()
+        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        for page in (board, card):
+            assert "d_people:generic:headshot:silo:current.png" in page
+            assert 'data-initials="BT"' in page or re.search(r'data-initials="[A-Z]{1,2}"', page)
+
+        css = _css()
+        assert ".player-portrait.is-missing::after { display: flex; }" in css
+        assert "content: attr(data-initials)" in css
+        js = APP_JS.read_text()
+        assert "initPortraitFallback" in js
+        assert "player-portrait-img" in js
+
+    def test_initials_come_from_the_shared_helper(self) -> None:
+        assert dashboard_build.player_initials("Big Total") == "BT"
+        assert dashboard_build.player_initials("Luis L. Ortiz Jr.") == "LO"
+        assert dashboard_build.player_initials("") == ""
+
+    def test_the_framing_is_the_shared_contain_fit_never_a_crop(self) -> None:
+        """Same declarations, same box, same reason: a square silo source
+        under `contain` cannot lose a chin on any axis, and no circle mask
+        is applied on either surface."""
+        img = _css().split(".player-portrait-img {", 1)[1].split("}", 1)[0]
+        assert "object-fit: contain" in img
+        assert "object-position: center bottom" in img
+        assert "object-fit: cover" not in _css()
+        profile = _css().split(".pitcher-profile-portrait {", 1)[1].split("}", 1)[0]
+        assert "border-radius" not in profile
+
+    def test_the_profile_portrait_is_a_fixed_reservation(self) -> None:
+        """`DESIGN.md` rule 9 on the card too: a declared box means a
+        missing, failed or slow portrait moves neither the name nor the
+        numeral under it."""
+        profile = _css().split(".pitcher-profile-portrait {", 1)[1].split("}", 1)[0]
+        assert "width: 72px" in profile
+        assert "height: 80px" in profile
+        base = _css().split(".player-portrait {", 1)[1].split("}", 1)[0]
+        assert "flex: 0 0 auto" in base
+
+    def test_the_third_party_request_is_declared_on_the_routes_that_use_it(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            body = page.read_text()
+            assert f'rel="preconnect" href="{dashboard_build.HEADSHOT_ORIGIN}"' in body
+        # And still nowhere that draws no portrait.
+        for route in ("methodology", "status", "demo"):
+            other = (out_dir / route / "index.html").read_text()
+            assert dashboard_build.HEADSHOT_ORIGIN not in other
+
+    def test_no_portrait_url_is_hard_coded_per_player(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        """Every emitted portrait URL must be reproducible from the helper
+        and the row's own id. A literal image URL for a named player -- the
+        thing a "just fix this one headshot" patch would add -- fails here.
+        """
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            for url in re.findall(r'src="(https?://[^"]+)"', page.read_text()):
+                mlbam_id = re.search(r"/v1/people/(\d+)/", url)
+                assert mlbam_id, f"non-silo image URL emitted: {url}"
+                assert url == dashboard_build.headshot_url(mlbam_id.group(1))
+        # One origin on the whole surface: no second CDN or provider.
+        origins = set()
+        for page in (out_dir / "pitchers").rglob("index.html"):
+            origins.update(re.findall(r'src="(https?://[^/]+)', page.read_text()))
+        assert origins <= {dashboard_build.HEADSHOT_ORIGIN}
+
+    def test_the_portrait_sheds_before_the_name_does_on_a_phone(self) -> None:
+        """Below 768 the board's identity column is `width: auto` in a
+        four-column table, so the portrait's footprint would come straight
+        out of the name. It is dropped there instead -- decoration sheds
+        before content, and the row is complete with the name alone."""
+        mobile = _css().split("@media (max-width: 767px) {", 1)[1]
+        assert ".pitcher-board-table .player-portrait { display: none; }" in mobile
+
+
+class TestNoPlayerIsExcludedByIdentity:
+    """No pitcher is removed from, or added to, a board because of who they
+    are. The board rules are the frozen 2024 display rules and nothing else.
+
+    This is the standing guard against the class of change that starts as
+    "drop this one player" and ends as an unwritten policy: a name, an
+    MLBAM id, or an allow/deny list in presentation code.
+    """
+
+    DASHBOARD = Path(__file__).resolve().parents[1] / "dashboard"
+
+    def test_no_player_name_or_id_list_appears_in_presentation_code(self) -> None:
+        banned = re.compile(
+            r"\b(excluded_players?|banned_players?|hidden_players?|blocked_players?|"
+            r"suspended_players?|ineligible_players?|player_denylist|player_blocklist|"
+            r"roster_status|player_status_filter)\b"
+        )
+        for path in sorted(self.DASHBOARD.glob("*.py")) + sorted(
+            (self.DASHBOARD / "templates").glob("*.html")
+        ):
+            assert not banned.search(path.read_text()), f"{path} names a player-status filter"
+
+    def test_board_membership_follows_only_the_frozen_display_rules(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        """Every season that clears the display minimum AND lands in one of
+        the two usage descriptions is on its board; every one that does not
+        is on a page instead. Nothing else decides."""
+        data = ppc.load_pitcher_prototype_data(fixture_path)
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        board = (out_dir / "pitchers" / "index.html").read_text()
+        for row in data.rows:
+            ranked = row.on_board and row.role_bucket in ("starter_like", "reliever_like")
+            in_a_board_table = any(
+                row.name in board.split(f'id="pb-{slug}"', 1)[1].split("</table>", 1)[0]
+                for slug in ("starter-like", "reliever-like")
+            )
+            assert in_a_board_table is ranked, row.name
+            # Withheld or not, the season still has its own page.
+            assert (out_dir / "pitchers" / str(row.pitcher_id) / "index.html").exists()
+
+    def test_board_counts_are_unchanged_by_this_change(
+        self, tmp_path, snapshot_roots, fixture_path
+    ) -> None:
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        board = (out_dir / "pitchers" / "index.html").read_text()
+        counts = {
+            slug: board.split(f'id="pb-{slug}"', 1)[1]
+            .split("</table>", 1)[0]
+            .split("<tbody>", 1)[1]
+            .count("<tr>")
+            for slug in ("starter-like", "reliever-like")
+        }
+        # From `_fixture_payload`: two ranked starter-like, one ranked
+        # reliever-like ("Tiny Sample" is below the minimum, "Mixed Usage"
+        # is on neither board).
+        assert counts == {"starter-like": 2, "reliever-like": 1}
+
+
+def _strip_css_comments(css: str) -> str:
+    """This stylesheet's comments quote CSS, braces included, so they must
+    go before any brace-based parsing."""
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+
+
+def _media_block(css: str, query: str, *, must_contain: str) -> str:
+    """The body of the `@media <query>` block containing `must_contain`.
+
+    There is more than one block per query in this stylesheet, so the
+    marker picks the one under test rather than the first one written.
+    """
+    body = _strip_css_comments(css)
+    needle = f"@media {query} {{"
+    start = 0
+    while True:
+        start = body.index(needle, start) + len(needle)
+        depth, i = 1, start
+        while depth:
+            if body[i] == "{":
+                depth += 1
+            elif body[i] == "}":
+                depth -= 1
+            i += 1
+        block = body[start : i - 1]
+        if must_contain in block:
+            return block
+
+
+class TestTheDesktopPitcherSurfaceUsesItsCanvas:
+    """Manual review, 2026-09-09: the pitcher surfaces read as underscaled
+    at 1512.
+
+    The cause was NOT the page shell -- `--measure-data` already gives every
+    route 1152px of usable content at any viewport >= 1248 -- so these tests
+    pin the two things that actually were wrong, and pin the shell as
+    *unchanged* so a future "just make it wider" does not quietly become a
+    site-wide measure change.
+    """
+
+    def test_the_shared_page_measure_is_unchanged(self) -> None:
+        """`docs/design/layout.md` fixes the data measure at 1200px and
+        `.page-shell` is worn by the header, main and footer of every route.
+        Widening it for one surface would move the wordmark between routes.
+        """
+        root = _css().split(":root {", 1)[1].split("}", 1)[0]
+        assert "--measure-data: 1200px" in root
+        shell = _css().split(".page-shell {", 1)[1].split("}", 1)[0]
+        assert "max-width: var(--measure-data)" in shell
+
+    def test_the_card_figure_is_no_longer_capped_at_720px(self) -> None:
+        """The measured defect: a 720px figure centred in a 1152px column,
+        which is the shape `docs/design/layout.md` calls wasted space."""
+        base = _css().split(".pitcher-hero-plot {", 1)[1].split("}", 1)[0]
+        assert "max-width: 720px" in base, "the narrow default is still the mobile behaviour"
+        desktop = _media_block(_css(), "(min-width: 1024px)", must_contain=".pitcher-hero-plot")
+        plot = desktop.split(".pitcher-hero-plot {", 1)[1].split("}", 1)[0]
+        assert "max-width: none" in plot
+        assert "grid-column: 1 / -1" in plot
+
+    def test_the_card_hero_is_a_grid_at_desktop_width(self) -> None:
+        desktop = _media_block(_css(), "(min-width: 1024px)", must_contain=".pitcher-hero-plot")
+        hero = desktop.split(".pitcher-hero {", 1)[1].split("}", 1)[0]
+        assert "display: grid" in hero
+        assert "grid-template-columns" in hero
+
+    def test_every_desktop_rule_is_scoped_to_the_pitcher_surfaces(self) -> None:
+        """The whole no-hitter-regression argument in one assertion: if a
+        selector in either new block does not name a pitcher class, it can
+        reach a hitter route."""
+        for query, marker in (
+            ("(min-width: 1280px)", "table.pitcher-board-table"),
+            ("(min-width: 1024px)", ".pitcher-hero-plot"),
+        ):
+            block = _media_block(_css(), query, must_contain=marker)
+            for rule in re.finditer(r"([^{}]+)\{[^{}]*\}", block):
+                for selector in rule.group(1).split(","):
+                    assert "pitcher" in selector, f"{selector.strip()!r} escapes the pitcher scope"
+
+    def test_the_desktop_step_up_uses_existing_scale_steps_only(self) -> None:
+        """`docs/design/guardrails.md` anti-pattern 3: move between steps on
+        the nine-step scale, never nudge a raw px size into a font-size."""
+        for query, marker in (
+            ("(min-width: 1280px)", "table.pitcher-board-table"),
+            ("(min-width: 1024px)", ".pitcher-hero-plot"),
+        ):
+            block = _media_block(_css(), query, must_contain=marker)
+            for value in re.findall(r"font-size:\s*([^;]+);", block):
+                assert re.fullmatch(r"var\(--fs-\d00\)", value.strip()), value
+
+    def test_the_marks_themselves_are_untouched(self) -> None:
+        """`docs/design/dataviz.md`: 2px interval line, >= 8px point dot.
+        The figures were made readable by width, not by inflating marks past
+        their spec."""
+        for query, marker in (
+            ("(min-width: 1280px)", "table.pitcher-board-table"),
+            ("(min-width: 1024px)", ".pitcher-hero-plot"),
+        ):
+            block = _media_block(_css(), query, must_contain=marker)
+            assert ".cl-scale-interval" not in block
+            assert ".cl-scale-point" not in block
+
+    def test_the_board_still_declares_its_min_width_scroll_contract(self) -> None:
+        """`docs/design/guardrails.md` anti-pattern 6: an `.overflow-x` box
+        owes a min-width contract. The wider columns must not have quietly
+        removed it."""
+        table = _css().split("table.pitcher-board-table {", 1)[1].split("}", 1)[0]
+        assert "min-width: 760px" in table
+        assert "overflow-x: auto" in _css().split(".pitcher-scroll {", 1)[1].split("}", 1)[0]
+
+    def test_the_identity_column_pays_for_the_portrait_not_the_name(self) -> None:
+        """Both bands grew by exactly the portrait's footprint (34px box +
+        an 8px gap = 2.625rem), the same compensation the hitter board
+        makes, so no name has less room than it had before portraits."""
+        css = _strip_css_comments(_css())
+        assert ".pitcher-board-table col.pcol-name { width: 15.625rem; }" in css  # was 13rem
+        narrow = _media_block(_css(), "(max-width: 1023px)", must_contain="col.pcol-rate")
+        assert "col.pcol-name { width: 13.625rem; }" in narrow  # was 11rem

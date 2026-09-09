@@ -2,6 +2,13 @@
 {% import "_macros.html" as macros %}
 {% block title %}Pitcher Contact Luck · 2024 prototype{% endblock %}
 {% block meta_description %}Local development prototype: Cumulative Contact Luck Runs for pitchers over the 2024 development season, on real scored batted balls.{% endblock %}
+{# Same declaration the hitter leaderboard makes, for the same reason and
+   against the same origin: the boards below carry the site's only
+   third-party request, so the connection is opened early on the routes
+   that use it and nowhere else. #}
+{% block head_extra %}
+  <link rel="preconnect" href="{{ headshot_origin }}" crossorigin>
+{% endblock %}
 {% block content %}
 {#
   Version 0.13.1 LOCAL PROTOTYPE -- pitcher landing surface.
@@ -25,7 +32,7 @@
      hidden -- the reliever-like board simply does not reach as far from
      zero, and that IS the finding.
 #}
-<div class="lede">
+<div class="lede pitcher-board-lede">
   <h1 class="lede-title">Pitcher Contact Luck</h1>
   <p class="lede-line prose">
     How many runs the outcomes of the batted balls a pitcher allowed added or removed,

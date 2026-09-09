@@ -223,12 +223,28 @@ def _distribution_marks(
 #: probability depends on it, and every row is complete and correct with the
 #: name alone (`DESIGN.md` rule 9 -- identity is name-first).
 HEADSHOT_ORIGIN = "https://img.mlbstatic.com"
+#: Keyed on an MLBAM person id, which is what `/v1/people/<id>/` takes --
+#: NOT on "a batter". Hitters and pitchers are the same people register, so
+#: the placeholder is named for the key rather than for the first surface
+#: that used it: one contract, one CDN, one fallback chain, whoever is
+#: being drawn.
 HEADSHOT_URL_TEMPLATE = (
     HEADSHOT_ORIGIN + "/mlb-photos/image/upload"
     "/d_people:generic:headshot:silo:current.png"
     "/w_120,q_auto:best,f_auto"
-    "/v1/people/{batter_id}/headshot/silo/current"
+    "/v1/people/{mlbam_id}/headshot/silo/current"
 )
+
+
+def headshot_url(mlbam_id: int | str) -> str:
+    """The silo headshot for one MLBAM person id.
+
+    The single construction site for this URL. Every surface that draws a
+    portrait -- the hitter leaderboard, the pitcher boards, the pitcher
+    card -- calls this, so no route can grow a second URL shape, a second
+    CDN, or a per-player hard-coded image.
+    """
+    return HEADSHOT_URL_TEMPLATE.format(mlbam_id=mlbam_id)
 
 #: Generational suffixes are not a surname: "Vladimir Guerrero Jr." initials
 #: to VG, not VJ.
@@ -278,7 +294,7 @@ def _leaderboard_view_rows(
                 "batter_id": row.batter_id,
                 "batter_name": row.batter_name or f"Player {row.batter_id}",
                 "url": f"{root_prefix}players/{row.batter_id}/",
-                "portrait_url": HEADSHOT_URL_TEMPLATE.format(batter_id=row.batter_id),
+                "portrait_url": headshot_url(row.batter_id),
                 "initials": player_initials(row.batter_name or ""),
                 "score": point,
                 "lower": lower,
@@ -929,6 +945,13 @@ def _pitcher_row_view(row: ppc.PitcherRow, scale: v.ZeroScale, root_prefix: str)
         "pitcher_id": row.pitcher_id,
         "name": row.name,
         "url": f"{root_prefix}pitchers/{row.pitcher_id}/",
+        # The SAME helper the hitter leaderboard calls, on the same MLBAM
+        # person key, with the same CDN silhouette and the same offline
+        # initials fallback behind it. Nothing here is pitcher-specific:
+        # a second URL shape for pitchers would be a second contract to
+        # keep true (docs/design/information-architecture.md § Imagery).
+        "portrait_url": headshot_url(row.pitcher_id),
+        "initials": player_initials(row.name or ""),
         "total": point,
         "bbe": row.eligible_batted_balls,
         "appearances": row.appearances,
@@ -1747,6 +1770,7 @@ def build_dashboard(
                 **base_context,
                 active_page="pitchers",
                 **_pitcher_chrome(pitcher_data),
+                headshot_origin=HEADSHOT_ORIGIN,
                 pitchers=pitcher_data,
                 boards=boards,
                 pitcher_scale=pitcher_scale,
@@ -1788,6 +1812,7 @@ def build_dashboard(
                     **base_context,
                     active_page=None,
                     **_pitcher_chrome(pitcher_data),
+                    headshot_origin=HEADSHOT_ORIGIN,
                     p=card,
                     pitcher_scale=pitcher_scale,
                     pitcher_scale_ticks=pitcher_scale_ticks,
