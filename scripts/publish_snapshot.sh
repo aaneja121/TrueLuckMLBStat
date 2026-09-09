@@ -154,6 +154,29 @@
 #                           scripts/ensure_frozen_inputs.py). Default:
 #                           $R2_BUCKET_NAME if set, else
 #                           contact-luck-prospective-archive.
+#   --build-from-existing-snapshot
+#                           FEATURE-ONLY BUILD. Do not score anything.
+#                           Restore the ALREADY-ARCHIVED snapshot for
+#                           --data-through from R2 (read-only), verify it
+#                           against its own integrity_hashes.json, then
+#                           generate Explorer artifacts and build the
+#                           dashboard from it. Never scores, never writes
+#                           to R2, and never deploys -- it exists to ship a
+#                           PRESENTATION change against the exact hitter
+#                           state already in production.
+#
+#                           Why it exists: a snapshot manifest records
+#                           `repository_commit`, `generated_at` and the
+#                           hashes of every frozen input. Re-scoring a date
+#                           that is already archived therefore produces a
+#                           DIFFERENT manifest the moment the repository
+#                           has moved on -- even when every scored value is
+#                           identical -- and history sync then correctly
+#                           refuses to reconcile the two. That refusal is
+#                           not a bug to route around; it is the archive
+#                           guard doing its job. The answer is to stop
+#                           re-scoring an already-archived date, which is
+#                           what this mode does.
 #   --skip-archive          Do not archive to R2. Refused unless
 #                           --skip-deploy is ALSO passed (see above).
 #   --skip-deploy           Rebuild the dashboard but do not deploy to
@@ -204,6 +227,7 @@ ARCHIVE_BUCKET="${R2_BUCKET_NAME:-contact-luck-prospective-archive}"
 SKIP_ARCHIVE=0
 SKIP_DEPLOY=0
 ASSUME_YES=0
+BUILD_FROM_EXISTING=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -222,6 +246,10 @@ while [[ $# -gt 0 ]]; do
     --archive-bucket)
       ARCHIVE_BUCKET="$2"
       shift 2
+      ;;
+    --build-from-existing-snapshot)
+      BUILD_FROM_EXISTING=1
+      shift
       ;;
     --skip-archive)
       SKIP_ARCHIVE=1
@@ -253,6 +281,26 @@ if [[ -z "$DATA_THROUGH" ]]; then
   exit 1
 fi
 
+if [[ "$BUILD_FROM_EXISTING" -eq 1 ]]; then
+  # This mode publishes nothing and scores nothing. Both are refusals
+  # rather than silent no-ops: a caller who asked for a deploy here is
+  # asking for something this mode deliberately cannot do, and quietly
+  # downgrading the request would hide that.
+  if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
+    echo "error: --skip-deploy is redundant with --build-from-existing-snapshot," >&2
+    echo "       which never deploys. Drop it." >&2
+    exit 1
+  fi
+  if [[ "$SKIP_ARCHIVE" -eq 1 ]]; then
+    echo "error: --skip-archive is meaningless with --build-from-existing-snapshot," >&2
+    echo "       which never archives (it only READS an existing archive). Drop it." >&2
+    exit 1
+  fi
+  # Forced, not defaulted: nothing downstream may re-enable a deploy.
+  SKIP_DEPLOY=1
+  SKIP_ARCHIVE=1
+fi
+
 if [[ "$SKIP_ARCHIVE" -eq 1 && "$SKIP_DEPLOY" -ne 1 ]]; then
   echo "error: --skip-archive cannot be combined with a real deploy." >&2
   echo "       This script refuses to deploy a dashboard built from a snapshot that was" >&2
@@ -278,12 +326,18 @@ EXPLORER_BUILD_DIR="$PROJECT_ROOT/outputs/explorer_build/$SNAPSHOT_DIR_NAME"
 echo "==> [1/7] Ensuring the frozen input bundle (dev parquet + 3 detail JSONs) is present and verified"
 R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/ensure_frozen_inputs.py
 
-echo "==> [2/7] Generating prospective snapshot for --data-through $DATA_THROUGH"
-SNAPSHOT_ARGS=(--data-through "$DATA_THROUGH")
-if [[ -n "$SNAPSHOT_LABEL" ]]; then
-  SNAPSHOT_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
+if [[ "$BUILD_FROM_EXISTING" -eq 1 ]]; then
+  echo "==> [2/7] Skipping prospective scoring (--build-from-existing-snapshot)."
+  echo "          The archived snapshot for $DATA_THROUGH is the source of truth;"
+  echo "          re-scoring it would produce a different manifest and be refused."
+else
+  echo "==> [2/7] Generating prospective snapshot for --data-through $DATA_THROUGH"
+  SNAPSHOT_ARGS=(--data-through "$DATA_THROUGH")
+  if [[ -n "$SNAPSHOT_LABEL" ]]; then
+    SNAPSHOT_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
+  fi
+  "$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}"
 fi
-"$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}"
 
 if [[ "$SKIP_ARCHIVE" -eq 1 ]]; then
   echo "==> [3/7] Skipping durable archive (--skip-archive)."
@@ -298,6 +352,20 @@ fi
 
 echo "==> [4/7] Syncing missing historical snapshots from R2 (read-only) for season $SEASON"
 R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/archive_snapshot.py --sync-history --season "$SEASON"
+
+if [[ "$BUILD_FROM_EXISTING" -eq 1 ]]; then
+  # The post-condition that makes this mode trustworthy. The sync above
+  # already verifies each file as it downloads; this re-checks the RESULT
+  # against the snapshot's own integrity_hashes.json, so a half-restored
+  # snapshot, a stale local directory the sync left untouched, or anything
+  # edited between stages fails here instead of being published.
+  echo "==> [4b/7] Verifying restored snapshot $SNAPSHOT_DIR_NAME against its own integrity hashes"
+  SNAPSHOT_VERIFY_ARGS=(--data-through "$DATA_THROUGH")
+  if [[ -n "$SNAPSHOT_LABEL" ]]; then
+    SNAPSHOT_VERIFY_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
+  fi
+  "$PYTHON" scripts/verify_local_snapshot_integrity.py "${SNAPSHOT_VERIFY_ARGS[@]}"
+fi
 
 echo "==> [5/7] Generating Play Explorer browser artifacts from snapshot $SNAPSHOT_DIR_NAME"
 EXPLORE_ARGS=(--data-through "$DATA_THROUGH" --output-dir "$EXPLORER_BUILD_DIR")
@@ -320,7 +388,14 @@ echo "==> [6/7] Rebuilding the dashboard"
   --pitcher-season-fixture dashboard/pitcher_season_fixture.json
 
 if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
-  echo "==> [7/7] Skipping deploy (--skip-deploy)."
+  if [[ "$BUILD_FROM_EXISTING" -eq 1 ]]; then
+    echo "==> [7/7] Not deploying (--build-from-existing-snapshot never deploys)."
+    echo "    dashboard/dist was built from the ARCHIVED snapshot $SNAPSHOT_DIR_NAME,"
+    echo "    verified against its own integrity hashes. Inspect it, then deploy"
+    echo "    deliberately by a separate, explicit action."
+  else
+    echo "==> [7/7] Skipping deploy (--skip-deploy)."
+  fi
   echo "    Preview locally with: cd dashboard/dist && python3 -m http.server 8000"
   exit 0
 fi

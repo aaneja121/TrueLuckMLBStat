@@ -115,6 +115,46 @@ selectively later, but the new design must be derived from this baseline, `PRODU
 `CONTEXT.md`, the rendered product, and the design audit — which is complete, and whose
 conclusions are now `DESIGN.md` + `docs/design/`.
 
+## Feature-only publish: building from an already-archived snapshot
+
+`scripts/publish_snapshot.sh --build-from-existing-snapshot --data-through <DATE>`
+
+Ships a **presentation** change against the exact hitter state already in production,
+without re-scoring anything.
+
+**Why it has to exist.** A snapshot's `manifest.json` records `repository_commit`,
+`generated_at`, `retrieval_timestamps` and a hash of all 32 frozen inputs. Re-scoring a
+date that is *already archived* therefore produces a different manifest the moment the
+repository has moved on — **even when every scored value is identical** — and
+`archive_snapshot.py --sync-history` then correctly refuses to reconcile the fresh copy
+with the archived one. That refusal is the archive guard working, not a bug to route
+around. The fix is to stop re-scoring an already-archived date.
+
+Stages (5, versus the normal path's 7):
+
+```
+ensure_frozen_inputs.py                  (dev parquet + detail JSONs; R2 read only if missing)
+  → archive_snapshot.py --sync-history   (READ-ONLY restore of missing snapshots)
+  → verify_local_snapshot_integrity.py   (post-condition: every file matches its own
+                                          integrity_hashes.json, or the build stops)
+  → generate_production_explorer_artifacts.py
+  → dashboard/build.py --explore-artifacts-dir … --pitcher-season-fixture …
+  → STOP
+```
+
+It is **incapable** of the three dangerous operations, and refuses rather than silently
+downgrading a request for any of them: it never invokes the scoring script, never invokes
+the archive **write** (only `--sync-history`), and never deploys. `--skip-deploy` and
+`--skip-archive` are both **refused** as redundant/meaningless. Proven by
+`tests/test_publish_snapshot_orchestration.py::TestFeatureOnlyBuildFromExistingSnapshot`,
+which asserts the exact five-stage sequence and that the normal scheduled path still
+scores and archives.
+
+In CI: `workflow_dispatch` with `build_from_existing_snapshot: true`. It requires an
+explicit `data_through` (it must not guess which archived snapshot to build from) and
+refuses to combine with `deploy`. The dist is uploaded as
+`dashboard-dist-<data_through>` for inspection.
+
 ## Rebuilding `dashboard/dist/`
 
 `dist/` is gitignored and can be stale (it may hold a build from another branch). It has

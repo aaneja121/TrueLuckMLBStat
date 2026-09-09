@@ -53,6 +53,7 @@ case "$FIRST_ARG" in
       STAGE_NAME="archive"
     fi
     ;;
+  scripts/verify_local_snapshot_integrity.py) STAGE_NAME="verify_snapshot" ;;
   scripts/generate_production_explorer_artifacts.py) STAGE_NAME="generate_explorer" ;;
   dashboard/build.py) STAGE_NAME="build" ;;
   *) STAGE_NAME="unknown" ;;
@@ -392,3 +393,180 @@ class TestTheBuildStagePublishesThePitcherSurface:
         for line in _argv_lines(log):
             if not line.startswith("build "):
                 assert "--pitcher-season-fixture" not in line, line
+
+
+class TestFeatureOnlyBuildFromExistingSnapshot:
+    """`--build-from-existing-snapshot`: build the site from an
+    ALREADY-ARCHIVED snapshot, without scoring anything.
+
+    Why the mode exists, because the tests only make sense with it:
+    a snapshot's manifest records `repository_commit`, `generated_at` and a
+    hash of every frozen input. Re-scoring a date that is already archived
+    therefore yields a DIFFERENT manifest as soon as the repository has
+    moved on -- even when every scored value is identical -- and history
+    sync then correctly refuses to reconcile the fresh copy with the
+    archived one. That refusal is the archive guard working. This mode is
+    the way to ship a PRESENTATION change without provoking it: it never
+    re-scores the date it builds from.
+
+    Everything below is a safety property, not a convenience: the mode must
+    be incapable of scoring, incapable of writing to R2, and incapable of
+    deploying, and it must refuse rather than silently downgrade a request
+    for any of those.
+    """
+
+    def _lines(self, fake_project: Path, tmp_path: Path, *extra: str):
+        log = tmp_path / "calls.log"
+        result = _run(fake_project, log, "--build-from-existing-snapshot", *extra)
+        return result, _log_lines(log)
+
+    # ── it must never score ──────────────────────────────────────────────
+    def test_the_scoring_script_is_never_invoked(self, fake_project: Path, tmp_path: Path) -> None:
+        """THE point of the mode. Not 'scored and discarded' -- never run."""
+        result, lines = self._lines(fake_project, tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert not any(line.startswith("python:score") for line in lines), lines
+
+    def test_no_stage_receives_the_scoring_entry_point(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "calls.log"
+        _run(fake_project, log, "--build-from-existing-snapshot")
+        for line in _argv_lines(log):
+            assert "run_v1_1_2026_scoring.py" not in line, line
+
+    # ── it must never write to R2 ────────────────────────────────────────
+    def test_the_archive_write_is_never_invoked(self, fake_project: Path, tmp_path: Path) -> None:
+        """The harness distinguishes the archive WRITE from `--sync-history`
+        by scanning argv, so this is a real separation, not a name match."""
+        _, lines = self._lines(fake_project, tmp_path)
+        assert not any(line.startswith("python:archive") for line in lines), lines
+
+    def test_the_only_archive_call_is_the_read_only_history_sync(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "calls.log"
+        _run(fake_project, log, "--build-from-existing-snapshot")
+        archive_calls = [ln for ln in _argv_lines(log) if "archive_snapshot.py" in ln]
+        assert archive_calls, "the snapshot has to be retrieved from somewhere"
+        for call in archive_calls:
+            assert "--sync-history" in call, call
+
+    # ── it must never deploy ─────────────────────────────────────────────
+    def test_it_never_deploys(self, fake_project: Path, tmp_path: Path) -> None:
+        _, lines = self._lines(fake_project, tmp_path)
+        assert not any(line.startswith("npx:") for line in lines), lines
+
+    def test_it_refuses_an_explicit_skip_deploy_rather_than_ignoring_it(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """Refuse, not silently accept: a caller passing flags this mode
+        forces anyway has a different model of what it does."""
+        log = tmp_path / "calls.log"
+        result = _run(fake_project, log, "--build-from-existing-snapshot", "--skip-deploy")
+        assert result.returncode != 0
+        assert "redundant" in result.stderr
+        assert _log_lines(log) == []
+
+    def test_it_refuses_an_explicit_skip_archive(self, fake_project: Path, tmp_path: Path) -> None:
+        log = tmp_path / "calls.log"
+        result = _run(fake_project, log, "--build-from-existing-snapshot", "--skip-archive")
+        assert result.returncode != 0
+        assert "meaningless" in result.stderr
+        assert _log_lines(log) == []
+
+    # ── it must verify what it retrieved ─────────────────────────────────
+    def test_the_retrieved_snapshot_is_verified_before_anything_is_built(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        _, lines = self._lines(fake_project, tmp_path)
+        assert "python:verify_snapshot" in lines, lines
+        assert lines.index("python:verify_snapshot") < lines.index("python:generate_explorer")
+        assert lines.index("python:verify_snapshot") < lines.index("python:build")
+
+    def test_the_verifier_is_told_which_snapshot_to_verify(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "calls.log"
+        _run(fake_project, log, "--build-from-existing-snapshot")
+        verify = [ln for ln in _argv_lines(log) if ln.startswith("verify_snapshot ")]
+        assert len(verify) == 1, verify
+        assert "--data-through 2026-08-09" in verify[0]
+
+    def test_a_failed_verification_stops_the_build(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """A snapshot that is not the archived one must never be published,
+        so the failure has to be terminal, not advisory."""
+        log = tmp_path / "calls.log"
+        result = _run(
+            fake_project, log, "--build-from-existing-snapshot", fail_stage="verify_snapshot"
+        )
+        assert result.returncode != 0
+        lines = _log_lines(log)
+        assert "python:verify_snapshot" in lines
+        assert not any(line.startswith("python:generate_explorer") for line in lines), lines
+        assert not any(line.startswith("python:build") for line in lines), lines
+
+    def test_a_failed_history_sync_stops_before_verification(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """If the archive has no such snapshot, or refuses to reconcile a
+        local one, nothing downstream may run."""
+        log = tmp_path / "calls.log"
+        result = _run(
+            fake_project, log, "--build-from-existing-snapshot", fail_stage="history_sync"
+        )
+        assert result.returncode != 0
+        lines = _log_lines(log)
+        assert not any(line.startswith("python:verify_snapshot") for line in lines), lines
+        assert not any(line.startswith("python:build") for line in lines), lines
+
+    # ── it must still build the real thing ───────────────────────────────
+    def test_the_exact_stage_sequence(self, fake_project: Path, tmp_path: Path) -> None:
+        _, lines = self._lines(fake_project, tmp_path)
+        assert lines == [
+            "python:ensure",
+            "python:history_sync",
+            "python:verify_snapshot",
+            "python:generate_explorer",
+            "python:build",
+        ], lines
+
+    def test_the_explorer_generator_receives_the_retrieved_snapshot(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "calls.log"
+        _run(fake_project, log, "--build-from-existing-snapshot")
+        gen = [ln for ln in _argv_lines(log) if ln.startswith("generate_explorer ")]
+        assert len(gen) == 1, gen
+        assert "--data-through 2026-08-09" in gen[0]
+
+    def test_the_build_receives_both_the_explorer_artifacts_and_the_pitcher_fixture(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "calls.log"
+        _run(fake_project, log, "--build-from-existing-snapshot")
+        build = [ln for ln in _argv_lines(log) if ln.startswith("build ")]
+        assert len(build) == 1, build
+        assert "--explore-artifacts-dir" in build[0]
+        assert "--pitcher-season-fixture dashboard/pitcher_season_fixture.json" in build[0]
+
+    # ── the normal path must be untouched ────────────────────────────────
+    def test_the_normal_dry_run_still_scores(self, fake_project: Path, tmp_path: Path) -> None:
+        """The guard against this mode leaking into the scheduled loop."""
+        log = tmp_path / "calls.log"
+        _run(fake_project, log, "--skip-archive", "--skip-deploy")
+        lines = _log_lines(log)
+        assert "python:score" in lines
+        assert "python:verify_snapshot" not in lines
+
+    def test_the_normal_deploy_path_still_scores_and_archives(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "calls.log"
+        _run(fake_project, log)
+        lines = _log_lines(log)
+        assert "python:score" in lines
+        assert "python:archive" in lines
+        assert "python:verify_snapshot" not in lines
