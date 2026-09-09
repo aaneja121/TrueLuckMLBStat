@@ -1,13 +1,17 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
-{% block title %}{{ p.name }} · Pitcher Contact Luck ({{ p.season }} prototype){% endblock %}
-{% block meta_description %}{{ p.name }}: {{ p.total | signed(2) }} Cumulative Contact Luck Runs over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} development season.{% endblock %}
+{% block title %}{{ p.name }} · Pitcher Contact Luck {{ p.season }}{% endblock %}
+{% block meta_description %}{{ p.name }}: {{ p.total | signed(2) }} Cumulative Contact Luck Runs over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} season.{% endblock %}
+{% block og_title %}{{ p.name }} · Pitcher Contact Luck {{ p.season }}{% endblock %}
+{% block og_url %}{{ site_url }}/pitchers/{{ p.season }}/{{ p.pitcher_id }}/{% endblock %}
+{% block og_description %}{{ p.name }}: {{ p.total | signed(2) }} Cumulative Contact Luck Runs over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} season.{% endblock %}
+{% block twitter_title %}{{ p.name }} · Pitcher Contact Luck {{ p.season }}{% endblock %}
 {% block head_extra %}
   <link rel="preconnect" href="{{ headshot_origin }}" crossorigin>
 {% endblock %}
 {% block content %}
 {#
-  Version 0.13.1 LOCAL PROTOTYPE -- the pitcher card.
+  The pitcher card.
 
   Reading order, and the reason for it:
 
@@ -31,7 +35,7 @@
   cannot support.
 #}
 <nav class="player-breadcrumb" aria-label="Breadcrumb">
-  <a href="{{ root_prefix }}pitchers/">&larr; Pitcher Contact Luck</a>
+  <a href="{{ root_prefix }}pitchers/{{ p.season }}/">&larr; Pitcher Contact Luck {{ p.season }}</a>
 </nav>
 
 <article class="player-verdict">
@@ -51,14 +55,13 @@
       <h1 class="player-name">{{ p.name }}</h1>
       <p class="player-apparatus">
         MLBAM&nbsp;<span class="num">{{ p.pitcher_id }}</span> ·
-        {{ p.role_usage_phrase }} · {{ p.season }} development season
+        {{ p.role_usage_phrase }} · {{ p.season }} season
       </p>
     </div>
   </div>
 
-  <p class="proto-banner">
-    <strong>Development prototype.</strong> {{ p.season }} data only. Not a projection.
-  </p>
+  {# Provenance, the same sentence the board carries, from `public_labels`. #}
+  <p class="pitcher-provenance">{{ pitcher_season_provenance }}</p>
 
   {# ── 1 + 2. The total and what it was accumulated over ─────────────────
      One statement, one figure. The eyebrow names the quantity so the large

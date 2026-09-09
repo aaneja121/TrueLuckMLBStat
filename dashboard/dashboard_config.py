@@ -113,6 +113,33 @@ FROZEN_PUBLIC_TERMINOLOGY = {
 #
 # Like EXPLORE_PLAYERS_PATH and unlike DEMO_FIXTURE_PATH, this path is NOT a
 # default for `build.py`: the pitcher route is fail-closed and must be opted
-# into with `--pitcher-prototype-fixture PATH`, so an ordinary production
-# build can never publish a development-season pitcher surface by accident.
+# into with `--pitcher-prototype-fixture PATH`. `scripts/publish_snapshot.sh`
+# now passes it explicitly, exactly as it already passes
+# `--explore-artifacts-dir` -- so the surface is published deliberately, by
+# one named line in the publish path, and an ad-hoc `build.py` run still
+# emits no pitcher route at all.
 PITCHER_PROTOTYPE_FIXTURE_PATH = DASHBOARD_SOURCE_ROOT / "pitcher_prototype_fixture.json"
+
+#: THE PUBLICATION GATE for pitcher seasons. This tuple -- and nothing else
+#: -- decides which pitcher seasons reach the public site.
+#:
+#: A season is in this tuple ONLY when the maintainer has explicitly
+#: authorized publishing it, recorded in `RESEARCH_RULES.md` ("Public launch
+#: of the 2024 pitcher surface"). It is never widened because a fixture for
+#: another season happens to exist, because a season "looks ready", or
+#: because the loader would accept it: the fixture is data, this is
+#: permission, and they are deliberately two different things.
+#:
+#: Why the tuple rather than "whatever the fixture says": the fixture
+#: carries its own `season` field, so without a gate, handing `build.py` a
+#: different fixture would silently publish a different season. `build.py`
+#: refuses to render any pitcher season absent from this tuple, which is
+#: what makes "2024 only" a property of the build rather than a habit.
+#:
+#: 2025 is sealed final-evaluation data whose replication authorization
+#: explicitly withholds deploying; 2021-2023 are `TRAIN_SEASONS`, so a board
+#: on them would present in-sample fitted values as measurement; 2026 is
+#: prospective and unopened. Each would need its own separate sign-off, and
+#: publishing any of them is a research/governance decision, never a
+#: dashboard one.
+PITCHER_PUBLIC_SEASONS: tuple[int, ...] = (2024,)

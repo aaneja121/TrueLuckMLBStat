@@ -4913,10 +4913,17 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    drawn thing is the ranked thing" on the hitter board reads this board
    correctly without being told. */
 
-/* The development-provenance line. A ruled note, not a boxed banner:
-   guardrails anti-pattern 2 (no bordered rounded rectangle to say
-   "section"). It sits in the lede because it qualifies everything under it. */
-.proto-banner {
+/* The provenance line. A ruled note, not a boxed banner: guardrails
+   anti-pattern 2 (no bordered rounded rectangle to say "section"). It sits
+   in the lede because it qualifies everything under it.
+
+   `.proto-banner` was this rule's only name while the surface was a local
+   prototype. The class is kept as an alias rather than deleted so no
+   unrelated template that still wears it loses its styling in the same
+   commit that changes the pitcher copy; `.pitcher-provenance` is the name
+   the pitcher routes use now. */
+.proto-banner,
+.pitcher-provenance {
   margin: var(--sp-3) 0 0;
   padding-left: var(--sp-3);
   border-left: var(--rule-emphasis) solid var(--accent-amber-mark);
@@ -4931,12 +4938,17 @@ main[tabindex]:focus-visible { outline: none; box-shadow: none; }
    horizontal overflow on EVERY route in a prototype build, including the
    hitter leaderboard, which this work is not allowed to change.
 
-   Scoped with `:has()` to the nav list that actually contains the prototype
+   Scoped with `:has()` to the nav list that actually contains the pitcher
    link, so the shipped five-item header is byte-for-byte unaffected: with no
    `/pitchers/` entry the selector never matches and no wrap rule exists. The
    nav wraps to a second line instead of overflowing, and the row's other
-   three grid areas keep their positions. */
-.site-nav-list:has(a[href$="/pitchers/"]) {
+   three grid areas keep their positions.
+
+   `*=` rather than `$=`: the nav link is season-scoped (`/pitchers/2024/`),
+   so an ends-with match silently stopped matching when the routes gained
+   their season and the overflow came straight back at 1280. A contains
+   match holds for every season and for the season-less path alike. */
+.site-nav-list:has(a[href*="/pitchers/"]) {
   flex-wrap: wrap;
   justify-content: flex-end;
   row-gap: 0;
@@ -5432,6 +5444,50 @@ td.pcol-rate {
 .pitcher-offboard-list .num { font-variant-numeric: tabular-nums lining-nums; }
 
 
+/* ══ The pitcher season switcher ═════════════════════════════════════════
+   Not rendered while one season is authorized (the macro returns nothing),
+   so these rules are inert at launch and correct the day a second season
+   is added. A ruled row of years, not a select: two or three seasons are a
+   set you show, and a dropdown would hide the whole choice behind a click
+   to save a line that is already there. Reuses the tab vocabulary the
+   ranking tabs already establish -- current season carries the emphasis
+   rule, the others are plain links. */
+.pitcher-seasons {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin: var(--sp-3) 0 0;
+}
+.pitcher-seasons-label {
+  font-size: var(--fs-100);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.pitcher-seasons-list {
+  display: flex;
+  gap: var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pitcher-season {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-bottom: var(--rule-emphasis) solid transparent;
+}
+.pitcher-season:hover { color: var(--text-primary); }
+.pitcher-season.is-current {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--accent-amber-mark);
+}
+
+
 /* ══ Pitcher surfaces at desktop width ═══════════════════════════════════
    Manual review, 2026-09-09: at 1512 the pitcher surfaces read as a
    reduced research document rather than a finished board. Two measured
@@ -5500,13 +5556,13 @@ td.pcol-rate {
      2px line, 9px dot, both already at `docs/design/dataviz.md`'s spec. */
   .pitcher-board-table .verdict-inner { min-height: 30px; }
 
-  /* The lede. `.proto-banner` is a third item in this flex row, which is
-     what squeezed the opening line to 380px and left the band looking
+  /* The lede. The provenance line is a third item in this flex row, which
+     is what squeezed the opening line to 380px and left the band looking
      like three narrow columns with voids between them. Giving the line
-     the prose measure as its basis lets the banner drop to its own row
+     the prose measure as its basis lets provenance drop to its own row
      instead of competing for the same one. */
   .pitcher-board-lede .lede-line { flex: 1 1 var(--measure-prose); }
-  .pitcher-board-lede .proto-banner { flex: 1 1 100%; margin-top: 0; }
+  .pitcher-board-lede .pitcher-provenance { flex: 1 1 100%; margin-top: 0; }
 }
 
 /* The card, at every desktop width. The figure is the widest thing on the

@@ -58,6 +58,12 @@ case "$FIRST_ARG" in
   *) STAGE_NAME="unknown" ;;
 esac
 echo "python:$STAGE_NAME" >> "$CALL_LOG"
+# Full argv, to a SEPARATE file: `$CALL_LOG` is compared with `==` against
+# exact stage sequences, so anything added to it would break every one of
+# those assertions. Stage order lives there; stage ARGUMENTS live here.
+if [[ -n "${ARGV_LOG:-}" ]]; then
+  echo "$STAGE_NAME $*" >> "$ARGV_LOG"
+fi
 if [[ "${FAIL_STAGE:-}" == "$STAGE_NAME" ]]; then
   echo "fake python: simulating failure for stage $STAGE_NAME" >&2
   exit 1
@@ -109,6 +115,7 @@ def _run(
     env = dict(os.environ)
     env["PATH"] = f"{fake_project / 'fake-bin'}:{env['PATH']}"
     env["CALL_LOG"] = str(call_log)
+    env["ARGV_LOG"] = str(call_log.parent / "argv.log")
     # Fake R2 credentials -- history sync now always runs (even dry-run),
     # so scripts/publish_snapshot.sh's own env-var presence expectations
     # must be satisfied; the fake python never actually uses them.
@@ -334,3 +341,54 @@ class TestSkipFlagSemantics:
             "python:build",
         ]
         assert any(line.startswith("npx:wrangler pages deploy") for line in lines)
+
+
+def _argv_lines(call_log: Path) -> list[str]:
+    argv_log = call_log.parent / "argv.log"
+    if not argv_log.exists():
+        return []
+    return [line for line in argv_log.read_text().splitlines() if line]
+
+
+class TestTheBuildStagePublishesThePitcherSurface:
+    """The production wiring, checked by RUNNING the publish path rather
+    than by reading it.
+
+    `dashboard/build.py` has no default pitcher fixture -- publication is
+    one explicit flag on one line of this script. A string search would pass
+    on a commented-out line or a flag attached to the wrong stage, so this
+    asserts what the build stage was actually invoked with.
+    """
+
+    def _build_argv(self, fake_project: Path, tmp_path: Path) -> str:
+        log = tmp_path / "calls.log"
+        result = _run(fake_project, log, "--skip-deploy")
+        assert result.returncode == 0, result.stderr
+        build_lines = [ln for ln in _argv_lines(log) if ln.startswith("build ")]
+        assert len(build_lines) == 1, _argv_lines(log)
+        return build_lines[0]
+
+    def test_the_build_stage_receives_the_pitcher_fixture(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        argv = self._build_argv(fake_project, tmp_path)
+        assert "--pitcher-prototype-fixture" in argv
+        assert "dashboard/pitcher_prototype_fixture.json" in argv
+
+    def test_the_build_stage_still_receives_the_explorer_artifacts(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """The pitcher flag is added ALONGSIDE the explorer one, not in
+        place of it -- a line-continuation edit is exactly where that gets
+        lost."""
+        argv = self._build_argv(fake_project, tmp_path)
+        assert "--explore-artifacts-dir" in argv
+
+    def test_no_other_stage_is_handed_the_pitcher_fixture(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        log = tmp_path / "calls.log"
+        _run(fake_project, log, "--skip-deploy")
+        for line in _argv_lines(log):
+            if not line.startswith("build "):
+                assert "--pitcher-prototype-fixture" not in line, line

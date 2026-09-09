@@ -36,6 +36,8 @@ site's snapshot contract, and never a claim about a future season.
 
 from __future__ import annotations
 
+import hashlib
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,7 +48,9 @@ __all__ = [
     "PitcherRow",
     "PitcherPrototypeError",
     "PlayHighlight",
+    "PITCHER_EXPOSURE_SCOPE",
     "PITCHER_RETROSPECTIVE_LIMITATION",
+    "PITCHER_SEASON_PROVENANCE",
     "ROLE_LABELS",
     "ROLE_USAGE_PHRASES",
     "WORKLOAD_BAND_LABELS",
@@ -93,6 +97,42 @@ PITCHER_RETROSPECTIVE_LIMITATION = (
     "Pitcher Contact Luck is retrospective. It describes how favorable or unfavorable the "
     "outcomes on a pitcher's contact were relative to what that contact predicted. It is "
     "not a measure of stable pitching talent or of future performance."
+)
+
+#: The pitcher surface's provenance line, duplicated verbatim from
+#: `mlb_luck_score.scoring.public_labels.PITCHER_SEASON_PROVENANCE` under the
+#: same no-scoring-imports rule and bound to it by the same equality test.
+#:
+#: Replaces the "Development prototype" banner the route carried while it
+#: was local-only. That banner said the surface was "not part of the
+#: published leaderboard", which stopped being true the moment it was
+#: published -- so it is not reworded, it is retired, and what stands in its
+#: place says what a reader of a published historical board actually needs:
+#: which season, measured how, and that it is a record rather than a
+#: forecast. `{season}` is filled by the build from the fixture's own
+#: season; no template writes a year.
+PITCHER_SEASON_PROVENANCE = (
+    "{season} season, measured on the same frozen scoring model as the Contact Luck hitter "
+    "leaderboard. It is a record of what happened, not a projection."
+)
+
+#: The exposure disclosure, duplicated verbatim from
+#: `mlb_luck_score.scoring.public_labels.PITCHER_EXPOSURE_SCOPE`.
+#:
+#: `CONTEXT.md` records this as an obligation on any surface showing
+#: Pitching Contact Luck: the >=450 BBE `pitcher_primary` threshold set
+#: describes starting pitchers, and relievers miss it by exposure rather
+#: than by anything about them. This surface never uses that threshold --
+#: it ranks on a 60-BBE display minimum -- which is exactly why the
+#: sentence is owed: a reader arriving from the hitter leaderboard carries
+#: its qualification rules across, and nothing else on the page would tell
+#: them those are not the rules here.
+PITCHER_EXPOSURE_SCOPE = (
+    "Contact Luck's 450 batted-ball threshold set describes starting pitchers: no reliever season "
+    "from 2021 to 2024 reached it, the highest with at least 50 appearances being 311. Relievers "
+    "are absent from that threshold by exposure, not by choice -- they do not face enough batted "
+    "balls to clear it. The boards here do not use that threshold; they rank on the batted balls "
+    "each pitcher actually allowed."
 )
 
 #: Display organization for the reliever-like board. These band a continuous
@@ -173,6 +213,11 @@ class PitcherPrototypeData:
     reliever_like_max_bbe_per_appearance: float
     batter_side_reproduction: dict[str, Any]
     rows: list[PitcherRow]
+    #: Provenance the published build records in its manifest: which schema
+    #: this fixture was written against, and the hash of the exact bytes
+    #: read. Defaults keep every existing constructor call valid.
+    fixture_version: str = ""
+    fixture_sha256: str = ""
 
     def board(self, role_bucket: str) -> list[PitcherRow]:
         """One ranked board: a single usage population, ordered by the
@@ -275,4 +320,6 @@ def load_pitcher_prototype_data(path: Path) -> PitcherPrototypeData:
         reliever_like_max_bbe_per_appearance=float(rules["reliever_like_max_bbe_per_appearance"]),
         batter_side_reproduction=reproduction,
         rows=rows,
+        fixture_version=str(version),
+        fixture_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
     )

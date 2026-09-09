@@ -33,6 +33,22 @@
   {{ status.row_count }} players scored, {{ status.qualified_count }} officially ranked.
 </p>
 
+{# The site publishes a SECOND body of data with its own season and its own
+   lineage. This page says what Contact Luck currently publishes, so
+   omitting the pitcher season would leave that claim incomplete -- and a
+   reader who found /pitchers/ would have no page that accounts for it.
+   Stated separately rather than folded into the snapshot sentence above,
+   because the two share no snapshot, no season and no update cadence. #}
+{% if pitcher_seasons %}
+<p class="status-lede prose">
+  Pitcher Contact Luck publishes the
+  {% for season in pitcher_seasons %}<span class="num">{{ season }}</span>{% if not loop.last %}, {% endif %}{% endfor %}
+  {{ 'season' if pitcher_seasons | length == 1 else 'seasons' }} from a committed fixture,
+  not from the snapshot above. It is a historical record and is not updated with the
+  hitter leaderboard.
+</p>
+{% endif %}
+
 {# ── The published snapshot ───────────────────────────────────────────── #}
 <section class="status-section" aria-labelledby="published-snapshot-heading">
   <h2 id="published-snapshot-heading">The published snapshot</h2>

@@ -34,6 +34,7 @@
 #                                                      dir, never into the
 #                                                      canonical snapshot)
 #         -> dashboard/build.py --explore-artifacts-dir <that ephemeral dir>
+#                              --pitcher-prototype-fixture <committed 2024 fixture>
 #                                                     (dashboard/dist/)
 #         -> wrangler pages deploy                  (static hosting)
 #
@@ -306,7 +307,17 @@ fi
 "$PYTHON" scripts/generate_production_explorer_artifacts.py "${EXPLORE_ARGS[@]}"
 
 echo "==> [6/7] Rebuilding the dashboard"
-"$PYTHON" dashboard/build.py --explore-artifacts-dir "$EXPLORER_BUILD_DIR"
+# --pitcher-prototype-fixture is passed EXPLICITLY, exactly as
+# --explore-artifacts-dir above it. Neither has a default in build.py, so
+# publishing either surface is one named line in this file rather than a
+# behaviour a bare build inherits: an ad-hoc `dashboard/build.py` run still
+# emits no pitcher route at all. Which pitcher SEASONS this may publish is a
+# separate gate -- dashboard_config.PITCHER_PUBLIC_SEASONS, recorded in
+# RESEARCH_RULES.md -- and the build fails rather than publishing a season
+# that is not on it.
+"$PYTHON" dashboard/build.py \
+  --explore-artifacts-dir "$EXPLORER_BUILD_DIR" \
+  --pitcher-prototype-fixture dashboard/pitcher_prototype_fixture.json
 
 if [[ "$SKIP_DEPLOY" -eq 1 ]]; then
   echo "==> [7/7] Skipping deploy (--skip-deploy)."

@@ -127,6 +127,44 @@ still may not pass `allow_final_evaluation=True` from anywhere but its own dedic
 entry point, and `assert_ready_for_2025` still requires a clean tree, a non-provisional
 freeze, intact 2025 protection, an empty replication namespace, and a validating freeze.
 
+### Public launch of the 2024 pitcher surface IS authorized -- for 2024 ONLY
+
+The pitcher replication authorization above explicitly withholds "deploying anything".
+That withholding is about the replication: reaching a `REPLICATED` classification does not
+by itself license publishing anything. **Publishing is a separate maintainer decision**,
+and on 2026-09-09 the maintainer took it, for the 2024 pitcher surface and nothing else.
+
+What is authorized:
+
+- Publishing `/pitchers/<season>/` and `/pitchers/<season>/<pitcher_id>/` for the **2024**
+  season, from the committed development fixture
+  (`dashboard/pitcher_prototype_fixture.json`), through the ordinary
+  `scripts/publish_snapshot.sh` path.
+
+Applied in exactly one place: **`dashboard_config.PITCHER_PUBLIC_SEASONS`**. That tuple is
+the gate. `dashboard/build.py` refuses -- hard, with no site produced -- to render any
+pitcher season absent from it, so a season cannot reach the public site because a fixture
+for it exists, because a flag was passed twice, or because someone assumed.
+
+What this does NOT authorize, each needing its own explicit sign-off asked for in the
+moment:
+
+1. **Publishing 2025.** It remains sealed final-evaluation data. Its replication output is
+   question-level agreement, not a per-pitcher season table, so publishing 2025 would mean
+   a *new computation on sealed data* -- a second sealed-2025 use, which the paragraphs
+   above already say requires its own decision.
+2. **Publishing 2021-2023.** They are `TRAIN_SEASONS`. The contact model is fitted on them,
+   so a board over them would present in-sample fitted values as measurement. This is a
+   scientific objection, not a governance one, and it does not go away with a sign-off.
+3. **Publishing 2026.** Prospective and unopened for this line.
+4. Anything else the replication authorization already withholds. Widening
+   `PITCHER_PUBLIC_SEASONS` is a governance edit, not a configuration change, and the
+   reason for each season added belongs here before the tuple changes.
+
+`replication/pitcher_replication_authorization.py` is **not** amended by this. Its
+exclusion list is a statement of fact at authorization time, and editing it to say
+deploying is now fine would destroy the evidence of what was authorized when.
+
 ## Version 1.1: prospective 2026 scoring
 
 Version 1.1 (`prospective/run_v1_1_2026_scoring.py`) applies the exact frozen Version

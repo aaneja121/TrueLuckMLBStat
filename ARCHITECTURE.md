@@ -44,7 +44,7 @@ build time in Python.
 | `dashboard_config.py` | Paths, `DASHBOARD_VERSION`, `SITE_URL` (`https://contactluck.com`). |
 | `snapshot_data.py` | The **only** place snapshots are discovered, integrity-checked, classified, and ranked by precedence. Fails closed. |
 | `content.py` | Snapshot JSON → page view-models (leaderboard rows, player detail, trend, status). Recomputes nothing. |
-| `pitcher_prototype_content.py` | Version 0.13.1 LOCAL PROTOTYPE. Loads/validates the committed 2024 pitcher fixture (`pitcher_prototype_fixture.json`), fail-closed on schema version, on a failed batter-side self-check, and on an unknown role bucket. Recomputes nothing. |
+| `pitcher_prototype_content.py` | Loads/validates the committed pitcher fixture (`pitcher_prototype_fixture.json`), fail-closed on schema version, on a failed batter-side self-check, and on an unknown role bucket. Recomputes nothing. Mirrors the surface's public strings from `public_labels`. (Module name still says `prototype`; rename is a tracked follow-up.) |
 | `explore_content.py` | Loads/validates the sharded Play Explorer artifacts (`players.json`, `players/<batter_id>.json`, `games/<game_pk>.json`, `explore-metadata.json`, `showcase.json`, `showcase-sensitivity/<play_id>.json`). Also reports `contact_luck_min`/`contact_luck_max` across every published play, which is the `run_value` domain Explore is drawn on. |
 | `demo_content.py`, `demo_counterfactual_content.py` | View-models for `/demo/` and its counterfactual grid. |
 | `visuals.py` | The `ZeroScale` domain object, hand-rolled inline SVG (interval bars), and `build_trend_figure`, which returns the season trend as CSS **percentages** plus a marks-only SVG — the trend's text is HTML, never inside a scaled viewBox. Emits CSS classes only — **never a hex color**. |
@@ -57,14 +57,24 @@ build time in Python.
 ### Routes emitted
 
 `/` · `/players/<batter_id>/` · `/explore/` · `/plays/` (one shell; reads `?id=<play_id>`
-client-side) · `/demo/` · `/methodology/` · `/status/` · `/static/*` · `/og-image.png` ·
-`/data/dashboard_build_manifest.json`
+client-side) · `/demo/` · `/methodology/` · `/status/` · `/pitchers/` (redirect stub) ·
+`/pitchers/<season>/` · `/pitchers/<season>/<pitcher_id>/` · `/static/*` ·
+`/og-image.png` · `/data/dashboard_build_manifest.json`
 
-`/pitchers/` and `/pitchers/<pitcher_id>/` are emitted **only** when
-`--pitcher-prototype-fixture PATH` is passed (Version 0.13.1 local prototype, 2024
-development data). Fail-closed like the Play Explorer: a bare `build.py` — and therefore
-every production build, since `scripts/publish_snapshot.sh` does not pass the flag — emits
-neither route and no nav entry linking them.
+The pitcher routes are **season-scoped** and pass **two independent gates**:
+
+1. `--pitcher-prototype-fixture PATH` must be passed, or no pitcher route and no nav entry
+   is emitted at all. Fail-closed like the Play Explorer, so a bare `build.py` publishes
+   nothing; `scripts/publish_snapshot.sh` passes it explicitly, on one named line, exactly
+   as it passes `--explore-artifacts-dir`. The flag is **repeatable**, once per season.
+2. Each fixture's season must appear in `dashboard_config.PITCHER_PUBLIC_SEASONS` (**2024**
+   only) or the build **fails outright** — no partial site. Which seasons may be published
+   is a maintainer decision recorded in `RESEARCH_RULES.md` ("Public launch of the 2024
+   pitcher surface"), never a consequence of a fixture existing.
+
+`/pitchers/` itself is a `noindex` redirect stub pointing at the newest published season,
+so a season-less link never 404s while the season board stays the one canonical URL. The
+season switcher (`_macros.html`) renders only when more than one season is built.
 
 The Play Explorer is **fail-closed**: a bare `build.py` builds it *disabled*. Pass
 `--explore-artifacts-dir dashboard/explore_fixture` for local work.

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 import build as dashboard_build
@@ -199,6 +200,52 @@ def snapshot_roots(tmp_path: Path) -> tuple[Path, Path]:
     return outputs_root, artifacts_root
 
 
+#: The season `_fixture_payload` publishes. The routes are season-scoped
+#: (`/pitchers/<season>/`), so every path assertion below goes through the
+#: helpers rather than hardcoding the year in fifty places.
+FIXTURE_SEASON = 2024
+
+
+def _season_dir(out_dir: Path, season: int = FIXTURE_SEASON) -> Path:
+    return out_dir / "pitchers" / str(season)
+
+
+def _board_page(out_dir: Path, season: int = FIXTURE_SEASON) -> Path:
+    return _season_dir(out_dir, season) / "index.html"
+
+
+def _card_page(out_dir: Path, pitcher_id: int | str, season: int = FIXTURE_SEASON) -> Path:
+    return _season_dir(out_dir, season) / str(pitcher_id) / "index.html"
+
+
+def _pitcher_pages(out_dir: Path, season: int = FIXTURE_SEASON) -> list[Path]:
+    """Every real pitcher page: the board and every card.
+
+    Deliberately NOT `(out_dir / "pitchers").rglob(...)`, which also picks
+    up the season-less redirect stub at `/pitchers/index.html` -- a stub
+    that wears no site chrome and would fail every assertion about one.
+    """
+    return sorted(_season_dir(out_dir, season).rglob("index.html"))
+
+
+@contextmanager
+def _authorized_seasons(*seasons: int):
+    """Temporarily widen the publication gate.
+
+    `build.py` imports `PITCHER_PUBLIC_SEASONS` by value, so the name that
+    has to move is the one bound in `build`'s own namespace. Tests that need
+    a season the product does not publish go through this rather than
+    editing the real tuple, so the shipped gate is never what a test run
+    depends on.
+    """
+    original = dashboard_build.PITCHER_PUBLIC_SEASONS
+    dashboard_build.PITCHER_PUBLIC_SEASONS = tuple(seasons)
+    try:
+        yield
+    finally:
+        dashboard_build.PITCHER_PUBLIC_SEASONS = original
+
+
 def _build(tmp_path: Path, snapshot_roots: tuple[Path, Path], fixture: Path | None) -> Path:
     out_dir = tmp_path / "dist"
     outputs_root, artifacts_root = snapshot_roots
@@ -220,12 +267,16 @@ class TestFailClosedRouting:
         out_dir = _build(tmp_path, snapshot_roots, None)
         home = (out_dir / "index.html").read_text()
         assert "/pitchers/" not in home
-        assert "Pitching prototype" not in home
+        assert ">Pitchers</a>" not in home
 
     def test_flag_emits_route_and_nav_entry(self, tmp_path, snapshot_roots, fixture_path):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        assert _board_page(out_dir).exists()
+        # The nav links the SEASON route directly, never the redirect stub.
+        assert 'href="/pitchers/2024/"' in (out_dir / "index.html").read_text()
+        # ...and the season-less path still resolves, so a link that drops
+        # the season does not 404.
         assert (out_dir / "pitchers" / "index.html").exists()
-        assert 'href="/pitchers/"' in (out_dir / "index.html").read_text()
 
     def test_every_pitcher_gets_a_page_including_the_withheld_one(
         self, tmp_path, snapshot_roots, fixture_path
@@ -235,7 +286,7 @@ class TestFailClosedRouting:
         # rule, and it is the thing most easily lost in a refactor.
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
         for pitcher_id in (1, 2, 3, 4):
-            assert (out_dir / "pitchers" / str(pitcher_id) / "index.html").exists()
+            assert _card_page(out_dir, pitcher_id).exists()
 
 
 class TestCumulativeTotalIsTheRankingKey:
@@ -243,7 +294,7 @@ class TestCumulativeTotalIsTheRankingKey:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        html = (out_dir / "pitchers" / "index.html").read_text()
+        html = _board_page(out_dir).read_text()
         big = html.index("Big Total")
         high_rate = html.index("High Rate")
         assert big < high_rate, (
@@ -258,7 +309,7 @@ class TestCumulativeTotalIsTheRankingKey:
         reads this one correctly only while it stays true.
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        html = (out_dir / "pitchers" / "index.html").read_text()
+        html = _board_page(out_dir).read_text()
         rate_cells = re.findall(r'<td class="pcol-rate">.*?</td>', html, re.S)
         assert rate_cells
         for cell in rate_cells:
@@ -271,7 +322,7 @@ class TestCumulativeTotalIsTheRankingKey:
         exactly like the ranked one.
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        html = (out_dir / "pitchers" / "index.html").read_text()
+        html = _board_page(out_dir).read_text()
         board = html[html.index("pitcher-board-table") :]
         assert "data-sortable" not in board
         assert 'data-role="sort"' not in board
@@ -280,7 +331,7 @@ class TestCumulativeTotalIsTheRankingKey:
 class TestTwoPopulationsAreNeverOneRanking:
     def test_each_board_starts_at_one(self, tmp_path, snapshot_roots, fixture_path):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        html = (out_dir / "pitchers" / "index.html").read_text()
+        html = _board_page(out_dir).read_text()
         tables = re.findall(r'<table class="pitcher-board-table".*?</table>', html, re.S)
         assert len(tables) == 2
         for table in tables:
@@ -292,16 +343,16 @@ class TestTwoPopulationsAreNeverOneRanking:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        html = (out_dir / "pitchers" / "index.html").read_text()
+        html = _board_page(out_dir).read_text()
         assert 'id="board-starter-like"' in html
         assert 'id="board-reliever-like"' in html
 
     def test_a_pitcher_never_appears_on_both_boards(self, tmp_path, snapshot_roots, fixture_path):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        html = (out_dir / "pitchers" / "index.html").read_text()
+        html = _board_page(out_dir).read_text()
         tables = re.findall(r'<table class="pitcher-board-table".*?</table>', html, re.S)
-        starter_ids = set(re.findall(r"/pitchers/(\d+)/", tables[0]))
-        reliever_ids = set(re.findall(r"/pitchers/(\d+)/", tables[1]))
+        starter_ids = set(re.findall(r"/pitchers/\d+/(\d+)/", tables[0]))
+        reliever_ids = set(re.findall(r"/pitchers/\d+/(\d+)/", tables[1]))
         assert starter_ids.isdisjoint(reliever_ids)
 
 
@@ -321,11 +372,11 @@ class TestVocabulary:
         forbid writing it.
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
         regions = re.findall(r"<tbody>.*?</tbody>", board, re.S)
         assert regions, "expected rendered board rows to check"
         for card_id in (1, 2, 3, 4):
-            card = (out_dir / "pitchers" / str(card_id) / "index.html").read_text()
+            card = _card_page(out_dir, card_id).read_text()
             regions.append(re.search(r'<p class="player-apparatus">.*?</p>', card, re.S).group(0))
         for region in regions:
             bare = region
@@ -343,17 +394,17 @@ class TestVocabulary:
         themselves, which is the failure the vocabulary rule is about.
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
         assert "not a roster role" in board
         assert "no pitcher here is identified as a closer" in board
-        card = (out_dir / "pitchers" / "3" / "index.html").read_text()
+        card = _card_page(out_dir, 3).read_text()
         assert "carries no roster role" in card
 
     def test_the_board_minimum_is_never_called_qualification(
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        pages = [out_dir / "pitchers" / "index.html", out_dir / "pitchers" / "4" / "index.html"]
+        pages = [_board_page(out_dir), _card_page(out_dir, 4)]
         for page in pages:
             text = page.read_text().lower()
             for banned in ("qualified", "qualification", "unqualified", "eligible to rank"):
@@ -363,7 +414,7 @@ class TestVocabulary:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        text = (out_dir / "pitchers" / "4" / "index.html").read_text()
+        text = _card_page(out_dir, 4).read_text()
         assert "not a" in text and "requirement this season failed" in text
 
 
@@ -375,7 +426,7 @@ class TestSmallSampleHonesty:
         "unfavorable".
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        text = (out_dir / "pitchers" / "4" / "index.html").read_text()
+        text = _card_page(out_dir, 4).read_text()
         assert text.count('class="pitcher-play ') == 1
         assert "Largest unfavorable batted ball" not in text
 
@@ -387,7 +438,7 @@ class TestSmallSampleHonesty:
         # paragraph on the same page says "Below 60 resolved batted balls",
         # which is correctly plural and describes the rule, not this season.
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        text = (out_dir / "pitchers" / "4" / "index.html").read_text()
+        text = _card_page(out_dir, 4).read_text()
         hero = re.search(r'<p class="pitcher-hero-opportunity">.*?</p>', text, re.S).group(0)
         assert "resolved batted ball " in hero
         assert "resolved batted balls" not in hero
@@ -444,12 +495,12 @@ class TestEverySeasonTheBoardsWithholdIsStillReachable:
     """
 
     def _linked_ids(self, out_dir: Path) -> set[str]:
-        index = (out_dir / "pitchers" / "index.html").read_text()
-        return set(re.findall(r'href="[^"]*?/pitchers/(\d+)/"', index))
+        index = _board_page(out_dir).read_text()
+        return set(re.findall(r'href="[^"]*?/pitchers/\d+/(\d+)/"', index))
 
     def test_no_pitcher_page_is_orphaned(self, tmp_path, snapshot_roots, fixture_path):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        built = {p.name for p in (out_dir / "pitchers").iterdir() if p.is_dir()}
+        built = {p.name for p in _season_dir(out_dir).iterdir() if p.is_dir()}
         assert built, "the fixture must produce pitcher pages"
         assert built - self._linked_ids(out_dir) == set()
 
@@ -457,7 +508,7 @@ class TestEverySeasonTheBoardsWithholdIsStillReachable:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        index = (out_dir / "pitchers" / "index.html").read_text()
+        index = _board_page(out_dir).read_text()
         assert "Tiny Sample" in index
         assert "4" in self._linked_ids(out_dir)
 
@@ -488,13 +539,13 @@ class TestMixedUsageSeasonsAreAccountedFor:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        index = (out_dir / "pitchers" / "index.html").read_text()
+        index = _board_page(out_dir).read_text()
         assert "mixed-usage seasons" in index
         assert "Mixed Usage" in index
 
     def test_a_mixed_usage_season_is_on_neither_board(self, tmp_path, snapshot_roots, fixture_path):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        index = (out_dir / "pitchers" / "index.html").read_text()
+        index = _board_page(out_dir).read_text()
         for table in re.findall(r"<table.*?</table>", index, re.S):
             assert "Mixed Usage" not in table
 
@@ -513,7 +564,7 @@ class TestMixedUsageSeasonsAreAccountedFor:
         appending " usage" rendered "Mixed usage usage".
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             assert "usage usage" not in page.read_text().lower()
 
     def test_every_role_bucket_has_a_usage_phrase(self):
@@ -532,7 +583,7 @@ class TestTheSignIsStatedInWords:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        index = (out_dir / "pitchers" / "index.html").read_text()
+        index = _board_page(out_dir).read_text()
         key = re.search(r'<p class="pitcher-sign-key">(.*?)</p>', index, re.S)
         assert key is not None, "the board page must carry a sign key"
         text = key.group(1)
@@ -546,7 +597,7 @@ class TestTheSignIsStatedInWords:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        favorable = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        favorable = _card_page(out_dir, 1).read_text()
         assert "better for the pitcher" in favorable
         assert "worse for the pitcher" not in favorable
 
@@ -555,7 +606,7 @@ class TestTheSignIsStatedInWords:
         point estimate, whether or not the interval crosses zero.
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        page = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        page = _card_page(out_dir, 1).read_text()
         assert "is-favorable" in page
         assert "better for the pitcher" in page
 
@@ -569,7 +620,7 @@ class TestTheSecondaryQuantityAlwaysCarriesItsCaveats:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        page = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        page = _card_page(out_dir, 1).read_text()
         assert "Per 100 batted balls" in page
         assert "95% interval" in page
         assert "resolved batted ball" in page
@@ -578,7 +629,7 @@ class TestTheSecondaryQuantityAlwaysCarriesItsCaveats:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        index = (out_dir / "pitchers" / "index.html").read_text()
+        index = _board_page(out_dir).read_text()
         rates = re.findall(r'<td class="pcol-rate[^"]*">(.*?)</td>', index, re.S)
         assert rates, "the board must render a rate column"
         for cell in rates:
@@ -588,7 +639,7 @@ class TestTheSecondaryQuantityAlwaysCarriesItsCaveats:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        page = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        page = _card_page(out_dir, 1).read_text()
         assert "Largest favorable batted ball" in page
         assert "Largest unfavorable batted ball" in page
         assert "mph" in page and "fly ball" in page
@@ -604,8 +655,8 @@ class TestNoRankOnAPitcherCard:
 
     def test_no_card_prints_a_board_rank(self, tmp_path, snapshot_roots, fixture_path):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
-            if page.parent.name == "pitchers":
+        for page in _pitcher_pages(out_dir):
+            if page.parent.name == str(FIXTURE_SEASON):
                 continue
             body = page.read_text()
             # The card's own content only. The shared chrome carries the
@@ -620,7 +671,7 @@ class TestNoRankOnAPitcherCard:
         """The complement: removing rank from the card must not remove it
         from the board.
         """
-        index = _build(tmp_path, snapshot_roots, fixture_path) / "pitchers" / "index.html"
+        index = _board_page(_build(tmp_path, snapshot_roots, fixture_path))
         assert 'class="pcol-rank num"' in index.read_text()
 
 
@@ -640,7 +691,7 @@ class TestThePitcherSurfaceHasNo2026Dependency:
         must not, or the surface would be claiming a season it never read.
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             body = page.read_text()
             content = body[body.index("<main") : body.index("</main>")]
             for marker in ("</header>", "site-header"):
@@ -694,7 +745,7 @@ class TestTheRetrospectiveCaveatIsPerSurface:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             text = page.read_text()
             assert "stable pitching talent" in text, page
             assert "stable batting talent" not in text, page
@@ -726,7 +777,7 @@ class TestTheRankedQuantityIsNeverCalledAllowed:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             assert "contact luck allowed" not in page.read_text().lower(), page
 
     def test_the_ranked_quantity_label_is_the_full_form(self):
@@ -736,8 +787,8 @@ class TestTheRankedQuantityIsNeverCalledAllowed:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        index = (out_dir / "pitchers" / "index.html").read_text()
-        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        index = _board_page(out_dir).read_text()
+        card = _card_page(out_dir, 1).read_text()
         # The compact table header may shorten to "Contact Luck Runs"; the
         # card's hero names the quantity in full.
         assert "Contact Luck Runs" in index
@@ -746,7 +797,7 @@ class TestTheRankedQuantityIsNeverCalledAllowed:
     def test_the_sign_convention_is_unchanged(self, tmp_path, snapshot_roots, fixture_path):
         """Renaming the label must not have touched what the sign means."""
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        card = _card_page(out_dir, 1).read_text()
         assert "better for the pitcher" in card
         data = ppc.load_pitcher_prototype_data(fixture_path)
         assert data.rows[0].cumulative_contact_luck_runs > 0
@@ -770,7 +821,7 @@ class TestTheDataContextIsRouteAware:
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
         season = str(ppc.load_pitcher_prototype_data(fixture_path).season)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             badge = self._badge(page)
             assert "Pitcher data" in badge, page
             assert season in badge, page
@@ -779,7 +830,7 @@ class TestTheDataContextIsRouteAware:
         self, tmp_path, snapshot_roots, fixture_path
     ):
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             assert "Data through" not in self._badge(page), page
 
     def test_hitter_pages_keep_the_snapshot_date(self, tmp_path, snapshot_roots, fixture_path):
@@ -801,8 +852,13 @@ class TestTheDataContextIsRouteAware:
         payload["season"] = 2023
         path = tmp_path / "alt_fixture.json"
         path.write_text(json.dumps(payload))
-        out_dir = _build(tmp_path, snapshot_roots, path)
-        badge = self._badge(out_dir / "pitchers" / "index.html")
+        # 2023 is not publishable, so the gate has to be opened for it
+        # explicitly -- which is the point being made twice over: the badge
+        # follows the FIXTURE, and what may be published follows the
+        # AUTHORIZED SEASONS. Neither is a constant in a template.
+        with _authorized_seasons(2023):
+            out_dir = _build(tmp_path, snapshot_roots, path)
+        badge = self._badge(_board_page(out_dir, season=2023))
         assert "2023" in badge and "2024" not in badge
 
     def test_the_pitcher_chrome_is_absent_when_the_surface_is(self, tmp_path, snapshot_roots):
@@ -862,7 +918,7 @@ class TestPitcherPortraitsReuseTheHitterContract:
         self, tmp_path, snapshot_roots, fixture_path
     ) -> None:
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
         for slug in ("starter-like", "reliever-like"):
             body = board.split(f'id="pb-{slug}"', 1)[1].split("</table>", 1)[0]
             body = body.split("<tbody>", 1)[1]
@@ -877,19 +933,19 @@ class TestPitcherPortraitsReuseTheHitterContract:
         """The id in the URL is the id in the row's own link -- the check
         that catches a portrait column built from the wrong key."""
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
         cells = re.findall(r'<td class="pcol-name">(.*?)</td>', board, flags=re.DOTALL)
         assert cells
         for cell in cells:
             src = re.search(r'player-portrait-img" src="([^"]+)"', cell).group(1)
-            href = re.search(r'href="[^"]*pitchers/(\d+)/"', cell).group(1)
+            href = re.search(r'href="[^"]*pitchers/\d+/(\d+)/"', cell).group(1)
             assert src == dashboard_build.headshot_url(href)
 
     def test_the_card_carries_the_same_portrait_in_its_profile_head(
         self, tmp_path, snapshot_roots, fixture_path
     ) -> None:
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        card = _card_page(out_dir, 1).read_text()
         head = card.split('class="pitcher-profile-head"', 1)[1].split("</div>", 1)[0]
         assert dashboard_build.headshot_url(1) in head
         assert "pitcher-profile-portrait" in head
@@ -902,7 +958,7 @@ class TestPitcherPortraitsReuseTheHitterContract:
         """Intrinsic width/height are what stop a portrait arriving late
         from reflowing the row it is in."""
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             for img in re.findall(
                 r"<img class=\"player-portrait-img\".*?>", page.read_text(), re.S
             ):
@@ -916,13 +972,13 @@ class TestPitcherPortraitsReuseTheHitterContract:
         """The name is right beside it on both surfaces, so a portrait that
         announced itself would say every pitcher's name twice."""
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
         cell = board.split('<td class="pcol-name">', 1)[1].split("</td>", 1)[0]
         assert 'aria-hidden="true"' in cell
         assert 'alt=""' in cell
         assert not re.search(r'alt="[^"]+"', cell)
 
-        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        card = _card_page(out_dir, 1).read_text()
         head = card.split('class="pitcher-profile-head"', 1)[1].split("</div>", 1)[0]
         assert 'aria-hidden="true"' in head
         assert 'alt=""' in head
@@ -935,8 +991,8 @@ class TestPitcherPortraitsReuseTheHitterContract:
         of; the initials in the same box if the REQUEST fails; and the name,
         which never depended on either."""
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
-        card = (out_dir / "pitchers" / "1" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
+        card = _card_page(out_dir, 1).read_text()
         for page in (board, card):
             assert "d_people:generic:headshot:silo:current.png" in page
             assert 'data-initials="BT"' in page or re.search(r'data-initials="[A-Z]{1,2}"', page)
@@ -978,7 +1034,7 @@ class TestPitcherPortraitsReuseTheHitterContract:
         self, tmp_path, snapshot_roots, fixture_path
     ) -> None:
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             body = page.read_text()
             assert f'rel="preconnect" href="{dashboard_build.HEADSHOT_ORIGIN}"' in body
         # And still nowhere that draws no portrait.
@@ -994,14 +1050,14 @@ class TestPitcherPortraitsReuseTheHitterContract:
         thing a "just fix this one headshot" patch would add -- fails here.
         """
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             for url in re.findall(r'src="(https?://[^"]+)"', page.read_text()):
                 mlbam_id = re.search(r"/v1/people/(\d+)/", url)
                 assert mlbam_id, f"non-silo image URL emitted: {url}"
                 assert url == dashboard_build.headshot_url(mlbam_id.group(1))
         # One origin on the whole surface: no second CDN or provider.
         origins = set()
-        for page in (out_dir / "pitchers").rglob("index.html"):
+        for page in _pitcher_pages(out_dir):
             origins.update(re.findall(r'src="(https?://[^/]+)', page.read_text()))
         assert origins <= {dashboard_build.HEADSHOT_ORIGIN}
 
@@ -1044,7 +1100,7 @@ class TestNoPlayerIsExcludedByIdentity:
         is on a page instead. Nothing else decides."""
         data = ppc.load_pitcher_prototype_data(fixture_path)
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
         for row in data.rows:
             ranked = row.on_board and row.role_bucket in ("starter_like", "reliever_like")
             in_a_board_table = any(
@@ -1053,13 +1109,13 @@ class TestNoPlayerIsExcludedByIdentity:
             )
             assert in_a_board_table is ranked, row.name
             # Withheld or not, the season still has its own page.
-            assert (out_dir / "pitchers" / str(row.pitcher_id) / "index.html").exists()
+            assert _card_page(out_dir, row.pitcher_id).exists()
 
     def test_board_counts_are_unchanged_by_this_change(
         self, tmp_path, snapshot_roots, fixture_path
     ) -> None:
         out_dir = _build(tmp_path, snapshot_roots, fixture_path)
-        board = (out_dir / "pitchers" / "index.html").read_text()
+        board = _board_page(out_dir).read_text()
         counts = {
             slug: board.split(f'id="pb-{slug}"', 1)[1]
             .split("</table>", 1)[0]
@@ -1191,3 +1247,458 @@ class TestTheDesktopPitcherSurfaceUsesItsCanvas:
         assert ".pitcher-board-table col.pcol-name { width: 15.625rem; }" in css  # was 13rem
         narrow = _media_block(_css(), "(max-width: 1023px)", must_contain="col.pcol-rate")
         assert "col.pcol-name { width: 13.625rem; }" in narrow  # was 11rem
+
+
+PUBLISH_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "publish_snapshot.sh"
+
+
+class TestOnlyAuthorizedSeasonsAreEverPublished:
+    """`dashboard_config.PITCHER_PUBLIC_SEASONS` is the publication gate.
+
+    The fixture carries its own `season`, so without a gate, handing
+    `build.py` a different fixture would silently publish a different
+    season -- including a sealed one (2025) or an unopened prospective one
+    (2026). These tests exist because that failure would be invisible: the
+    build would succeed, the pages would render, and nothing would say a
+    season nobody authorized had gone public.
+
+    The payloads below are SYNTHETIC JSON with a `season` field set to a
+    year. No 2025 or 2026 data is read, generated or required -- the point
+    is precisely that the build refuses before anything is read.
+    """
+
+    def _payload_for(self, season: int, tmp_path: Path) -> Path:
+        payload = _fixture_payload()
+        payload["season"] = season
+        path = tmp_path / f"fixture_{season}.json"
+        path.write_text(json.dumps(payload))
+        return path
+
+    @pytest.mark.parametrize("season", [2021, 2022, 2023, 2025, 2026, 2027])
+    def test_an_unauthorized_season_is_a_hard_build_failure(self, season, tmp_path, snapshot_roots):
+        """Not a warning, not a skipped route: the build fails. A build that
+        cannot prove which season it is publishing must not produce a site.
+        """
+        with pytest.raises(dashboard_build.DashboardBuildError) as excinfo:
+            _build(tmp_path, snapshot_roots, self._payload_for(season, tmp_path))
+        message = str(excinfo.value)
+        assert str(season) in message
+        assert "not authorized for publication" in message
+
+    def test_the_failure_names_where_the_decision_lives(self, tmp_path, snapshot_roots):
+        """The error has to route a reader to the decision, not just refuse:
+        the next person to hit this is deciding whether to widen a gate."""
+        with pytest.raises(dashboard_build.DashboardBuildError) as excinfo:
+            _build(tmp_path, snapshot_roots, self._payload_for(2025, tmp_path))
+        message = str(excinfo.value)
+        assert "RESEARCH_RULES.md" in message
+        assert "PITCHER_PUBLIC_SEASONS" in message
+
+    def test_nothing_is_emitted_for_a_refused_season(self, tmp_path, snapshot_roots):
+        """The refusal must leave no partial pitcher output behind."""
+        out_dir = tmp_path / "dist"
+        with pytest.raises(dashboard_build.DashboardBuildError):
+            _build(tmp_path, snapshot_roots, self._payload_for(2026, tmp_path))
+        assert not (out_dir / "pitchers" / "2026").exists()
+
+    def test_the_shipped_gate_authorizes_2024_and_nothing_else(self):
+        """The product's actual configuration, asserted as a value. Widening
+        this tuple is a governance decision; this test is what makes it a
+        deliberate edit with a visible diff rather than a quiet one."""
+        from dashboard_config import PITCHER_PUBLIC_SEASONS
+
+        assert PITCHER_PUBLIC_SEASONS == (2024,)
+        assert 2025 not in PITCHER_PUBLIC_SEASONS
+        assert 2026 not in PITCHER_PUBLIC_SEASONS
+
+    def test_the_published_tree_holds_no_directory_for_any_other_season(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        season_dirs = {p.name for p in (out_dir / "pitchers").iterdir() if p.is_dir()}
+        assert season_dirs == {"2024"}
+
+
+class TestSeasonScopedRoutes:
+    """Routes carry the season, so a URL says which season it is a board or
+    card OF, and a second authorized season can be added without any
+    existing link changing meaning."""
+
+    def test_the_board_and_cards_live_under_the_season(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        assert (out_dir / "pitchers" / "2024" / "index.html").exists()
+        assert (out_dir / "pitchers" / "2024" / "1" / "index.html").exists()
+        # The season-less path is NOT the board.
+        assert "pcol-rank" not in (out_dir / "pitchers" / "index.html").read_text()
+
+    def test_every_internal_pitcher_link_carries_the_season(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        """A season-less card link would resolve to nothing. Every link the
+        surface emits to a card must name the season."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in _pitcher_pages(out_dir):
+            body = page.read_text()
+            content = body[body.index("<main") : body.index("</main>")]
+            for href in re.findall(r'href="([^"]*/pitchers/[^"]*)"', content):
+                assert re.search(r"/pitchers/\d{4}/", href), (page, href)
+
+    def test_the_season_less_path_resolves_rather_than_404ing(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        stub = (out_dir := _build(tmp_path, snapshot_roots, fixture_path)) and (
+            out_dir / "pitchers" / "index.html"
+        ).read_text()
+        # A refresh for a browser, a real link for everything that ignores
+        # one, and `noindex` so the two paths never compete in an index.
+        assert 'http-equiv="refresh"' in stub
+        assert 'href="/pitchers/2024/"' in stub
+        assert "noindex" in stub
+        assert 'rel="canonical"' in stub
+
+    def test_the_nav_links_the_season_not_the_stub(self, tmp_path, snapshot_roots, fixture_path):
+        """Navigation must never depend on a redirect."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in (out_dir / "index.html", _board_page(out_dir), _card_page(out_dir, 1)):
+            nav = page.read_text().split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+            assert 'href="/pitchers/2024/"' in nav, page
+            assert 'href="/pitchers/"' not in nav, page
+
+
+class TestTheSeasonSwitcherIsBuiltButHidden:
+    """Season-aware infrastructure, one exposed season.
+
+    The switcher renders nothing while one season is authorized -- a control
+    offering one option is a promise of choice that does not exist. Its
+    multi-season behaviour is exercised with SYNTHETIC seasons (1901/1902)
+    so the path is proven without naming a real season nobody authorized.
+    """
+
+    def _fixture_for(self, season: int, tmp_path: Path) -> Path:
+        payload = _fixture_payload()
+        payload["season"] = season
+        path = tmp_path / f"fixture_{season}.json"
+        path.write_text(json.dumps(payload))
+        return path
+
+    def _two_season_site(self, tmp_path, snapshot_roots):
+        """Two synthetic seasons, both authorized and both BUILT -- which is
+        what publishing a second season actually looks like: another
+        `--pitcher-prototype-fixture`, not a rewrite."""
+        paths = [self._fixture_for(1901, tmp_path), self._fixture_for(1902, tmp_path)]
+        with _authorized_seasons(1901, 1902):
+            return _build(tmp_path, snapshot_roots, paths)
+
+    def _one_season_site(self, tmp_path, snapshot_roots):
+        with _authorized_seasons(1901, 1902):
+            return _build(tmp_path, snapshot_roots, self._fixture_for(1901, tmp_path))
+
+    def test_one_authorized_season_renders_no_switcher(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        assert 'class="pitcher-seasons"' not in _board_page(out_dir).read_text()
+
+    def test_the_macro_exists_and_is_wired_into_the_board(self):
+        """Built now rather than the day a second season lands: the routes
+        are already season-scoped, so the switcher should be the only piece
+        of UI that has to appear, and it should appear by the list growing."""
+        macros = (
+            Path(__file__).resolve().parents[1] / "dashboard" / "templates" / "_macros.html"
+        ).read_text()
+        assert "{% macro pitcher_season_switcher(" in macros
+        assert "{% if seasons | length > 1 %}" in macros
+        board = (
+            Path(__file__).resolve().parents[1] / "dashboard" / "templates" / "pitchers.html"
+        ).read_text()
+        assert "macros.pitcher_season_switcher(" in board
+
+    def test_its_styles_ship_so_it_is_correct_the_day_it_appears(self):
+        css = _css()
+        assert ".pitcher-seasons {" in css
+        assert ".pitcher-season.is-current {" in css
+
+    def test_two_authorized_seasons_render_the_switcher(self, tmp_path, snapshot_roots):
+        out_dir = self._two_season_site(tmp_path, snapshot_roots)
+        board = (out_dir / "pitchers" / "1901" / "index.html").read_text()
+        assert 'class="pitcher-seasons"' in board
+        # The season it is on is current and unlinked; nothing else is
+        # offered, because only one season was actually built.
+        assert 'aria-current="page">1901</span>' in board
+
+    def test_both_seasons_are_built_and_cross_linked(self, tmp_path, snapshot_roots):
+        out_dir = self._two_season_site(tmp_path, snapshot_roots)
+        board = (out_dir / "pitchers" / "1901" / "index.html").read_text()
+        assert (out_dir / "pitchers" / "1902" / "index.html").exists()
+        assert 'href="/pitchers/1902/"' in board
+
+    def test_the_switcher_never_offers_a_season_that_was_not_built(self, tmp_path, snapshot_roots):
+        """Authorized-but-absent is the dangerous case: a link to a season
+        whose fixture this build was never given would 404 in production, so
+        the switcher is built from what was BUILT, not from what is
+        authorized."""
+        out_dir = self._one_season_site(tmp_path, snapshot_roots)
+        board = (out_dir / "pitchers" / "1901" / "index.html").read_text()
+        assert "/pitchers/1902/" not in board
+        assert not (out_dir / "pitchers" / "1902").exists()
+        # One season built means no switcher, even with two authorized.
+        assert 'class="pitcher-seasons"' not in board
+
+    def test_the_stub_points_at_the_newest_published_season(self, tmp_path, snapshot_roots):
+        out_dir = self._two_season_site(tmp_path, snapshot_roots)
+        stub = (out_dir / "pitchers" / "index.html").read_text()
+        assert 'href="/pitchers/1902/"' in stub
+
+    def test_one_fixture_per_season(self, tmp_path, snapshot_roots):
+        """A repeated season would silently overwrite the first's pages."""
+        paths = [self._fixture_for(1901, tmp_path), self._fixture_for(1901, tmp_path)]
+        with (
+            _authorized_seasons(1901),
+            pytest.raises(dashboard_build.DashboardBuildError, match="given twice"),
+        ):
+            _build(tmp_path, snapshot_roots, paths)
+
+
+class TestThePublishedSurfaceIsNotDescribedAsAPrototype:
+    """The route is published. Copy that called it a local development
+    prototype is not reworded, it is retired -- "not part of the published
+    leaderboard" cannot be softened into truth."""
+
+    def test_no_visible_pitcher_copy_calls_it_a_prototype(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in _pitcher_pages(out_dir):
+            body = page.read_text()
+            content = body[body.index("<main") : body.index("</main>")]
+            lowered = content.lower()
+            assert "prototype" not in lowered, page
+            assert "development season" not in lowered, page
+            assert "not part of the published leaderboard" not in lowered, page
+
+    def test_the_nav_entry_is_a_route_name_not_a_status(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        nav = (out_dir / "index.html").read_text()
+        nav = nav.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+        assert ">Pitchers</a>" in nav
+        assert "prototype" not in nav.lower()
+
+    def test_the_title_and_description_name_the_season(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        board = _board_page(out_dir).read_text()
+        assert "<title>Pitcher Contact Luck · 2024</title>" in board
+        assert "prototype" not in board.split("</head>", 1)[0].lower()
+
+
+class TestThePublishedSurfaceSaysWhereItsNumbersCameFrom:
+    def test_both_routes_carry_the_provenance_line(self, tmp_path, snapshot_roots, fixture_path):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        rendered = ppc.PITCHER_SEASON_PROVENANCE.format(season=2024).replace("'", "&#39;")
+        for page in _pitcher_pages(out_dir):
+            assert rendered in page.read_text(), page
+
+    def test_the_provenance_season_comes_from_the_fixture(self, tmp_path, snapshot_roots):
+        payload = _fixture_payload()
+        payload["season"] = 1901
+        path = tmp_path / "fixture_1901.json"
+        path.write_text(json.dumps(payload))
+        with _authorized_seasons(1901):
+            out_dir = _build(tmp_path, snapshot_roots, path)
+        board = (out_dir / "pitchers" / "1901" / "index.html").read_text()
+        assert "1901 season." in board
+        assert "2024 season." not in board
+
+    def test_the_exposure_disclosure_is_present_on_the_board(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        """`CONTEXT.md` requires any surface showing this metric to say that
+        relievers miss the >=450 BBE threshold set by exposure rather than
+        by anything about them."""
+        board = _board_page(_build(tmp_path, snapshot_roots, fixture_path)).read_text()
+        # Jinja autoescapes the apostrophe, so the rendered form is what is
+        # actually on the page.
+        assert ppc.PITCHER_EXPOSURE_SCOPE.replace("'", "&#39;") in board
+
+    def test_the_new_public_strings_are_bound_to_public_labels(self):
+        """Same contract `PITCHER_RETROSPECTIVE_LIMITATION` already has: the
+        dashboard copy is a duplicate of the canonical string because no
+        module under `dashboard/` may import scoring code, and an equality
+        test is what stops the two drifting."""
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from mlb_luck_score.scoring import public_labels
+
+        assert ppc.PITCHER_SEASON_PROVENANCE == public_labels.PITCHER_SEASON_PROVENANCE
+        assert ppc.PITCHER_EXPOSURE_SCOPE == public_labels.PITCHER_EXPOSURE_SCOPE
+
+    def test_the_new_public_strings_carry_no_banned_phrasing(self):
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from mlb_luck_score.scoring.public_labels import check_text_for_banned_phrases
+
+        assert check_text_for_banned_phrases(ppc.PITCHER_SEASON_PROVENANCE) == []
+        assert check_text_for_banned_phrases(ppc.PITCHER_EXPOSURE_SCOPE) == []
+
+
+class TestPitcherPagesAdvertiseThemselves:
+    """Every pitcher page previously advertised the site root and the hitter
+    leaderboard's title, because neither template defined an `og_url`. That
+    was invisible while the route was local and wrong the moment a page
+    could be shared."""
+
+    def test_every_pitcher_page_has_its_own_og_url(self, tmp_path, snapshot_roots, fixture_path):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        for page in _pitcher_pages(out_dir):
+            og = re.search(r'<meta property="og:url" content="([^"]+)"', page.read_text())
+            assert og, page
+            assert og.group(1) != "https://contactluck.com/", page
+            assert "/pitchers/2024/" in og.group(1), page
+
+    def test_a_card_advertises_the_card_not_the_board(self, tmp_path, snapshot_roots, fixture_path):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        card = _card_page(out_dir, 1).read_text()
+        assert 'content="https://contactluck.com/pitchers/2024/1/"' in card
+        assert "Big Total" in re.search(r'<meta property="og:title" content="([^"]+)"', card).group(
+            1
+        )
+
+
+class TestPitcherRoutesMeetTheSharedShellContract:
+    """They are published routes now, so they owe what every other published
+    route owes. Nothing built them into the site-wide shell suite, because
+    that suite builds without a pitcher fixture -- so the contract is
+    asserted here instead of being quietly unchecked."""
+
+    def test_every_pitcher_route_opens_with_a_skip_link(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        for page in _pitcher_pages(_build(tmp_path, snapshot_roots, fixture_path)):
+            assert '<a class="skip-link" href="#main-content">' in page.read_text(), page
+
+    def test_every_pitcher_route_carries_the_global_search(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        for page in _pitcher_pages(_build(tmp_path, snapshot_roots, fixture_path)):
+            assert 'data-role="global-player-search"' in page.read_text(), page
+
+    def test_every_pitcher_route_reaches_every_other_route(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        for page in _pitcher_pages(_build(tmp_path, snapshot_roots, fixture_path)):
+            nav = page.read_text().split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+            for label in ("Leaderboard", "How It Works", "Methodology", "Data &amp; status"):
+                assert label in nav, (page, label)
+
+    def test_the_board_marks_itself_as_the_active_route(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        nav = _board_page(_build(tmp_path, snapshot_roots, fixture_path)).read_text()
+        nav = nav.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+        assert nav.count('aria-current="page"') == 1
+        assert 'class="is-active" aria-current="page"' in nav
+
+
+class TestThePublishedManifestSaysWhatWasPublished:
+    def test_the_manifest_records_the_pitcher_season_and_fixture(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        manifest = json.loads((out_dir / "data" / "dashboard_build_manifest.json").read_text())
+        assert manifest["pitcher_seasons"] == [2024]
+        assert manifest["pitcher_fixture_version"] == "0.1"
+        assert len(manifest["pitcher_fixture_sha256"]) == 64
+        assert manifest["pitcher_count"] == len(_fixture_payload()["pitchers"])
+
+    def test_the_hash_is_of_the_fixture_actually_read(self, tmp_path, snapshot_roots, fixture_path):
+        import hashlib
+
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        manifest = json.loads((out_dir / "data" / "dashboard_build_manifest.json").read_text())
+        assert (
+            manifest["pitcher_fixture_sha256"]
+            == hashlib.sha256(fixture_path.read_bytes()).hexdigest()
+        )
+
+    def test_a_build_with_no_pitcher_surface_says_so(self, tmp_path, snapshot_roots):
+        """Empty rather than absent: the manifest always states which pitcher
+        seasons a `dist/` contains, so a reader never has to infer it from
+        the directory tree."""
+        out_dir = _build(tmp_path, snapshot_roots, None)
+        manifest = json.loads((out_dir / "data" / "dashboard_build_manifest.json").read_text())
+        assert manifest["pitcher_seasons"] == []
+        assert manifest["pitcher_count"] == 0
+        assert manifest["pitcher_fixture_sha256"] is None
+
+
+class TestTheProductionPublishPathPublishesTheSurface:
+    """The wiring itself. `publish_snapshot.sh` is the only production build
+    path, so "is the pitcher surface published?" is a question about one
+    line in one file."""
+
+    def test_the_publish_script_passes_the_fixture(self):
+        script = PUBLISH_SCRIPT.read_text()
+        assert "--pitcher-prototype-fixture dashboard/pitcher_prototype_fixture.json" in script
+
+    def test_it_is_passed_to_the_dashboard_build_stage(self):
+        """Not to the explorer stage, and not in a stray comment."""
+        build_stage = PUBLISH_SCRIPT.read_text().split("dashboard/build.py", 1)[1]
+        assert "--pitcher-prototype-fixture" in build_stage.split("\n\n", 1)[0]
+
+    def test_the_flag_still_has_no_default(self):
+        """Fail-closed survives productionization: publication is one named
+        line in the publish path, never something a bare build inherits."""
+        parser = dashboard_build._build_cli_arg_parser()
+        args = parser.parse_args([])
+        assert args.pitcher_prototype_fixture is None
+
+
+class TestTheHeaderStillFitsWithAPitcherEntry:
+    """The pitcher nav entry is a SIXTH item in a header row whose five
+    shipped items already fill the 1200px track exactly, so it needs the
+    `:has()` wrap rule or the provenance badge overflows the viewport at
+    1280 -- on EVERY route in the build, the hitter leaderboard included.
+
+    This is a regression test with a real history: the rule matched
+    `a[href$="/pitchers/"]`, and season-scoping the nav link to
+    `/pitchers/2024/` silently stopped it matching. Nothing failed; the
+    overflow simply came back. A selector whose correctness depends on a URL
+    shape defined in another file gets a test.
+    """
+
+    def _wrap_rule_selector(self) -> str:
+        css = _strip_css_comments(_css())
+        block = css.split(".site-nav-list:has(", 1)[1]
+        return block.split(")", 1)[0]
+
+    def test_the_wrap_rule_matches_a_season_scoped_link(self):
+        selector = self._wrap_rule_selector()
+        assert selector == 'a[href*="/pitchers/"]', (
+            "an ends-with match breaks the moment the nav link carries a season"
+        )
+
+    def test_the_rule_would_match_the_link_the_nav_actually_emits(
+        self, tmp_path, snapshot_roots, fixture_path
+    ):
+        """Belt and braces: the assertion above pins the selector, this one
+        pins the href it has to match, so the two cannot drift apart."""
+        out_dir = _build(tmp_path, snapshot_roots, fixture_path)
+        nav = (out_dir / "index.html").read_text()
+        nav = nav.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+        href = re.search(r'href="([^"]*/pitchers/[^"]*)"', nav).group(1)
+        assert "/pitchers/" in href  # what `*=` matches
+
+    def test_a_build_without_the_surface_gets_no_wrap_rule_applied(self, tmp_path, snapshot_roots):
+        """The shipped five-item header must be byte-for-byte unaffected:
+        with no pitcher entry the `:has()` selector never matches."""
+        out_dir = _build(tmp_path, snapshot_roots, None)
+        nav = (out_dir / "index.html").read_text()
+        nav = nav.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+        assert "/pitchers/" not in nav

@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 {% import "_macros.html" as macros %}
-{% block title %}Pitcher Contact Luck · 2024 prototype{% endblock %}
-{% block meta_description %}Local development prototype: Cumulative Contact Luck Runs for pitchers over the 2024 development season, on real scored batted balls.{% endblock %}
+{% block title %}Pitcher Contact Luck · {{ pitchers.season }}{% endblock %}
+{% block meta_description %}Cumulative Contact Luck Runs for pitchers over the {{ pitchers.season }} season: how favorable or unfavorable the outcomes on each pitcher's contact were, on real scored batted balls.{% endblock %}
+{# Season-scoped, like every other route's own og:url. Without these blocks
+   every pitcher page advertised the site root and the hitter leaderboard's
+   title, which was invisible while the route was local and wrong the
+   moment a page could be shared. #}
+{% block og_title %}Pitcher Contact Luck · {{ pitchers.season }}{% endblock %}
+{% block og_url %}{{ site_url }}/pitchers/{{ pitchers.season }}/{% endblock %}
+{% block og_description %}Cumulative Contact Luck Runs for pitchers over the {{ pitchers.season }} season.{% endblock %}
+{% block twitter_title %}Pitcher Contact Luck · {{ pitchers.season }}{% endblock %}
 {# Same declaration the hitter leaderboard makes, for the same reason and
    against the same origin: the boards below carry the site's only
    third-party request, so the connection is opened early on the routes
@@ -11,10 +19,10 @@
 {% endblock %}
 {% block content %}
 {#
-  Version 0.13.1 LOCAL PROTOTYPE -- pitcher landing surface.
+  The pitcher landing surface.
 
-  Three structural decisions this page exists to test, all of them
-  presentation, none of them scoring:
+  Three structural decisions this page carries, all of them presentation,
+  none of them scoring:
 
   1. THE CUMULATIVE TOTAL IS THE RANKING KEY, and the only quantity given a
      plot field. The normalized rate is present on every row but is set as
@@ -40,13 +48,15 @@
     {{ pitchers.season }} season.
   </p>
 
-  {# The provenance line. This route only ever exists in a local build, but
-     nothing about it should depend on the reader knowing that. #}
-  <p class="proto-banner">
-    <strong>Development prototype.</strong> {{ pitchers.season }} development-season data
-    only. Not scored for any later season, not part of the published leaderboard, and not a
-    projection.
-  </p>
+  {# Provenance. The sentence is `public_labels.PITCHER_SEASON_PROVENANCE`,
+     formatted with the fixture's own season by the build -- this template
+     writes neither the year nor the claim. It replaces the development-
+     prototype banner rather than rewording it: that banner said the surface
+     was "not part of the published leaderboard", which this route publishing
+     made false. #}
+  <p class="pitcher-provenance">{{ pitcher_season_provenance }}</p>
+
+  {{ macros.pitcher_season_switcher(pitcher_seasons, pitchers.season, root_prefix) }}
 
   <details class="lede-detail">
     <summary>What the number means</summary>
@@ -154,6 +164,14 @@
     </ul>
   </details>
   {% endfor %}
+  {# The exposure disclosure `CONTEXT.md` requires of any surface showing
+     this metric. It sits here, in the section about what the boards leave
+     out, because that is what it is about: the >=450 BBE threshold set
+     leaves relievers out by arithmetic, and a reader who has met Contact
+     Luck's qualification rules on the hitter side would otherwise assume
+     those rules are in force here. Sourced from `public_labels`. #}
+  <p class="prose">{{ pitcher_exposure_scope }}</p>
+
   <p class="prose">
     Contact Luck is retrospective on both sides of the ball. A favorable total describes batted
     balls that have already been played; it says nothing about whether the next hundred will go

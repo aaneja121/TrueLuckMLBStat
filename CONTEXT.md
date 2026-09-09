@@ -31,17 +31,21 @@ table (`DEFAULT_RUN_VALUE_MAP`). Not recomputed anywhere in the dashboard.
 **Pitching Contact Luck** — The same quantity re-grouped by the pitcher who allowed the
 batted ball, with the sign flipped: `pitching_contact_luck = −1 × batting_contact_luck`.
 Positive = outcomes more favorable to the **pitcher** than the contact predicted. Trains
-no new model — it re-aggregates the same frozen ledger. **Research only: not scored for
-2025 or 2026 and not in the public-score schema.** Version 0.13.1 added a LOCAL 2024
-prototype surface under `dashboard/` that is emitted only when `build.py` is given
-`--pitcher-prototype-fixture`; no production build passes it. See README "Pitching Contact
+no new model — it re-aggregates the same frozen ledger. **Not scored for 2025 or 2026 and
+not in the public-score schema.** The **2024** season is published at `/pitchers/2024/`
+from the committed fixture; `scripts/publish_snapshot.sh` passes
+`--pitcher-prototype-fixture` explicitly, and `dashboard_config.PITCHER_PUBLIC_SEASONS`
+gates which seasons may ever be published (2024 only — see RESEARCH_RULES.md "Public
+launch of the 2024 pitcher surface"). See README "Pitching Contact
 Luck (Version 0.13, research spike)" and "Pitching Contact Luck presentation research
 (Version 0.13.1)".
 
 **Starter-only scope** — Pitching Contact Luck's `pitcher_primary`
 threshold set (≥450 eligible BBE) describes **starting pitchers**. No reliever-season in
 2021–2024 reached it (highest with ≥50 appearances: 311 BBE). Relievers are excluded by
-exposure, not by choice, and any surface showing this metric must say so.
+exposure, not by choice, and any surface showing this metric must say so. Discharged on
+the published board by `public_labels.PITCHER_EXPOSURE_SCOPE`, which also states that the
+boards rank on the 60-BBE display minimum rather than on that threshold set.
 
 **Cumulative Contact Luck allowed** — The pitcher surface's PRIMARY quantity (Version
 0.13.1): the sum of the per-play contributions over the batted balls a pitcher actually
@@ -58,7 +62,7 @@ observed bimodal distribution. This repository has **no authoritative role metad
 pitcher may be labelled a starter, a reliever, or a closer. Factual usage ("72 appearances,
 2.6 BBE per appearance") is fine; inferring a role from it is not.
 
-**Board display minimum** — The pitcher prototype leaves pitcher-seasons under 60 resolved
+**Board display minimum** — The pitcher surface leaves pitcher-seasons under 60 resolved
 BBE off its ranked boards. A **presentation rule only**, motivated by normalized-rate
 interval width — never qualification, eligibility, an official minimum, or an MLB rule.
 Those seasons keep a page, a total, a rate and an interval, and never read as having failed

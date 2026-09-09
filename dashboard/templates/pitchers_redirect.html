@@ -1,0 +1,29 @@
+{#
+  `/pitchers/` -- the season-less path.
+
+  The published boards live at `/pitchers/<season>/`, so this path has no
+  content of its own. It exists so the bare URL never 404s: a reader who
+  types it, or a link that drops the season, lands on the newest authorized
+  season instead of an error.
+
+  Deliberately NOT a full page. It wears no site chrome, because chrome
+  around a page that immediately leaves is furniture nobody reads, and it
+  carries a real link as well as the refresh so the route works with meta
+  refresh ignored, for a crawler, and for a reader who arrives with the
+  redirect suppressed. `canonical` points at the season board so the two
+  paths are never indexed as competing copies of one thing.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pitcher Contact Luck</title>
+<link rel="canonical" href="{{ site_url }}/pitchers/{{ season }}/">
+<meta http-equiv="refresh" content="0; url={{ root_prefix }}pitchers/{{ season }}/">
+<meta name="robots" content="noindex, follow">
+</head>
+<body>
+<p><a href="{{ root_prefix }}pitchers/{{ season }}/">Pitcher Contact Luck, {{ season }}</a></p>
+</body>
+</html>

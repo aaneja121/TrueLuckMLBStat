@@ -2318,8 +2318,9 @@ pitcher-side bug.
 
 ### What Version 0.13 does NOT do
 
-- No prospective (2026) pitcher scoring, no snapshot integration, no dashboard surface,
-  and no `public_labels` entry. `BANNED_PHRASES` already forbids "defense-independent",
+- No prospective (2026) pitcher scoring and no snapshot integration. (Version 0.13.1 added
+  the dashboard surface; productionization added its `public_labels` entries.)
+  `BANNED_PHRASES` already forbids "defense-independent",
   which is the phrase this metric sits nearest to and must not adopt.
 - **The `defensive_execution_component` is KEPT in the pitcher total.** It is the defense
   playing behind that pitcher, which he does not control. Excluding it would produce a
@@ -2354,12 +2355,15 @@ Freezes Versions 0.2-0.13 completely. **This version trains nothing, predicts no
 redefines nothing.** Version 0.13 established the pitcher-side quantity and showed it could
 be produced exactly. This version answers a different question: **given that quantity, what
 can honestly be put in front of a reader?** Its output is a set of presentation findings, a
-committed 2024 development fixture, and a local UI prototype -- no model, no threshold, no
-score.
+committed 2024 fixture, and the UI that became the published pitcher surface -- no model,
+no threshold, no score.
 
-Status: **provisional research spike, 2024 development season only.** Nothing here is
-scored for 2025 or 2026, nothing is in the public-score schema, and the prototype surface is
-gated behind an explicit build flag that no production invocation passes.
+Status: **published, 2024 season only.** Nothing here is scored for 2025 or 2026 and
+nothing is in the public-score schema. The surface passes two gates: an explicit
+`--pitcher-prototype-fixture` flag, which `scripts/publish_snapshot.sh` passes on one named
+line, and `dashboard_config.PITCHER_PUBLIC_SEASONS`, which the build enforces by refusing
+any other season outright. See RESEARCH_RULES.md, "Public launch of the 2024 pitcher
+surface".
 
 ### The quantity, restated (unchanged from Version 0.13)
 
@@ -2635,7 +2639,7 @@ population.
 | `demo/build_pitcher_prototype_fixture.py` | Offline generator. Calls the frozen batter runner unchanged, re-aggregates by pitcher, projects names/usage/largest plays, and writes the fixture plus the research report backing this section |
 | `dashboard/pitcher_prototype_fixture.json` | Committed 2024 development fixture (854 pitcher-seasons). Reviewed reference data, same convention as `demo_fixture.json` |
 | `dashboard/pitcher_prototype_content.py` | Fail-closed loader + view-models. Recomputes nothing |
-| `dashboard/templates/pitchers.html`, `pitcher.html` | The two prototype surfaces |
+| `dashboard/templates/pitchers.html`, `pitcher.html` | The two published pitcher surfaces |
 | `tests/test_dashboard_pitcher_prototype.py` | 20 tests: fail-closed routing, ranking key, population separation, vocabulary, small-sample honesty |
 
 ```bash
@@ -2643,16 +2647,20 @@ population.
 # scores 2024; no network access):
 .venv/bin/python demo/build_pitcher_prototype_fixture.py
 
-# Build the site WITH the local prototype (no production invocation passes this flag):
+# Build the site WITH the pitcher surface (production passes this flag explicitly;
+# repeatable, once per authorized season):
 .venv/bin/python dashboard/build.py \
     --explore-artifacts-dir dashboard/explore_fixture \
     --pitcher-prototype-fixture dashboard/pitcher_prototype_fixture.json
 ```
 
-Routes emitted only when that flag is passed: `/pitchers/` and `/pitchers/<pitcher_id>/`.
-A bare `build.py` emits neither, and no navigation entry points at them -- the same
-fail-closed convention the Play Explorer uses, verified by
-`tests/test_dashboard_pitcher_prototype.py::TestFailClosedRouting`.
+Routes emitted only when that flag is passed: `/pitchers/` (a `noindex` redirect stub),
+`/pitchers/<season>/` and `/pitchers/<season>/<pitcher_id>/`. A bare `build.py` emits none
+of them and no navigation entry points at them -- the same fail-closed convention the Play
+Explorer uses, verified by
+`tests/test_dashboard_pitcher_prototype.py::TestFailClosedRouting`. A fixture whose season
+is not in `PITCHER_PUBLIC_SEASONS` fails the build outright
+(`TestOnlyAuthorizedSeasonsAreEverPublished`).
 
 ### A fourth `ZeroScale`, declared deliberately
 
@@ -3140,7 +3148,9 @@ scripts/publish_snapshot.sh --data-through YYYY-MM-DD [options]
 ```
 
 Runs, in order, and stops at the first failure: `prospective/run_v1_1_2026_scoring.py
---data-through <date>` -> `dashboard/build.py` -> (unless `--skip-deploy`) a confirmation
+--data-through <date>` -> `dashboard/build.py --explore-artifacts-dir <ephemeral dir>
+--pitcher-prototype-fixture dashboard/pitcher_prototype_fixture.json` -> (unless
+`--skip-deploy`) a confirmation
 prompt -> `wrangler pages deploy dashboard/dist --project-name=contact-luck`. It
 duplicates none of Version 1.1's guards (clean working tree, date completeness, coverage
 validation, conflict detection) -- it only calls the existing entry points and reports

@@ -71,9 +71,18 @@ class ZeroScale:
     """The canonical zero-centred quantitative scale for one named quantity.
 
     Built ONCE per build and threaded to every renderer, so no page can
-    invent its own axis. The product has exactly three of these
-    (`league_per_100`, `run_value`, `component_per_100`); adding a fourth is
-    a design review, not a code change.
+    invent its own axis. The product has exactly FOUR of these --
+    `league_per_100`, `run_value`, `component_per_100`, and
+    `pitcher_cumulative_runs`; adding a fifth is a design review, not a code
+    change.
+
+    The fourth was that review, made deliberately and written down rather
+    than slipped in: the pitcher surface ranks a CUMULATIVE RUN TOTAL, which
+    no existing scale measures, so drawing it on `league_per_100` would put
+    a +20-run season off the end of a rate axis and drawing it on
+    `run_value` would put a season total on a single-play axis. The full
+    argument, and the price the exception pays in the template, is at its
+    construction site in `build.py`.
 
     Two invariants this class exists to make mechanically true:
 
