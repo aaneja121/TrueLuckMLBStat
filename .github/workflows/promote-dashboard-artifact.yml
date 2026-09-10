@@ -1,0 +1,205 @@
+name: Promote dashboard artifact
+
+# Deploy an ALREADY-BUILT, already-inspected dashboard artifact to
+# Cloudflare Pages. Nothing else.
+#
+#     gh run download <SOURCE_RUN_ID> -n dashboard-dist-<DATE>
+#       -> scripts/verify_dashboard_artifact.py   (fail-closed gate)
+#       -> npx wrangler pages deploy <that directory>
+#
+# WHAT THIS WORKFLOW DELIBERATELY CANNOT DO. It never scores, never
+# archives, never syncs history, never rebuilds the dashboard, and never
+# writes to R2 -- it does not invoke scripts/publish_snapshot.sh at all,
+# and the only credentials it is given are the Cloudflare Pages ones. The
+# bytes it deploys are the bytes some earlier run produced and a human
+# looked at; this workflow's whole job is to not change them between
+# inspection and publication.
+#
+# WHY IT EXISTS. Building and deploying in one step means the thing you
+# inspected and the thing you shipped are only the same by assumption. A
+# past incident published a stale local dist and rolled production data
+# backward. Separating "build an artifact" from "promote that exact
+# artifact by run id" makes the two provably identical, and gives the
+# verification a place to live.
+#
+# THE GATE. scripts/verify_dashboard_artifact.py refuses unless: the
+# manifest's data_through_date and repository_commit match what the
+# operator typed; the artifact agrees with ITSELF (Explore payload,
+# manifest and files on disk all describe one snapshot); every published
+# pitcher season is in dashboard_config.PITCHER_PUBLIC_SEASONS and has a
+# route; no unauthorized season route exists; nothing is truncated; and
+# the artifact is not OLDER than what production is already serving.
+# Any mismatch fails the job before wrangler is ever installed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: >-
+          Run ID of the Actions run that BUILT the artifact. Required and
+          explicit -- this workflow never picks a build for you.
+        required: true
+        type: string
+      artifact_name:
+        description: >-
+          Artifact name within that run, e.g. dashboard-dist-2026-09-08.
+        required: true
+        type: string
+      expected_data_through:
+        description: >-
+          The data-through date you believe you are promoting (YYYY-MM-DD).
+          Checked against the artifact's own manifest.
+        required: true
+        type: string
+      expected_repository_commit:
+        description: >-
+          The full 40-character commit you believe built it. Checked
+          against the artifact's manifest AND against the source run's head
+          SHA, so all three must agree.
+        required: true
+        type: string
+      expected_player_count:
+        description: "Optional. Exact match required if given."
+        required: false
+        type: string
+      expected_qualified_count:
+        description: "Optional. Exact match required if given."
+        required: false
+        type: string
+      expected_pitcher_count:
+        description: "Optional. Exact match required if given."
+        required: false
+        type: string
+      expected_play_count:
+        description: "Optional. Explore play_count. Exact match if given."
+        required: false
+        type: string
+      expected_game_count:
+        description: "Optional. Explore game_count. Exact match if given."
+        required: false
+        type: string
+      allow_rollback:
+        description: >-
+          Permit promoting an artifact OLDER than what production serves.
+          Leave unchecked. Only for a deliberate, understood revert -- never
+          to get past a surprise.
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  # The SAME group the publish loop uses. Both workflows end at
+  # `wrangler pages deploy` for one Cloudflare project, so a promotion must
+  # queue behind an in-flight publish rather than race it -- two runs
+  # deploying different artifacts to the same project is precisely how a
+  # stale build wins by finishing last.
+  group: publish-prospective
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read   # to download the source run's artifact
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The verifier reads dashboard_config.PITCHER_PUBLIC_SEASONS, which is
+      # plain Python with no third-party imports, so no venv is needed.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Confirm the source run built what the operator says
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_COMMIT: ${{ inputs.expected_repository_commit }}
+        run: |
+          set -euo pipefail
+          # Checked BEFORE downloading: if the run is not a successful build
+          # of the stated commit, nothing about its artifact is worth
+          # inspecting.
+          RUN_JSON="$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,headSha,status,conclusion,workflowName)"
+          echo "$RUN_JSON"
+          HEAD_SHA="$(echo "$RUN_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["headSha"])')"
+          CONCLUSION="$(echo "$RUN_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["conclusion"])')"
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "error: source run $SOURCE_RUN_ID concluded '$CONCLUSION', not success." >&2
+            exit 1
+          fi
+          if [ "$HEAD_SHA" != "$EXPECTED_COMMIT" ]; then
+            echo "error: source run $SOURCE_RUN_ID ran at $HEAD_SHA, but you said" >&2
+            echo "       $EXPECTED_COMMIT. Refusing to promote a build you did not name." >&2
+            exit 1
+          fi
+
+      - name: Download the artifact by run id
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: promote-dist
+
+      - name: Verify the artifact (fail-closed gate)
+        env:
+          ALLOW_ROLLBACK: ${{ inputs.allow_rollback }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --dist-dir promote-dist
+            --expected-data-through "${{ inputs.expected_data_through }}"
+            --expected-repository-commit "${{ inputs.expected_repository_commit }}"
+          )
+          # if-blocks, not `[ -n x ] && ARGS+=(...)`: under `set -e` a
+          # failing test in that idiom is the step's last command and aborts
+          # the job, so an omitted optional input would look like a
+          # verification failure.
+          if [ -n "${{ inputs.expected_player_count }}" ]; then
+            ARGS+=(--expected-player-count "${{ inputs.expected_player_count }}")
+          fi
+          if [ -n "${{ inputs.expected_qualified_count }}" ]; then
+            ARGS+=(--expected-qualified-count "${{ inputs.expected_qualified_count }}")
+          fi
+          if [ -n "${{ inputs.expected_pitcher_count }}" ]; then
+            ARGS+=(--expected-pitcher-count "${{ inputs.expected_pitcher_count }}")
+          fi
+          if [ -n "${{ inputs.expected_play_count }}" ]; then
+            ARGS+=(--expected-play-count "${{ inputs.expected_play_count }}")
+          fi
+          if [ -n "${{ inputs.expected_game_count }}" ]; then
+            ARGS+=(--expected-game-count "${{ inputs.expected_game_count }}")
+          fi
+          if [ "$ALLOW_ROLLBACK" = "true" ]; then
+            ARGS+=(--allow-rollback)
+          fi
+          python3 scripts/verify_dashboard_artifact.py "${ARGS[@]}"
+
+      # Only reached if the gate passed.
+      - name: Set up Node.js (for wrangler)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Deploy the verified artifact to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # `promote-dist` verbatim -- nothing rebuilds or rewrites it
+          # between the gate above and this line.
+          npx wrangler pages deploy promote-dist --project-name=contact-luck
+
+      - name: Confirm what production is now serving
+        if: always()
+        run: |
+          set -euo pipefail
+          sleep 15
+          curl -sS --max-time 30 https://contactluck.com/data/dashboard_build_manifest.json || true

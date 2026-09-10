@@ -155,6 +155,39 @@ explicit `data_through` (it must not guess which archived snapshot to build from
 refuses to combine with `deploy`. The dist is uploaded as
 `dashboard-dist-<data_through>` for inspection.
 
+## Promoting a built artifact to production
+
+`.github/workflows/promote-dashboard-artifact.yml` (manual dispatch only).
+
+Deploys an **already-built, already-inspected** artifact by source run id. It builds
+nothing: it downloads `dashboard-dist-<date>` from a named run, gates it, and runs
+`wrangler pages deploy` on that exact directory.
+
+Splitting "build an artifact" from "promote that artifact" is what makes the thing
+inspected and the thing shipped provably the same object rather than the same by
+assumption — the failure mode behind the stale-`dist` incident.
+
+The gate is `scripts/verify_dashboard_artifact.py`, which refuses unless:
+
+- the manifest's `data_through_date` and `repository_commit` match what the operator
+  typed, **and** the source run's head SHA matches the same commit (all three agree);
+- the artifact agrees with **itself** — Explore metadata, the manifest and the files on
+  disk all describe one snapshot, and the declared counts match the pages actually built.
+  An operator can only confirm what they already believe; these catch a build that is
+  wrong in a way nobody thought to type in;
+- every published pitcher season is in `PITCHER_PUBLIC_SEASONS` and has a route, and no
+  route exists for a season that is not;
+- nothing is truncated (required files present, no zero-byte files);
+- **the artifact is not older than what production is already serving.** Unreadable live
+  manifest ⇒ refuse, because a rollback cannot then be ruled out. `allow_rollback` exists
+  for a deliberate revert and defaults off.
+
+It is given no R2 credentials and references no scoring, archive, sync or build script —
+its safety is structural, asserted by
+`tests/test_verify_dashboard_artifact.py::TestThePromotionWorkflowCannotDoAnythingElse`.
+It shares the publish loop's `publish-prospective` concurrency group, so a promotion
+queues behind an in-flight publish instead of racing it to the same Pages project.
+
 ## Rebuilding `dashboard/dist/`
 
 `dist/` is gitignored and can be stale (it may hold a build from another branch). It has
