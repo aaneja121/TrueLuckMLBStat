@@ -18,6 +18,7 @@
 	verify-forecast-hgb-freeze verify-forecast-freezes run-forecast-phase2-2026 \
 	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports \
 	freeze-forecast-resolution-spec run-forecast-resolution-2026 \
+	forecast-resolution-preflight \
 	freeze-preflight $(addprefix freeze-preflight,-$(FREEZE_STAGES))
 
 VENV := .venv
@@ -558,6 +559,25 @@ run-forecast-resolution-2026:
 	@test -n "$(AUTHORIZED_BY)" || \
 		{ echo "Refusing: set AUTHORIZED_BY=\"your name\" to authorize this second look."; exit 1; }
 	$(PY) -m forecast.phase2.run_resolution_evaluation --authorized-by "$(AUTHORIZED_BY)"
+
+# Contact Forecast RESOLUTION PRE-FLIGHT: run this well before the season ends,
+# and again on the day. It checks the four gate conditions that do not depend on
+# the calendar -- the five-stage freeze chain verifies with zero drift, and both
+# sealed prediction ledgers still re-hash to what their result manifests
+# recorded -- and reports the three that are blocked until the season ends.
+#
+# It also writes a preservation manifest and (with BUNDLE=) a self-describing,
+# self-verifying archive of every irreplaceable artifact. The sealed predictions
+# cannot be regenerated: a prediction made before its outcome was known is not
+# recoverable afterward at any price. MOVE THE BUNDLE OFF THIS MACHINE.
+#
+# Opens no outcome, runs no evaluation, and authorizes nothing.
+#
+#   make forecast-resolution-preflight
+#   make forecast-resolution-preflight BUNDLE=/path/to/sealed_predictions.tar.gz
+forecast-resolution-preflight:
+	$(PY) -m forecast.phase2.resolution_preflight --write \
+		$(if $(BUNDLE),--bundle "$(BUNDLE)",)
 
 # Pre-freeze formatting guard: format -> review if changed -> freeze. Runs the
 # canonical formatter over exactly the source files a stage's freeze will hash.
