@@ -83,8 +83,10 @@ from forecast.phase2.run_phase2_evaluation import (
     _bias_diagnostics,
     _full_metrics,
     _json_default,
+    build_distribution_shift,
     build_stability,
     classify_result,
+    load_development_training,
     verify_freeze_chain,
 )
 from forecast.phase2.snapshot import (
@@ -662,11 +664,93 @@ REQUIRED_ARTIFACTS: tuple[str, ...] = (
     "resolution_2026_cohorts.json",
     "resolution_2026_metrics.json",
     "resolution_2026_survivorship.json",
+    "resolution_2026_distribution_shift.json",
     "resolution_2026_incremental.parquet",
     "resolution_2026_full_season.parquet",
     "resolution_2026_never_completed.parquet",
     "resolution_2026_report.md",
 )
+
+
+def frozen_model_features(*, resolution_dir: Path = RESOLUTION_OUTPUTS_DIR) -> list[str]:
+    """The selected model's feature list, read from the sealed ridge freeze.
+
+    Never re-derived. `the feature list` is on the specification's
+    `frozen_and_untouchable` list, so the only defensible source is the
+    manifest that sealed it -- recomputing the same names from live code
+    would produce an identical answer today and silently a different one
+    the day the code changes, which is exactly what freezing prevents.
+
+    Raises:
+        ResolutionIntegrityError: If the manifest does not name the model's
+            features, which means the freeze is not what this expects.
+    """
+    manifest_path = resolution_dir / "ridge_freeze_manifest.json"
+    assert_phase2_path_allowed(manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    key_results = manifest.get("key_results", {})
+    model = (key_results.get("selected_model") or {}).get("model")
+    features = (key_results.get("feature_sets") or {}).get(model)
+    if not model or not features:
+        raise ResolutionIntegrityError(
+            f"{manifest_path} does not name the selected model's feature set. The "
+            "distribution-shift diagnostic reads the FROZEN feature list and will not "
+            "fall back to deriving one."
+        )
+    return list(features)
+
+
+def build_cohort_distribution_shift(
+    cohorts: dict[str, Any],
+    development_focal: pd.DataFrame,
+    *,
+    features: list[str],
+) -> dict[str, Any]:
+    """Required analysis 3: how 2026's feature distributions sit against the
+    permitted development seasons, per cohort.
+
+    Run per cohort rather than once over 2026, because the incremental cohort
+    is not exchangeable with the first-look cohort -- it is the slower
+    accumulators by construction. A single pooled diagnostic would describe a
+    population that no classification is made about, which is precisely the
+    confusion the cohort split exists to avoid.
+
+    Explanatory only, and the same words apply as at the first look: nothing
+    is recalibrated, transformed, clipped, dropped or retrained on the basis
+    of these numbers. A large shift is a caveat on generalization, never a
+    reason to adjust a frozen forecast.
+    """
+    per_cohort: dict[str, Any] = {}
+    for cohort in ("incremental", "full_season"):
+        frame = cohorts.get(cohort)
+        if frame is None or frame.empty:
+            per_cohort[cohort] = {"evaluated": False, "n_windows": 0}
+            continue
+        missing = [f for f in features if f not in frame.columns]
+        if missing:
+            raise ResolutionIntegrityError(
+                f"cohort {cohort!r} is missing frozen model features {missing}. The "
+                "diagnostic compares the FROZEN feature list and does not silently "
+                "compare a subset."
+            )
+        per_cohort[cohort] = {
+            "evaluated": True,
+            "n_windows": int(len(frame)),
+            "features": build_distribution_shift(frame, development_focal, features=features),
+        }
+    return {
+        "purpose": (
+            "Descriptive comparison of each cohort's frozen-model feature distributions "
+            "against the permitted development seasons."
+        ),
+        "status": "DIAGNOSTIC ONLY -- nothing is recalibrated, dropped or retrained",
+        "generalization_note": (
+            "A large shift limits how far the result generalizes. It is never grounds to "
+            "adjust the frozen forecast, reweight a cohort, or exclude a hitter."
+        ),
+        "n_features": len(features),
+        "cohorts": per_cohort,
+    }
 
 
 def run(
@@ -823,12 +907,26 @@ def run(
     survivorship = build_survivorship(sealed, cohorts, ordered)
     _write_json(outputs_dir / "resolution_2026_survivorship.json", survivorship)
 
+    # Required analysis 3. The development frame is loaded here rather than
+    # earlier because nothing before this point needs it, and the pass should
+    # not read development data at all if it is going to fail a gate.
+    development_focal, _prior_events, _development_audit = load_development_training(
+        research_dir=research_dir, data_dir=data_dir
+    )
+    shift = build_cohort_distribution_shift(
+        cohorts, development_focal, features=frozen_model_features()
+    )
+    _write_json(outputs_dir / "resolution_2026_distribution_shift.json", shift)
+
     from forecast.phase2.run_resolution_report import render_resolution_report
 
     report_path = outputs_dir / "resolution_2026_report.md"
     report_path.write_text(
         render_resolution_report(
-            authorization=authorization, metrics=metrics, survivorship=survivorship
+            authorization=authorization,
+            metrics=metrics,
+            survivorship=survivorship,
+            distribution_shift=shift,
         )
     )
     logger.info("wrote %s", report_path)

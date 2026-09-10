@@ -21,7 +21,11 @@ from forecast.phase2.phase2_report import CLASSIFICATION_HEADLINE, _number, rend
 
 
 def render_resolution_report(
-    *, authorization: dict[str, Any], metrics: dict[str, Any], survivorship: dict[str, Any]
+    *,
+    authorization: dict[str, Any],
+    metrics: dict[str, Any],
+    survivorship: dict[str, Any],
+    distribution_shift: dict[str, Any] | None = None,
 ) -> str:
     lines: list[str] = []
     lines += _render_header(authorization, metrics)
@@ -31,8 +35,39 @@ def render_resolution_report(
     lines += _render_full_season(metrics)
     lines += _render_never_completed(metrics)
     lines += _render_survivorship(survivorship)
+    # Optional so an older caller still renders, but the runner always passes
+    # it: a required analysis that is computed and never shown is an analysis
+    # nobody reads.
+    if distribution_shift is not None:
+        lines += _render_distribution_shift(distribution_shift)
     lines += _render_provenance(authorization, metrics)
     return "\n".join(lines) + "\n"
+
+
+def _render_distribution_shift(shift: dict[str, Any]) -> list[str]:
+    """Required analysis 3, per cohort.
+
+    Reported as a limit on generalization, never as a finding about the
+    model: a shifted feature distribution says the cohorts differ, not that
+    the forecast is wrong, and nothing may be adjusted on the strength of it.
+    """
+    lines = ["## Distribution-shift diagnostics", "", f"**{shift['status']}.**", ""]
+    for cohort, record in shift["cohorts"].items():
+        label = cohort.replace("_", "-")
+        if not record.get("evaluated"):
+            lines += [f"- **{label}** -- no windows to compare.", ""]
+            continue
+        features = record["features"]
+        flagged = features["features_with_material_shift"]
+        lines += [
+            f"- **{label}** ({record['n_windows']} windows): "
+            f"{features['n_features_with_material_shift']} of {features['n_features']} "
+            f"frozen model features shift by at least "
+            f"{features['material_shift_threshold_standardized']} standardized units"
+            + (f" -- {', '.join(flagged)}." if flagged else "."),
+        ]
+    lines += ["", shift["generalization_note"], ""]
+    return lines
 
 
 def _render_sign_convention_for(metrics: dict[str, Any]) -> list[str]:
