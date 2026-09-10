@@ -386,6 +386,17 @@ class DashboardBuildManifest:
     artifact. Records which snapshot the site was built from and when, so a
     viewer (or a future rebuild) can tell exactly what generated a given
     `dist/` output.
+
+    The site publishes TWO independent bodies of data: the prospective
+    snapshot the hitter routes render, and the pitcher season fixture. The
+    snapshot fields describe the first; `pitcher_*` describe the second.
+    They are separate fields rather than one merged provenance block
+    because they have separate lineages, separate seasons and separate
+    authorizations, and a manifest that blurred them would be the exact
+    claim this file exists to prevent.
+
+    `pitcher_seasons` is empty on a build that published no pitcher
+    surface, which is what a bare `build.py` produces.
     """
 
     dashboard_version: str
@@ -396,6 +407,10 @@ class DashboardBuildManifest:
     build_timestamp: str
     player_count: int
     qualified_count: int
+    pitcher_seasons: tuple[int, ...] = ()
+    pitcher_fixture_version: str | None = None
+    pitcher_fixture_sha256: str | None = None
+    pitcher_count: int = 0
 
 
 def _snapshot_manifest_hash_reference(snapshot: DiscoveredSnapshot) -> str:
@@ -411,6 +426,10 @@ def build_dashboard_manifest(
     player_count: int,
     qualified_count: int,
     build_timestamp: str,
+    pitcher_seasons: tuple[int, ...] = (),
+    pitcher_fixture_version: str | None = None,
+    pitcher_fixture_sha256: str | None = None,
+    pitcher_count: int = 0,
 ) -> DashboardBuildManifest:
     return DashboardBuildManifest(
         dashboard_version=DASHBOARD_VERSION,
@@ -421,4 +440,8 @@ def build_dashboard_manifest(
         build_timestamp=build_timestamp,
         player_count=player_count,
         qualified_count=qualified_count,
+        pitcher_seasons=pitcher_seasons,
+        pitcher_fixture_version=pitcher_fixture_version,
+        pitcher_fixture_sha256=pitcher_fixture_sha256,
+        pitcher_count=pitcher_count,
     )

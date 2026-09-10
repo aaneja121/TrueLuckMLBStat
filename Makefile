@@ -19,7 +19,10 @@
 	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports \
 	freeze-forecast-resolution-spec run-forecast-resolution-2026 \
 	forecast-resolution-preflight \
-	freeze-preflight $(addprefix freeze-preflight,-$(FREEZE_STAGES))
+	freeze-preflight $(addprefix freeze-preflight,-$(FREEZE_STAGES)) \
+	freeze-pitcher-replication question-f-2024 \
+	seal-pitcher-replication-execution check-pitcher-replication-readiness \
+	run-pitcher-replication-2025
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -594,3 +597,56 @@ $(addprefix freeze-preflight-,$(FREEZE_STAGES)): freeze-preflight-%:
 	$(PY) -m forecast.freeze_preflight --stage $*
 
 freeze-preflight: $(addprefix freeze-preflight-,$(FREEZE_STAGES))
+# Version 0.14: builds/validates the write-once pre-registration freeze for the
+# one-time 2025 held-out Pitcher Contact Luck replication. Reads NO season's
+# data -- it records constants, source hashes and the repository commit, and
+# writes only into artifacts/pitcher_replication/v0_14/ (gitignored). It does
+# NOT authorize a 2025 run: 2025 is FINAL_TEST_SEASONS and a second sealed
+# evaluation needs the maintainer's explicit sign-off (see RESEARCH_RULES.md
+# and replication/pitcher_replication_spec.AUTHORIZATION_STATUS). Pass
+# REBUILD_PROVISIONAL=1 only while the specification is still being written,
+# to supersede a freeze built on a dirty tree.
+freeze-pitcher-replication:
+	$(PY) replication/pitcher_replication_freeze.py \
+		$(if $(REBUILD_PROVISIONAL),--rebuild-provisional,)
+
+# Version 0.14: recomputes the 2024 DEVELOPMENT question-F split-half figures
+# recorded in replication/pitcher_replication_spec.py, including the batter-side
+# control that reproduces the committed Version 0.11 Phase 6 numbers. 2024 only;
+# season protection is inherited from build_player_season_report. Requires the
+# local gitignored development parquet; no network access. Exits non-zero if the
+# batter-side reproduction fails.
+question-f-2024:
+	$(PY) replication/pitcher_split_half.py
+
+# Version 0.14: seals the PRE-EXECUTION manifest for the one-time held-out 2025
+# pitcher replication. Reads NO season -- it hashes the runner, its helpers and
+# the authorization record, and records the commit, clean tree, empty namespace
+# and "2025 not opened" state. Must be run from a clean, committed tree BEFORE
+# the replication itself. Write-once: an identical reseal is idempotent, changed
+# execution code is refused.
+seal-pitcher-replication-execution:
+	$(PY) replication/run_pitcher_replication_2025.py --seal-execution-manifest
+
+# Version 0.14: read-only readiness report for the 2025 pitcher replication.
+# Runs every gate (freeze validates, 15/15 frozen sources, authorization binds,
+# clean tree, 2025 protection intact, namespace empty, no prior receipt,
+# execution manifest validates) and opens NO season.
+check-pitcher-replication-readiness:
+	$(PY) replication/run_pitcher_replication_2025.py --check-readiness
+
+# Version 0.14: THE ONE-TIME HELD-OUT 2025 PITCHER CONTACT LUCK REPLICATION.
+#
+# This target OPENS 2025. It may be run exactly once: it writes an immutable
+# execution-start receipt before the first byte of held-out data is read, and
+# every later invocation refuses. Requires internet access (Baseball Savant and
+# the MLB Stats API) for the full 2025 regular season, which is a large, slow
+# download -- say so before running it.
+#
+# Preconditions, all enforced by the runner and none skippable: the Version 0.14
+# freeze validates, the maintainer authorization binds to that exact freeze, the
+# pre-execution manifest is sealed and matches the current runner, the working
+# tree is clean, 2025 protection is intact, and the replication namespace is
+# empty. Do not run this without the maintainer asking for it in that moment.
+run-pitcher-replication-2025:
+	$(PY) replication/run_pitcher_replication_2025.py

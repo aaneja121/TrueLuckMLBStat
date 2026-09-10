@@ -264,7 +264,7 @@ class TestBuildContent:
         html = (tmp_path / "dist" / "index.html").read_text()
         marker = html.split('id="player-index-data">', 1)[1].split("</script>", 1)[0]
         index = json.loads(marker)
-        names = {row["batter_name"] for row in index}
+        names = {row["name"] for row in index}
         assert "Carl Gamma" in names  # searchable even though not on the ranked leaderboard
 
     def test_stable_player_urls_are_keyed_by_batter_id(self, tmp_path: Path) -> None:

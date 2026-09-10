@@ -8,7 +8,7 @@ the modeling/data-safety rules, `README.md` (184 KB) for full version history.
 
 | | Research half | Presentation half |
 |---|---|---|
-| Code | `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `demo/`, `scripts/`, `notebooks/` | `dashboard/` |
+| Code | `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `replication/`, `demo/`, `scripts/`, `notebooks/` | `dashboard/` |
 | Job | download → clean → train → score → snapshot | read a snapshot → render static HTML |
 | Rules | `RESEARCH_RULES.md` (read in full) | `PRODUCT.md` + this file |
 | Enforced boundary | — | `tests/test_dashboard_isolation.py`: **no module under `dashboard/` may import `mlb_luck_score`, training, scoring, or download code** |
@@ -44,10 +44,11 @@ build time in Python.
 | `dashboard_config.py` | Paths, `DASHBOARD_VERSION`, `SITE_URL` (`https://contactluck.com`). |
 | `snapshot_data.py` | The **only** place snapshots are discovered, integrity-checked, classified, and ranked by precedence. Fails closed. |
 | `content.py` | Snapshot JSON → page view-models (leaderboard rows, player detail, trend, status). Recomputes nothing. |
+| `pitcher_season_content.py` | Loads/validates the committed pitcher fixture (`pitcher_season_fixture.json`), fail-closed on schema version, on a failed batter-side self-check, and on an unknown role bucket. Recomputes nothing. Mirrors the surface's public strings from `public_labels`. |
 | `explore_content.py` | Loads/validates the sharded Play Explorer artifacts (`players.json`, `players/<batter_id>.json`, `games/<game_pk>.json`, `explore-metadata.json`, `showcase.json`, `showcase-sensitivity/<play_id>.json`). Also reports `contact_luck_min`/`contact_luck_max` across every published play, which is the `run_value` domain Explore is drawn on. |
 | `demo_content.py`, `demo_counterfactual_content.py` | View-models for `/demo/` and its counterfactual grid. |
 | `visuals.py` | The `ZeroScale` domain object, hand-rolled inline SVG (interval bars), and `build_trend_figure`, which returns the season trend as CSS **percentages** plus a marks-only SVG — the trend's text is HTML, never inside a scaled viewBox. Emits CSS classes only — **never a hex color**. |
-| `templates/` | `base.html` (shell, header nav, global search, footer), `_macros.html` (leaderboard table), `index.html`, `player.html`, `explore.html`, `play.html`, `demo.html`, `methodology.html`, `status.html`. |
+| `templates/` | `base.html` (shell, header nav, global search, footer), `_macros.html` (leaderboard + pitcher-board tables, season switcher), `index.html`, `player.html`, `explore.html`, `play.html`, `demo.html`, `methodology.html`, `status.html`, `pitchers.html`, `pitcher.html`, `pitchers_redirect.html`. |
 | `static/style.css` | ~4800 lines, single stylesheet. `:root` tokens + a `prefers-color-scheme: dark` block. Breakpoints: 640 / 800 / 900 / 1440. |
 | `static/*.js` | `app.js` (leaderboard sort/filter + global player search), `explore.js`, `play.js`, `demo.js`, `demo_simulator.js`, `showcase_whatif.js`. All presentational; each is an independent IIFE with no shared state. |
 | `explore_fixture/`, `demo_fixture.json`, `demo_counterfactual_grid.json` | Committed development fixtures. |
@@ -56,8 +57,43 @@ build time in Python.
 ### Routes emitted
 
 `/` · `/players/<batter_id>/` · `/explore/` · `/plays/` (one shell; reads `?id=<play_id>`
-client-side) · `/demo/` · `/methodology/` · `/status/` · `/static/*` · `/og-image.png` ·
-`/data/dashboard_build_manifest.json`
+client-side) · `/demo/` · `/methodology/` · `/status/` · `/pitchers/` (redirect stub) ·
+`/pitchers/<season>/` · `/pitchers/<season>/<pitcher_id>/` · `/static/*` ·
+`/og-image.png` · `/data/dashboard_build_manifest.json`
+
+It is a **season fixture, not a snapshot** -- deliberately not named for one.
+Snapshots here are dated, discovered, integrity-checked and replaced as a season
+progresses (`snapshot_data.py`); this is one completed season, committed, undated
+and never updated, sharing none of that contract.
+
+The pitcher routes are **season-scoped** and pass **two independent gates**:
+
+1. `--pitcher-season-fixture PATH` must be passed, or no pitcher route and no nav entry
+   is emitted at all. Fail-closed like the Play Explorer, so a bare `build.py` publishes
+   nothing; `scripts/publish_snapshot.sh` passes it explicitly, on one named line, exactly
+   as it passes `--explore-artifacts-dir`. The flag is **repeatable**, once per season.
+2. Each fixture's season must appear in `dashboard_config.PITCHER_PUBLIC_SEASONS` (**2024**
+   only) or the build **fails outright** — no partial site. Which seasons may be published
+   is a maintainer decision recorded in `RESEARCH_RULES.md` ("Public launch of the 2024
+   pitcher surface"), never a consequence of a fixture existing.
+
+`/pitchers/` itself is a `noindex` redirect stub pointing at the newest published season,
+so a season-less link never 404s while the season board stays the one canonical URL. The
+season switcher (`_macros.html`) renders only when more than one season is built.
+
+### Global player search
+
+One index over **both** published surfaces, built in `dashboard/build.py` and
+rendered into `#player-index-data` on every page; `app.js` only matches and
+renders it. Entries are people rather than batters (`name`/`mlbam_id`, the same
+key `headshot_url` uses) and each carries a `kind` and a build-time `label`
+("Hitter", "Pitcher · 2024"). A person holding both a hitter page and a pitcher
+page produces **two labelled results**, never one silently chosen.
+
+The pitcher half is derived from the datasets that already passed the
+`PITCHER_PUBLIC_SEASONS` gate, so an unauthorized season cannot be searchable:
+it never becomes a dataset, and the build fails first. There is no second season
+list anywhere in the search path.
 
 The Play Explorer is **fail-closed**: a bare `build.py` builds it *disabled*. Pass
 `--explore-artifacts-dir dashboard/explore_fixture` for local work.
@@ -79,6 +115,79 @@ selectively later, but the new design must be derived from this baseline, `PRODU
 `CONTEXT.md`, the rendered product, and the design audit — which is complete, and whose
 conclusions are now `DESIGN.md` + `docs/design/`.
 
+## Feature-only publish: building from an already-archived snapshot
+
+`scripts/publish_snapshot.sh --build-from-existing-snapshot --data-through <DATE>`
+
+Ships a **presentation** change against the exact hitter state already in production,
+without re-scoring anything.
+
+**Why it has to exist.** A snapshot's `manifest.json` records `repository_commit`,
+`generated_at`, `retrieval_timestamps` and a hash of all 32 frozen inputs. Re-scoring a
+date that is *already archived* therefore produces a different manifest the moment the
+repository has moved on — **even when every scored value is identical** — and
+`archive_snapshot.py --sync-history` then correctly refuses to reconcile the fresh copy
+with the archived one. That refusal is the archive guard working, not a bug to route
+around. The fix is to stop re-scoring an already-archived date.
+
+Stages (5, versus the normal path's 7):
+
+```
+ensure_frozen_inputs.py                  (dev parquet + detail JSONs; R2 read only if missing)
+  → archive_snapshot.py --sync-history   (READ-ONLY restore of missing snapshots)
+  → verify_local_snapshot_integrity.py   (post-condition: every file matches its own
+                                          integrity_hashes.json, or the build stops)
+  → generate_production_explorer_artifacts.py
+  → dashboard/build.py --explore-artifacts-dir … --pitcher-season-fixture …
+  → STOP
+```
+
+It is **incapable** of the three dangerous operations, and refuses rather than silently
+downgrading a request for any of them: it never invokes the scoring script, never invokes
+the archive **write** (only `--sync-history`), and never deploys. `--skip-deploy` and
+`--skip-archive` are both **refused** as redundant/meaningless. Proven by
+`tests/test_publish_snapshot_orchestration.py::TestFeatureOnlyBuildFromExistingSnapshot`,
+which asserts the exact five-stage sequence and that the normal scheduled path still
+scores and archives.
+
+In CI: `workflow_dispatch` with `build_from_existing_snapshot: true`. It requires an
+explicit `data_through` (it must not guess which archived snapshot to build from) and
+refuses to combine with `deploy`. The dist is uploaded as
+`dashboard-dist-<data_through>` for inspection.
+
+## Promoting a built artifact to production
+
+`.github/workflows/promote-dashboard-artifact.yml` (manual dispatch only).
+
+Deploys an **already-built, already-inspected** artifact by source run id. It builds
+nothing: it downloads `dashboard-dist-<date>` from a named run, gates it, and runs
+`wrangler pages deploy` on that exact directory.
+
+Splitting "build an artifact" from "promote that artifact" is what makes the thing
+inspected and the thing shipped provably the same object rather than the same by
+assumption — the failure mode behind the stale-`dist` incident.
+
+The gate is `scripts/verify_dashboard_artifact.py`, which refuses unless:
+
+- the manifest's `data_through_date` and `repository_commit` match what the operator
+  typed, **and** the source run's head SHA matches the same commit (all three agree);
+- the artifact agrees with **itself** — Explore metadata, the manifest and the files on
+  disk all describe one snapshot, and the declared counts match the pages actually built.
+  An operator can only confirm what they already believe; these catch a build that is
+  wrong in a way nobody thought to type in;
+- every published pitcher season is in `PITCHER_PUBLIC_SEASONS` and has a route, and no
+  route exists for a season that is not;
+- nothing is truncated (required files present, no zero-byte files);
+- **the artifact is not older than what production is already serving.** Unreadable live
+  manifest ⇒ refuse, because a rollback cannot then be ruled out. `allow_rollback` exists
+  for a deliberate revert and defaults off.
+
+It is given no R2 credentials and references no scoring, archive, sync or build script —
+its safety is structural, asserted by
+`tests/test_verify_dashboard_artifact.py::TestThePromotionWorkflowCannotDoAnythingElse`.
+It shares the publish loop's `publish-prospective` concurrency group, so a promotion
+queues behind an in-flight publish instead of racing it to the same Pages project.
+
 ## Rebuilding `dashboard/dist/`
 
 `dist/` is gitignored and can be stale (it may hold a build from another branch). It has
@@ -89,7 +198,7 @@ so it can be rebuilt with uncommitted docs present.
 `scripts/publish_snapshot.sh`; no snapshot generation, no archive, no deploy, no network):
 
 ```bash
-SNAP=2026-08-14   # newest local snapshot
+SNAP=2026-09-01   # newest local snapshot
 .venv/bin/python scripts/generate_production_explorer_artifacts.py \
     --data-through "$SNAP" \
     --output-dir "outputs/explorer_build/$SNAP" \
@@ -107,7 +216,10 @@ flag only when you actually need that module, and say so first.
 development fixture data, fine for structural work, not representative of production scale.
 A bare `build.py` with no flag builds the Play Explorer **disabled**.
 
-Local snapshots are present through **2026-08-14**.
+Local snapshots run from **2026-08-05** through **2026-09-01** — 27 dated snapshots
+under `artifacts/prospective/v1_1/`, plus a `2026-08-08__refreshed` variant beside the
+2026-08-08 one. 2026-08-07 is absent by design and shows on `/status/` as a gap row, so
+the set is 27 snapshots over 28 dates.
 
 ### Check on Explore after a production build
 
@@ -166,7 +278,7 @@ in the templates. **Do not change scoring or renderer behaviour to make either g
 
 ### Check on the supporting routes after a production build (Phase 7)
 
-3. **The snapshot history at real length.** The local set is 10 snapshots. Confirm the
+3. **The snapshot history at real length.** The local set is 27 snapshots. Confirm the
    record list stays readable at production length, and that the `is-current` marker still
    lands on exactly one row.
 4. **Snapshot-type coverage.** No `retrospective_backfill` and no
@@ -180,8 +292,11 @@ in the templates. **Do not change scoring or renderer behaviour to make either g
 ## Tests & tooling
 
 - `make check` = `ruff format` + `ruff check` + `mypy` + `pytest`.
-  **`ruff`/`mypy` target `src` and `tests` only — not `dashboard/`.** Dashboard
-  correctness is covered by pytest alone.
+  **`ruff`/`mypy` target `src` and `tests` only — not `dashboard/`, `evaluation/`,
+  `prospective/`, `demo/`, or `replication/`.** Those are plain script directories,
+  importable in tests via `pyproject.toml`'s pytest `pythonpath`; lint and typecheck them
+  explicitly (`ruff format/check replication`, `mypy replication`). Dashboard correctness
+  is covered by pytest alone.
 - Dashboard tests: `tests/test_dashboard_build.py`, `test_dashboard_build_cli.py`,
   `test_dashboard_content.py`, `test_dashboard_visuals.py`,
   `test_dashboard_snapshot_discovery.py`, `test_dashboard_isolation.py`,

@@ -9,7 +9,7 @@ This file is a router. It stays short on purpose — load only what your task ne
 
 | Situation | Read |
 |---|---|
-| Anything under `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `demo/`, `scripts/`, `notebooks/` | **`RESEARCH_RULES.md` in full, first.** Non-negotiable. |
+| Anything under `src/mlb_luck_score/`, `prospective/`, `evaluation/`, `replication/`, `demo/`, `scripts/`, `notebooks/` | **`RESEARCH_RULES.md` in full, first.** Non-negotiable. |
 | Product intent, page purpose, user framing, copy | `PRODUCT.md` |
 | Domain/metric terminology | `CONTEXT.md` |
 | Where code lives, data flow, build/test commands | `ARCHITECTURE.md` |

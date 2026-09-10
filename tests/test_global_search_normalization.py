@@ -171,36 +171,50 @@ class TestMatchingBehaviorEndToEnd:
 
 
 class TestPlayerIdAndLinkRetained:
-    """The matching predicate and normalization only ever touch
-    `p.batter_name` -- `p.url`/`p.batter_id`, which drive the rendered
-    link's `href` and the numeric-ID matching path, must never be
-    normalized or otherwise mutated by the search fix."""
+    """The matching predicate and normalization only ever touch the NAME --
+    the url and the id, which drive the rendered link's `href` and the
+    numeric-ID matching path, must never be normalized or otherwise
+    mutated by the search fix.
 
-    def test_matches_filter_only_normalizes_batter_name_not_id_or_url(self) -> None:
+    The two fields are now read through `itemName`/`itemId` accessors
+    rather than named inline: the global index covers hitters AND pitchers,
+    which are the same MLBAM person register, so its entries carry
+    `name`/`mlbam_id` instead of `batter_name`/`batter_id`. Explore's items
+    really are batters and pass no accessors, so it keeps the old field
+    names by default -- which is what the default arguments below pin.
+    """
+
+    def test_matches_filter_only_normalizes_the_name_not_the_id_or_url(self) -> None:
         """The matcher moved into the shared combobox factory in Phase 5;
         the rule it enforces is unchanged -- fold accents on the NAME only,
         and compare the id as an exact string."""
         source = APP_JS_PATH.read_text(encoding="utf-8")
         search_source = _extract_js_function(source, "search")
-        assert "normalizeSearchText(item.batter_name)" in search_source
+        assert "normalizeSearchText(itemName(item))" in search_source
         assert "normalizeSearchText(item.url)" not in search_source
-        assert "normalizeSearchText(item.batter_id)" not in search_source
-        assert "String(item.batter_id) === q" in search_source
+        assert "normalizeSearchText(itemId(item))" not in search_source
+        assert "String(itemId(item)) === q" in search_source
+
+    def test_the_default_accessors_preserve_explores_batter_fields(self) -> None:
+        """Explore passes no accessors, so the defaults ARE its contract."""
+        source = APP_JS_PATH.read_text(encoding="utf-8")
+        combobox = _extract_js_function(source, "createCombobox")
+        assert "config.itemName || function (item) { return item.batter_name; }" in combobox
+        assert "config.itemId || function (item) { return item.batter_id; }" in combobox
 
     def test_render_uses_original_url_and_id_verbatim(self) -> None:
         source = APP_JS_PATH.read_text(encoding="utf-8")
         init_source = _extract_js_function(source, "initGlobalPlayerSearch")
         assert "a.href = p.url;" in init_source
-        assert "p.batter_id" in init_source
+        assert "p.mlbam_id" in init_source
         assert "normalizeSearchText" not in init_source
 
 
 class TestDisplayNameUnaffected:
     """`render()` is the only function that renders a name into the DOM --
     it must never call `normalizeSearchText`, so a displayed/autocompleted
-    name always keeps its original accents (`p.batter_name` verbatim, the
-    same same-snapshot presentation-name overlay `dashboard/content.py`'s
-    `build_player_index` already provides)."""
+    name always keeps its original accents (`p.name` verbatim, resolved at
+    build time from the snapshot's own presentation name)."""
 
     def test_render_never_normalizes_the_display_name(self) -> None:
         """`renderOption` is the only thing that writes a name into the DOM
@@ -208,7 +222,7 @@ class TestDisplayNameUnaffected:
         source = APP_JS_PATH.read_text(encoding="utf-8")
         init_source = _extract_js_function(source, "initGlobalPlayerSearch")
         assert "normalizeSearchText" not in init_source
-        assert "p.batter_name" in init_source
+        assert "var name = p.name;" in init_source
 
     def test_normalize_search_text_defined_exactly_once(self) -> None:
         source = APP_JS_PATH.read_text(encoding="utf-8")

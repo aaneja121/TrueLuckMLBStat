@@ -59,6 +59,17 @@ on:
         required: false
         type: boolean
         default: false
+      build_from_existing_snapshot:
+        description: >-
+          FEATURE-ONLY BUILD. Do not score. Restore the already-archived
+          snapshot for the date above from R2 (read-only), verify it
+          against its own integrity hashes, and build the site from it.
+          Never scores, never writes to R2, never deploys. Use this to ship
+          a presentation change against the exact hitter state already in
+          production. Requires an explicit data_through.
+        required: false
+        type: boolean
+        default: false
 
   schedule:
     # 13:00 UTC daily.
@@ -113,6 +124,9 @@ jobs:
           # deploys" in README.md. Unset/anything-other-than-"true" means
           # dry run; this is the safe default.
           SCHEDULED_AUTO_DEPLOY: ${{ vars.PROSPECTIVE_AUTO_DEPLOY }}
+          # Manual only. The scheduled path never sets it, so the normal
+          # production loop is byte-for-byte unaffected by this mode.
+          MANUAL_BUILD_FROM_EXISTING: ${{ inputs.build_from_existing_snapshot }}
         run: |
           set -euo pipefail
 
@@ -120,10 +134,32 @@ jobs:
             TRIGGER_DESC="workflow_dispatch (manual)"
             INPUT_DATE="$MANUAL_DATE"
             DEPLOY_REQUESTED="$MANUAL_DEPLOY"
+            BUILD_FROM_EXISTING="$MANUAL_BUILD_FROM_EXISTING"
           else
             TRIGGER_DESC="schedule (cron)"
             INPUT_DATE=""
             DEPLOY_REQUESTED="$SCHEDULED_AUTO_DEPLOY"
+            BUILD_FROM_EXISTING="false"
+          fi
+
+          if [ "$BUILD_FROM_EXISTING" = "true" ]; then
+            # Two refusals rather than two silent corrections. Auto-resolving
+            # the date here would pick whatever "yesterday" is on the runner
+            # and quietly build from a DIFFERENT archived snapshot than the
+            # operator meant; and a feature-only build that deployed would
+            # defeat the point of the mode.
+            if [ -z "$INPUT_DATE" ]; then
+              echo "error: build_from_existing_snapshot requires an explicit data_through." >&2
+              echo "       It builds from ONE named archived snapshot; it must not guess which." >&2
+              exit 1
+            fi
+            if [ "$DEPLOY_REQUESTED" = "true" ]; then
+              echo "error: build_from_existing_snapshot cannot be combined with deploy." >&2
+              echo "       It produces an artifact for inspection; deploying is a separate," >&2
+              echo "       deliberate action." >&2
+              exit 1
+            fi
+            DEPLOY_REQUESTED="false"
           fi
 
           if [ -n "$INPUT_DATE" ]; then
@@ -148,10 +184,14 @@ jobs:
             # produces.
             MODE="DRY RUN (score -> sync-history [read-only] -> build -> stop; no archive writes, no deploy)"
           fi
+          if [ "$BUILD_FROM_EXISTING" = "true" ]; then
+            MODE="FEATURE-ONLY (sync-history [read-only] -> verify -> explore -> build -> stop; NO scoring, no archive writes, no deploy)"
+          fi
 
           {
             echo "data_through=$DATA_THROUGH"
             echo "deploying=$DEPLOY_REQUESTED"
+            echo "build_from_existing=$BUILD_FROM_EXISTING"
           } >> "$GITHUB_OUTPUT"
 
           echo "================================================================"
@@ -190,6 +230,7 @@ jobs:
         env:
           DATA_THROUGH: ${{ steps.resolve.outputs.data_through }}
           DEPLOYING: ${{ steps.resolve.outputs.deploying }}
+          BUILD_FROM_EXISTING: ${{ steps.resolve.outputs.build_from_existing }}
           # CLOUDFLARE_API_TOKEN and the Pages deploy itself are unused in
           # dry-run mode (wrangler is never invoked when --skip-deploy is
           # passed). The four R2_* variables, in contrast, are ALWAYS
@@ -218,7 +259,13 @@ jobs:
           # skip-deploy alone), and REQUIRED in real deploy mode so the
           # script never blocks on a `read` with no attached terminal.
           ARGS=(--data-through "$DATA_THROUGH")
-          if [ "$DEPLOYING" != "true" ]; then
+          if [ "$BUILD_FROM_EXISTING" = "true" ]; then
+            # Feature-only: the script itself forces skip-archive and
+            # skip-deploy and REFUSES either flag passed explicitly, so
+            # this branch must not add them. It also refuses to score, so
+            # no deploy flag can reach it.
+            ARGS+=(--build-from-existing-snapshot)
+          elif [ "$DEPLOYING" != "true" ]; then
             # See the "Resolve" step above: conservative initial rollout,
             # dry runs touch neither R2 nor Cloudflare Pages.
             ARGS+=(--skip-archive --skip-deploy)

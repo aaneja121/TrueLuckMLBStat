@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% import "_macros.html" as macros %}
+{% block title %}Pitcher Contact Luck · {{ pitchers.season }}{% endblock %}
+{% block meta_description %}Cumulative Contact Luck Runs for pitchers over the {{ pitchers.season }} season: how favorable or unfavorable the outcomes on each pitcher's contact were, on real scored batted balls.{% endblock %}
+{# Season-scoped, like every other route's own og:url. Without these blocks
+   every pitcher page advertised the site root and the hitter leaderboard's
+   title, which was invisible while the route was local and wrong the
+   moment a page could be shared. #}
+{% block og_title %}Pitcher Contact Luck · {{ pitchers.season }}{% endblock %}
+{% block og_url %}{{ site_url }}/pitchers/{{ pitchers.season }}/{% endblock %}
+{% block og_description %}Cumulative Contact Luck Runs for pitchers over the {{ pitchers.season }} season.{% endblock %}
+{% block twitter_title %}Pitcher Contact Luck · {{ pitchers.season }}{% endblock %}
+{# Same declaration the hitter leaderboard makes, for the same reason and
+   against the same origin: the boards below carry the site's only
+   third-party request, so the connection is opened early on the routes
+   that use it and nowhere else. #}
+{% block head_extra %}
+  <link rel="preconnect" href="{{ headshot_origin }}" crossorigin>
+{% endblock %}
+{% block content %}
+{#
+  The pitcher landing surface.
+
+  Three structural decisions this page carries, all of them presentation,
+  none of them scoring:
+
+  1. THE CUMULATIVE TOTAL IS THE RANKING KEY, and the only quantity given a
+     plot field. The normalized rate is present on every row but is set as
+     plain text in neutral ink with no mark, no sign colour and no position
+     on any axis -- so nothing about it can be mistaken for the ranked
+     quantity. Rates are not sortable here because there is no sort at all:
+     one order, stated once, is the whole point of the surface.
+  2. STARTER-LIKE AND RELIEVER-LIKE ARE TWO BOARDS, never one. They are
+     separate `<section>`s with their own headings, their own #1 and their
+     own counts, because their opportunity differs by roughly a factor of
+     four and a combined ranking would be an accumulation ordering wearing
+     the clothes of a quality ordering.
+  3. BOTH BOARDS ARE DRAWN ON ONE SCALE (design principle 1). Sharing the
+     domain is what makes the workload difference legible rather than
+     hidden -- the reliever-like board simply does not reach as far from
+     zero, and that IS the finding.
+#}
+<div class="lede pitcher-board-lede">
+  <h1 class="lede-title">Pitcher Contact Luck</h1>
+  <p class="lede-line prose">
+    How many runs the outcomes of the batted balls a pitcher allowed added or removed,
+    relative to what that contact itself was expected to produce, across the
+    {{ pitchers.season }} season.
+  </p>
+
+  {# Provenance. The sentence is `public_labels.PITCHER_SEASON_PROVENANCE`,
+     formatted with the fixture's own season by the build -- this template
+     writes neither the year nor the claim. It replaces the development-
+     prototype banner rather than rewording it: that banner said the surface
+     was "not part of the published leaderboard", which this route publishing
+     made false. #}
+  <p class="pitcher-provenance">{{ pitcher_season_provenance }}</p>
+
+  {{ macros.pitcher_season_switcher(pitcher_seasons, pitchers.season, root_prefix) }}
+
+  <details class="lede-detail">
+    <summary>What the number means</summary>
+    <div class="lede-detail-body prose">
+      <p>
+        Every eligible batted ball has an expected run value, from the contact itself, and the
+        run value of what actually happened. <strong>Cumulative Contact Luck Runs</strong> adds up the
+        difference across the batted balls a pitcher actually allowed. A positive total means
+        those outcomes went better for the pitcher than the contact predicted; a negative total
+        means they went worse.
+      </p>
+      <p>
+        The total is <strong>exact for the batted balls listed</strong>, given the scoring model
+        it is measured with. It is deliberately sensitive to workload: a pitcher who allowed more
+        batted balls had more chances to accumulate a total in either direction, which is why the
+        batted-ball count sits beside every number on this page. It describes what already
+        happened. It is not a measure of pitching skill and not a forecast.
+      </p>
+      <p>
+        <strong>Per 100</strong> normalizes the same total for opportunity, and is shown with the
+        uncertainty that comes with it. Because it is spread across very unequal samples it is a
+        secondary reading here, never the order of these boards.
+      </p>
+      <p>
+        <strong>Starter-like</strong> and <strong>reliever-like</strong> describe observed usage
+        &mdash; batted balls per appearance &mdash; and nothing more. This data carries no roster
+        role, so no pitcher here is identified as a starter, a reliever or a closer.
+      </p>
+    </div>
+  </details>
+</div>
+
+{# The sign key. Deliberately OUTSIDE the disclosure above and outside the
+   axis caption below: the caption is removed under 767px, and a reader on a
+   phone needs the meaning of + and - as much as a reader on a desktop. It is
+   the one thing on this page that cannot be left to a colour. #}
+<p class="pitcher-sign-key">
+  A <strong>positive</strong> total means those batted balls turned out better for the
+  pitcher than the contact predicted. A <strong>negative</strong> total means they turned
+  out worse. It describes outcomes that have already happened, not pitching skill.
+</p>
+
+{{ macros.pitcher_axis_caption(pitcher_scale.unit_label, pitchers.board_display_minimum_bbe) }}
+
+{% for board in boards %}
+<section class="pitcher-board" aria-labelledby="board-{{ board.slug }}">
+  <div class="pitcher-board-head">
+    <h2 id="board-{{ board.slug }}">{{ board.label }}</h2>
+    <p class="pitcher-board-definition">{{ board.definition }}</p>
+    {# Workload context for the board as a whole. The ranked order below is
+       ONE flat order on the cumulative total -- grouping the rows into bands
+       would have made a 60-BBE season outrank a 200-BBE season inside its
+       own band while sitting below it on the page, which is a second
+       ordering pretending to be a layout. The bands are stated here, and
+       tagged per row, without ever reordering anything. #}
+    <p class="pitcher-board-workload">{{ board.band_summary }}</p>
+  </div>
+
+  {{ macros.render_pitcher_board(board, pitcher_scale_ticks) }}
+</section>
+{% endfor %}
+
+<section class="pitcher-note" aria-labelledby="pitcher-note-heading">
+  <h2 id="pitcher-note-heading">What these boards leave out</h2>
+  <p class="prose">
+    {{ below_minimum_count }} pitcher-seasons with fewer than
+    <span class="num">{{ pitchers.board_display_minimum_bbe }}</span> resolved batted balls are
+    not ranked above. Each still has its own page, with its total, its rate and its interval
+    shown in full. Below that many batted balls a per-100 rate carries an interval wide enough
+    to reach both ends of this population &mdash; a single batted ball can put a pitcher at the
+    very top or the very bottom of it &mdash; so a ranked position would read as a finding it
+    cannot support. That is a choice about this board, not a requirement any of those seasons
+    failed.
+  </p>
+  {# The second reason a season is on no board, stated separately because it
+     is a different reason. These seasons cleared the batted-ball count; what
+     they fall between is the two usage descriptions, and the boards are
+     separate precisely because that gap is real. Saying only the
+     below-minimum count would leave these seasons unaccounted for on the one
+     page that is supposed to say what the boards leave out. #}
+  {% if mixed_usage_count %}
+  <p class="prose">
+    A further <span class="num">{{ mixed_usage_count }}</span> seasons cleared that count but
+    are ranked on neither board: their batted balls per appearance fall between the
+    starter-like and reliever-like descriptions. The two boards are separate because their
+    opportunity genuinely differs, so there is no board those seasons belong to. That is a
+    limit of a two-way usage split, not a requirement those seasons failed.
+  </p>
+  {% endif %}
+
+  {# Every season the boards withhold, listed by name and linked.
+     "Player-page-only" is only a true description of the display rule if
+     those pages can actually be reached: the site's player search indexes
+     hitters, not pitchers, and no board links a withheld season, so without
+     this list all {{ off_board_total }} of them are built and orphaned. A
+     plain alphabetical index is the smallest thing that makes the rule
+     honest. #}
+  {% for group in off_board_groups %}
+  <details class="pitcher-offboard-index">
+    <summary>{{ group.summary }}</summary>
+    <ul class="pitcher-offboard-list">
+      {% for entry in group.entries %}
+      <li><a href="{{ entry.url }}">{{ entry.name }}</a> <span class="num">{{ entry.bbe }}</span></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endfor %}
+  {# The exposure disclosure `CONTEXT.md` requires of any surface showing
+     this metric. It sits here, in the section about what the boards leave
+     out, because that is what it is about: the >=450 BBE threshold set
+     leaves relievers out by arithmetic, and a reader who has met Contact
+     Luck's qualification rules on the hitter side would otherwise assume
+     those rules are in force here. Sourced from `public_labels`. #}
+  <p class="prose">{{ pitcher_exposure_scope }}</p>
+
+  <p class="prose">
+    Contact Luck is retrospective on both sides of the ball. A favorable total describes batted
+    balls that have already been played; it says nothing about whether the next hundred will go
+    the same way.
+  </p>
+</section>
+{% endblock %}

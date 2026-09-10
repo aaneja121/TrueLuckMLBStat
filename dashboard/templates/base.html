@@ -59,6 +59,17 @@
           {% if explore_available %}
           <li><a href="{{ root_prefix }}explore/"{% if active_page == 'explore' %} class="is-active" aria-current="page"{% endif %}>Explore Plays</a></li>
           {% endif %}
+          {# Present only when the build was given a pitcher fixture whose
+             season is authorized for publication -- the same conditional-nav
+             convention the Play Explorer entry above already follows, so a
+             route that does not exist is never linked.
+
+             The link is season-scoped (`pitcher_nav_url`), pointing at the
+             season this build actually published rather than at the
+             season-less path, so the nav never depends on a redirect. #}
+          {% if pitcher_surface_available %}
+          <li><a href="{{ pitcher_nav_url }}"{% if active_page == 'pitchers' %} class="is-active" aria-current="page"{% endif %}>Pitchers</a></li>
+          {% endif %}
           <li><a href="{{ root_prefix }}demo/"{% if active_page == 'demo' %} class="is-active" aria-current="page"{% endif %}>How It Works</a></li>
           <li><a href="{{ root_prefix }}methodology/"{% if active_page == 'methodology' %} class="is-active" aria-current="page"{% endif %}>Methodology</a></li>
           <li><a href="{{ root_prefix }}status/"{% if active_page == 'status' %} class="is-active" aria-current="page"{% endif %}>Data &amp; status</a></li>
@@ -87,10 +98,23 @@
       {# Provenance, in the one accent that means "the frozen official
          record." Machine-readable ISO in `datetime`, reader-facing display
          form in the text (design principle 8). #}
+      {# The provenance badge names the data THIS route is showing. The
+         pitcher surface is a 2024 development season and shares none of the
+         snapshot's data, so printing the snapshot's own "Data through Sep.
+         1, 2026" above it would attribute a season to the pitcher pages
+         that they never read. The season comes from the pitcher fixture's
+         own metadata, never from a constant written here. #}
+      {% if pitcher_data_season %}
+      <p class="data-through">
+        <span class="data-through-label">Pitcher data</span>
+        <time class="data-through-value" datetime="{{ pitcher_data_season }}">{{ pitcher_data_season }}</time>
+      </p>
+      {% else %}
       <p class="data-through">
         <span class="data-through-label">Data through</span>
         <time class="data-through-value" datetime="{{ data_through_date }}">{{ data_through_date_display }}</time>
       </p>
+      {% endif %}
     </div>
   </header>
 
@@ -108,11 +132,26 @@
 
   <footer class="site-footer">
     <div class="site-footer-inner page-shell">
+      {# The retrospective caveat, per surface. The shared sentence names
+         BATTING talent, which is the right caveat on a hitter page and the
+         wrong noun on a pitcher one. Pitcher routes pass their own sentence
+         (`pitcher_season_content.PITCHER_RETROSPECTIVE_LIMITATION`,
+         bound by test to `public_labels`); every other route renders the
+         shared one below, unchanged. Neither is a fallback for the other:
+         a route that supplies nothing gets the hitter sentence, which is
+         what every non-pitcher route on this site is. #}
+      {% if pitcher_footer_framing %}
+      <p class="site-footer-framing prose">
+        {{ pitcher_footer_framing }} See the
+        <a href="{{ root_prefix }}methodology/">methodology page</a> for definitions and limitations.
+      </p>
+      {% else %}
       <p class="site-footer-framing prose">
         Contact Luck is a retrospective description of realized outcomes, not a measure of
         stable batting talent and not a projection of future performance. See the
         <a href="{{ root_prefix }}methodology/">methodology page</a> for definitions and limitations.
       </p>
+      {% endif %}
       <p class="site-footer-provenance">
         <a href="{{ root_prefix }}methodology/">Methodology</a>
         <a href="{{ root_prefix }}status/">Data &amp; status</a>

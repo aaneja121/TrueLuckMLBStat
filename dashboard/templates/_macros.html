@@ -200,3 +200,238 @@
   No qualified hitter matches that name. Clear the filter to see all {{ rows | length }} again.
 </p>
 {% endmacro %}
+
+
+{#
+  ══ The pitcher board ══════════════════════════════════════════════════════
+
+  A deliberately different table from the hitter leaderboard above, because
+  it ranks a different quantity. The hitter board ranks a RATE and gives the
+  rate the plot field. This board ranks a CUMULATIVE TOTAL and gives the
+  total the plot field; its rate column has no mark, no axis position and no
+  sign colour, so the two quantities can never be confused for one another
+  by a reader scanning either page.
+
+  Column tiers, shedding right to left (docs/design/tables.md):
+    Identity (#, Pitcher)  never sheds
+    Verdict  (Contact Luck Runs)  never sheds
+    Evidence (Opportunity: BBE, appearances)  sheds after Rate
+    Rate     (per 100 + interval)  sheds first
+
+  The rate sheds FIRST on purpose. It is the secondary quantity, and the one
+  reading this surface must not lose at any width is the total beside the
+  opportunity that produced it.
+#}
+{#
+  ══ The pitcher season switcher ════════════════════════════════════════════
+
+  Renders NOTHING while exactly one season is authorized, which is the state
+  at launch. A control offering one option is not a control -- it is a
+  promise of choice that does not exist, and `docs/design/guardrails.md`
+  anti-pattern 7's sibling problem: an affordance whose only outcome is the
+  page you are already on. With one season the chrome's own "PITCHER DATA
+  <year>" badge already says which season this is, in the place the reader
+  looks for provenance on every other route.
+
+  It exists now, rather than later, because the routes are already
+  season-scoped: the day a second season is authorized, the switcher is the
+  only piece of UI that has to appear, and it appears by the list growing
+  rather than by a template being rewritten under time pressure. Its
+  two-season rendering is covered by tests using SYNTHETIC seasons, so the
+  multi-season path is exercised without naming a real season nobody has
+  authorized for publication.
+
+  `seasons` is what this build published; `current` is the page's own
+  season. Both come from `dashboard_config.PITCHER_PUBLIC_SEASONS` by way of
+  the build -- never from a template literal.
+#}
+{% macro pitcher_season_switcher(seasons, current, root_prefix) %}
+{% if seasons | length > 1 %}
+<nav class="pitcher-seasons" aria-label="Pitcher season">
+  <span class="pitcher-seasons-label" id="pitcher-seasons-label">Season</span>
+  <ul class="pitcher-seasons-list" aria-labelledby="pitcher-seasons-label">
+    {% for season in seasons | sort(reverse=true) %}
+    <li>
+      {% if season == current %}
+      <span class="pitcher-season is-current" aria-current="page">{{ season }}</span>
+      {% else %}
+      <a class="pitcher-season" href="{{ root_prefix }}pitchers/{{ season }}/">{{ season }}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+{% endmacro %}
+
+
+{% macro pitcher_axis_caption(unit_label, board_minimum) %}
+{# `pitcher-axis-head` scopes the <=767 rule that removes this block. Below
+   that width the boards draw no plot field at all, so a caption asserting
+   "both boards below are drawn on this one scale" would be false there --
+   the same correction the hitter board's own axis caption already carries a
+   note about. The claim is not reworded to survive both widths; it is
+   withdrawn at the width where it stops being true. #}
+<div class="cl-axis-head pitcher-axis-head">
+  <p class="cl-axis-unit">{{ unit_label }}</p>
+  <p class="cl-axis-caption">
+    Both boards below are drawn on this one scale, so a starter-like total and a
+    reliever-like total can be read against each other even though they are never ranked
+    against each other.
+  </p>
+</div>
+{% endmacro %}
+
+
+{% macro pitcher_scale_field(row) %}
+{# The cumulative total's mark. Identical primitive to the leaderboard's
+   verdict field, on the pitcher cumulative-runs domain rather than the league
+   per-100 domain -- which is exactly why the figure prints its own ticks
+   and its own unit above (the anti-fake-alignment guard,
+   docs/design/dataviz.md). #}
+<div class="cl-scale-field {{ 'cl-scale-favorable' if row.favorable else 'cl-scale-unfavorable' }}"
+     data-clipped="{{ row.clip_state }}" data-point-offscale="{{ row.point_state }}"
+     aria-hidden="true"
+     style="--cl-lo: {{ row.lo_pct }}; --cl-hi: {{ row.hi_pct }}; --cl-pt: {{ row.pt_pct }}">
+  <span class="cl-scale-interval"></span>
+  {% if row.point_state == "in" %}<span class="cl-scale-point"></span>{% endif %}
+  {% if row.clip_state in ("low", "both") %}
+  <span class="cl-scale-edge is-low {{ 'is-point' if row.point_state == 'below' else 'is-interval' }}"></span>
+  {% endif %}
+  {% if row.clip_state in ("high", "both") %}
+  <span class="cl-scale-edge is-high {{ 'is-point' if row.point_state == 'above' else 'is-interval' }}"></span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{% macro render_pitcher_board(board, ticks) %}
+<div class="pitcher-scroll overflow-x">
+<table class="pitcher-board-table" id="pb-{{ board.slug }}">
+  <caption class="visually-hidden">
+    {{ board.label }} pitchers, ordered by Cumulative Contact Luck Runs over the
+    {{ board.season }} season. Each row also carries the batted balls that total was
+    accumulated over and the same total normalized to 100 batted balls with its 95% interval.
+    This board is ranked only against itself.
+  </caption>
+  <colgroup>
+    <col class="pcol-rank">
+    <col class="pcol-name">
+    <col class="pcol-verdict">
+    <col class="pcol-evidence">
+    <col class="pcol-rate">
+  </colgroup>
+  <thead>
+    {# The shared axis, inside the table, on the same grid tracks the rows
+       use -- registration by construction, exactly as on the hitter board. #}
+    <tr class="cl-axis-row" aria-hidden="true">
+      <td colspan="2"></td>
+      <td class="pcol-verdict">
+        <div class="verdict-inner">
+          <div class="cl-axis-figure">
+            <div class="cl-axis-ticks">
+              {% for tick in ticks %}
+              <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td colspan="2"></td>
+    </tr>
+    <tr class="cl-distribution-row">
+      <td colspan="2" class="cl-distribution-label">{{ board.short_label }}</td>
+      <td class="pcol-verdict">
+        <div class="verdict-inner">
+          <div class="cl-axis-figure">
+            <div class="cl-distribution" role="img"
+                 aria-label="Cumulative Contact Luck Runs across all {{ board.marks | length }} ranked {{ board.label | lower }} pitchers, from {{ board.marks[0].score | signed(1) }} to {{ board.marks[-1].score | signed(1) }} runs.">
+              {% for mark in board.marks %}
+              <span class="cl-distribution-mark {{ 'cl-scale-favorable' if mark.favorable else 'cl-scale-unfavorable' }}"
+                    style="left: {{ mark.left }}"></span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td colspan="2"></td>
+    </tr>
+    <tr>
+      <th scope="col" class="pcol-rank"><span class="visually-hidden">Position in this board</span><span aria-hidden="true">#</span></th>
+      <th scope="col" class="pcol-name">Pitcher</th>
+      <th scope="col" class="pcol-verdict">
+        Contact Luck Runs
+        <span class="pcol-sub">cumulative runs, {{ board.season }}</span>
+      </th>
+      <th scope="col" class="pcol-evidence">
+        Opportunity
+        <span class="pcol-sub">resolved BBE · appearances</span>
+      </th>
+      {# Set apart from the ranked quantity by a heading that says what it is
+         for, not just what it is. #}
+      <th scope="col" class="pcol-rate">
+        Per 100 <span class="pcol-secondary-tag">secondary</span>
+        <span class="pcol-sub">runs / 100 BBE, 95% interval</span>
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in board.rows %}
+    <tr>
+      <td class="pcol-rank num">{{ row.board_rank }}</td>
+      {# Identity. The SAME portrait primitive the hitter leaderboard uses --
+         same `.player-identity` unit, same fixed `.player-portrait`
+         reservation, same `object-fit: contain` framing, same
+         `aria-hidden` + empty `alt`, same `data-initials` fallback that
+         `app.js` reveals on a failed request. The pitcher board is drawn
+         from the same MLBAM person register as the hitter board, so it
+         gets the contract rather than a second one. Name-first still
+         holds: the box is a reservation, so a missing, failed or slow
+         portrait changes no row height, no name x and no column width. #}
+      <td class="pcol-name">
+        <span class="player-identity">
+          <span class="player-portrait" aria-hidden="true" data-initials="{{ row.initials }}">
+            <img class="player-portrait-img" src="{{ row.portrait_url }}" alt=""
+                 width="34" height="34" loading="lazy" decoding="async">
+          </span>
+          <a class="player-link" href="{{ row.url }}">{{ row.name }}</a>
+        </span>
+      </td>
+
+      {# ── The verdict cell: the ranked quantity, and the only one drawn ── #}
+      <td class="pcol-verdict verdict {{ 'is-favorable' if row.favorable else 'is-unfavorable' }}">
+        <div class="verdict-inner">
+          <span class="verdict-value num">{{ row.total | signed(1) }}</span>
+          {{ pitcher_scale_field(row) }}
+        </div>
+      </td>
+
+      {# ── Opportunity. Second in the hierarchy by design, and set at the
+             size that makes it so: a cumulative total cannot be read at all
+             without the count it was accumulated over, so BBE is the one
+             evidence figure that is never allowed to become fine print.
+             `row.band_label` is DISPLAY ORGANIZATION -- it names where this
+             workload sits on a continuous axis and grants nothing. ────── #}
+      <td class="pcol-evidence">
+        {% if board.show_bands %}
+        <span class="pitcher-band-tag" aria-hidden="true">{{ row.band_short }}</span>
+        {% endif %}
+        <span class="pitcher-bbe num">{{ row.bbe }}</span><span class="evidence-unit" aria-hidden="true">&nbsp;BBE</span><span class="visually-hidden"> resolved eligible batted balls</span>
+        <span class="pitcher-usage">
+          <span class="num">{{ row.appearances }}</span> app<span class="pitcher-usage-rate"> · <span class="num">{{ row.bbe_per_appearance }}</span> per app</span>
+        </span>
+      </td>
+
+      {# ── The secondary rate. No mark, no axis, no sign colour: everything
+             that makes the column to its left read as the ranking is
+             deliberately absent here. ──────────────────────────────────── #}
+      <td class="pcol-rate">
+        <span class="pitcher-rate num">{{ row.per_100 | signed }}</span>
+        <span class="pitcher-rate-interval num">[{{ row.per_100_low | signed }}, {{ row.per_100_high | signed }}]</span>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}

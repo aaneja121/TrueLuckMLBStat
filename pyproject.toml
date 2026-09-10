@@ -77,10 +77,12 @@ filterwarnings = ["ignore::DeprecationWarning"]
 # is genuinely load-bearing as of Version 1.3.1's tests/test_counterfactual_
 # grid.py, which imports demo/build_counterfactual_grid.py's pure
 # (no-real-data-needed) row-construction functions directly.
-# "." puts PROJECT_ROOT on sys.path so the Contact Forecast research layer
-# imports as the NAMESPACED `forecast.<module>` rather than leaking its
-# module names into the top level the way the older flat entries above do.
-pythonpath = ["evaluation", "prospective", "dashboard", "scripts", "demo", "."]
+# Both additions are needed and neither replaces the other. "replication"
+# is a flat entry like the older ones, so `pitcher_replication_*` imports by
+# bare module name. "." puts PROJECT_ROOT on sys.path so the Contact Forecast
+# research layer imports as the NAMESPACED `forecast.<module>` rather than
+# leaking its module names into the top level the way the flat entries do.
+pythonpath = ["evaluation", "prospective", "dashboard", "scripts", "demo", "replication", "."]
 
 [tool.mypy]
 # NOTE: intentionally NOT pinning python_version here. Numpy's bundled type

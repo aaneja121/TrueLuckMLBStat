@@ -90,6 +90,47 @@ A global player search lives in the site header on every page.
 8. **Fail closed.** A missing/invalid snapshot fails the build rather than falling back
    to stale or partial data.
 
+# The pitcher surface
+
+Contact Luck's second published surface: **Pitcher Contact Luck**, at `/pitchers/2024/`. It
+answers the same question from the other side of the ball — how favorable or unfavorable
+the outcomes on a pitcher's contact were, relative to what that contact predicted — and it
+is deliberately a different *kind* of object from the hitter leaderboard.
+
+**It is a historical record, not a live board.** The hitter leaderboard tracks a season in
+progress from dated snapshots. The pitcher surface publishes one completed season from a
+committed fixture and does not move. The chrome says so on every pitcher page ("Pitcher
+data 2024" where hitter routes say "Data through …"), because a reader who assumed both
+were live would misread every number on it.
+
+**2024, and only 2024.** Which seasons may be published is a maintainer decision recorded
+in `RESEARCH_RULES.md` and applied in `dashboard_config.PITCHER_PUBLIC_SEASONS`; the build
+refuses any other season outright. 2025 is sealed evaluation data; 2021–2023 are training
+seasons, so a board over them would show in-sample fitted values as measurement.
+
+**The ranked quantity is a cumulative total, not a rate.** Pitcher rates have resolving
+power below 1 at every achievable workload, so Cumulative Contact Luck Runs orders the
+boards and Contact Luck per 100 is always secondary, always shown with its interval and
+its batted-ball count, and never the ordering. The total is workload-sensitive on purpose,
+which is why the batted-ball count sits beside every number.
+
+**Two boards, never one.** Starter-like and reliever-like usage differ in opportunity by
+roughly a factor of four, so they are ranked separately and drawn on one shared scale — the
+shared scale is what makes the difference legible instead of hidden. The usage labels are
+descriptive only; this repository holds no roster metadata, so no pitcher is called a
+starter, a reliever, or a closer.
+
+**Nobody is removed for who they are.** Board membership follows the frozen 2024 display
+rules and nothing else: usage bucket plus a 60-BBE display minimum, which is a presentation
+choice about interval width, never qualification. A pitcher's later status, roster
+position, or availability is a fact about a different season and does not edit a 2024
+record.
+
+**What the surface owes its reader**, on the page rather than in a doc: the season and how
+it was measured; that Contact Luck's 450-BBE threshold set describes starting pitchers and
+that relievers miss it by exposure rather than by anything about them; and the same
+retrospective framing the hitter side carries, in the pitcher's own nouns.
+
 # Non-goals
 
 - **Not a projection or regression tool.** No "expect X to regress" claims.
@@ -103,5 +144,10 @@ A global player search lives in the site header on every page.
   strikeouts, walks, HBP and similar never appear.
 - **No accounts, no personalization, no server.** The deliverable is static files on a
   CDN.
-- **No 2025 data as product data.** 2025 is the sealed final-evaluation season; the live
-  product shows 2026 prospective scoring only.
+- **No 2025 data as product data.** 2025 is the sealed final-evaluation season. The live
+  hitter product shows 2026 prospective scoring; the pitcher surface shows 2024 only.
+- **Not a pitcher projection or a pitching-talent rating.** The pitcher surface is a record
+  of one completed season's outcomes. It is not updated, not predictive, and not a
+  statement about how anyone pitches.
+- **No pitcher season is published without an authorization.** A fixture existing is never
+  a reason to publish a season.

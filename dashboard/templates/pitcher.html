@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% import "_macros.html" as macros %}
+{% block title %}{{ p.name }} · Pitcher Contact Luck {{ p.season }}{% endblock %}
+{% block meta_description %}{{ p.name }}: {{ p.total | signed(2) }} Cumulative Contact Luck Runs over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} season.{% endblock %}
+{% block og_title %}{{ p.name }} · Pitcher Contact Luck {{ p.season }}{% endblock %}
+{% block og_url %}{{ site_url }}/pitchers/{{ p.season }}/{{ p.pitcher_id }}/{% endblock %}
+{% block og_description %}{{ p.name }}: {{ p.total | signed(2) }} Cumulative Contact Luck Runs over {{ p.bbe }} {{ p.bbe_noun }} in the {{ p.season }} season.{% endblock %}
+{% block twitter_title %}{{ p.name }} · Pitcher Contact Luck {{ p.season }}{% endblock %}
+{% block head_extra %}
+  <link rel="preconnect" href="{{ headshot_origin }}" crossorigin>
+{% endblock %}
+{% block content %}
+{#
+  The pitcher card.
+
+  Reading order, and the reason for it:
+
+    1. the cumulative total, because it is what this surface ranks;
+    2. the opportunity it was accumulated over, because a cumulative total
+       is unreadable without it;
+    3. the same total normalized, with its interval, subordinate in size,
+       weight and colour;
+    4. the two batted balls that moved it furthest.
+
+  (4) is not a curiosity. Over half of reliever-like 2024 seasons have a
+  single batted ball worth more than half their net total, and better than
+  a quarter have one worth more than the whole of it. Showing the two
+  extremes is how a reader finds out that a season total is one play
+  wearing a season's clothes -- hiding them would make the total look
+  steadier than it is.
+
+  There is no projection, no "expected rest-of-season", no trend, and no
+  comparison to a talent baseline anywhere on this page. A pitcher card
+  that looked like a forecast card would be making a claim this metric
+  cannot support.
+#}
+<nav class="player-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ root_prefix }}pitchers/{{ p.season }}/">&larr; Pitcher Contact Luck {{ p.season }}</a>
+</nav>
+
+<article class="player-verdict">
+  {# The profile head. Identity is still name-first (`DESIGN.md` rule 9):
+     the portrait is the same fixed reservation the boards use, at the
+     card's size, so the name and the apparatus line sit at the same x and
+     the same baseline whether it loads, fails, or is a pitcher the CDN has
+     no photo of. Same helper, same CDN, same `contain` framing, same
+     initials fallback -- one contract, larger box. #}
+  <div class="pitcher-profile-head">
+    <span class="player-portrait pitcher-profile-portrait" aria-hidden="true"
+          data-initials="{{ p.initials }}">
+      <img class="player-portrait-img" src="{{ p.portrait_url }}" alt=""
+           width="72" height="72" loading="lazy" decoding="async">
+    </span>
+    <div class="pitcher-profile-identity">
+      <h1 class="player-name">{{ p.name }}</h1>
+      <p class="player-apparatus">
+        MLBAM&nbsp;<span class="num">{{ p.pitcher_id }}</span> ·
+        {{ p.role_usage_phrase }} · {{ p.season }} season
+      </p>
+    </div>
+  </div>
+
+  {# Provenance, the same sentence the board carries, from `public_labels`. #}
+  <p class="pitcher-provenance">{{ pitcher_season_provenance }}</p>
+
+  {# ── 1 + 2. The total and what it was accumulated over ─────────────────
+     One statement, one figure. The eyebrow names the quantity so the large
+     numeral never has to be guessed at, and the unit is printed beside it
+     because "runs" and "runs per 100" are different answers to different
+     questions and this page shows both. #}
+  <div class="pitcher-hero {{ 'is-favorable' if p.favorable else 'is-unfavorable' }}">
+    <p class="pitcher-hero-eyebrow">Cumulative Contact Luck Runs</p>
+    <p class="pitcher-hero-value num">{{ p.total | signed(2) }}<span class="pitcher-hero-unit">runs</span></p>
+
+    {# The sign, said in words next to the number that carries it. The two
+       ends of this scale are the one thing a reader must not have to infer
+       from a colour: blue and red are the sign of the point estimate, but a
+       reader meeting this page first has no key for them yet. #}
+    <p class="pitcher-sign-key">
+      {% if p.favorable %}Positive: these batted balls turned out
+      <strong>better for the pitcher</strong> than the contact predicted.
+      {% else %}Negative: these batted balls turned out
+      <strong>worse for the pitcher</strong> than the contact predicted.{% endif %}
+    </p>
+
+    <p class="pitcher-hero-opportunity">
+      <span class="num">{{ p.bbe }}</span> {{ p.bbe_noun }} ·
+      <span class="num">{{ p.appearances }}</span> {{ p.appearances_noun }}{% if p.bbe_per_appearance and not p.single_play_season %} ·
+      <span class="num">{{ p.bbe_per_appearance }}</span> per appearance{% endif %}
+    </p>
+
+    <div class="pitcher-hero-plot">
+      <p class="pitcher-plot-label">{{ p.name }}</p>
+      <div class="pitcher-mark-row">
+        {{ macros.pitcher_scale_field(p) }}
+      </div>
+
+      {# The population strip is the pitcher's OWN board and no other. A
+         pitcher whose usage sits between the two descriptions belongs to
+         neither board, so no strip is drawn for them: borrowing one of the
+         two populations to give the page a comparison would place them in a
+         ranking this surface deliberately did not put them in. #}
+      {% if board_marks %}
+      <p class="pitcher-plot-label">All {{ board_count }} ranked {{ p.role_label | lower }} pitchers</p>
+      <div class="pitcher-league-row">
+        <div class="cl-distribution" role="img"
+             aria-label="Cumulative Contact Luck Runs across all {{ board_marks | length }} ranked {{ p.role_label | lower }} pitchers, from {{ board_marks[0].score | signed(1) }} to {{ board_marks[-1].score | signed(1) }} runs.">
+          {% for mark in board_marks %}
+          <span class="cl-distribution-mark {{ 'cl-scale-favorable' if mark.favorable else 'cl-scale-unfavorable' }}"
+                style="left: {{ mark.left }}"></span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="pitcher-axis">
+        <div class="cl-axis-ticks">
+          {% for tick in pitcher_scale_ticks %}
+          <span class="cl-axis-tick{% if tick.is_zero %} is-zero{% endif %}" style="left: {{ tick.left }}">{{ tick.label }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {# States the domain in text beside the ticks. This figure is not on
+         `league_per_100`, so it owes the reader its own unit AND its own
+         range -- borrowing the shared zero while leaving the domain implicit
+         is the false alignment the guard exists to prevent. #}
+      <p class="pitcher-axis-unit">
+        {{ pitcher_scale.unit_label }}. Same scale as both boards,
+        <span class="num">{{ pitcher_scale.domain_min | signed(0) }}</span> to
+        <span class="num">{{ pitcher_scale.domain_max | signed(0) }}</span>.
+      </p>
+    </div>
+  </div>
+
+  {# ── 3. The secondary rate ────────────────────────────────────────────
+     Deliberately a small ruled stat line rather than a second hero. It is
+     the same season expressed differently, not a second finding. #}
+  <dl class="pitcher-rate-line">
+    <div class="pitcher-rate-item">
+      <dt>Per 100 batted balls</dt>
+      <dd class="num">{{ p.per_100 | signed }}</dd>
+    </div>
+    <div class="pitcher-rate-item">
+      <dt>95% interval</dt>
+      <dd class="num">{{ p.per_100_low | signed }} to {{ p.per_100_high | signed }}</dd>
+    </div>
+  </dl>
+  {# The degenerate case is said plainly rather than dressed as precision.
+     See `_pitcher_card_view`'s note: a one-appearance season has nothing for
+     a game-clustered bootstrap to resample, so its interval collapses to a
+     point -- which is the absence of an uncertainty estimate, not a tight
+     one. #}
+  {% if p.degenerate_interval %}
+  <p class="pitcher-rate-note prose">
+    This interval has no width. The uncertainty around a season rate is estimated by
+    resampling that pitcher's games, and this season has one appearance, so there is
+    nothing to resample. Read the two figures above as a total and an arithmetic rate over
+    <span class="num">{{ p.bbe }}</span> {{ p.bbe_noun }} &mdash; not as a rate that has been
+    measured to that precision.
+  </p>
+  {% else %}
+  <p class="pitcher-rate-note prose">
+    Per 100 normalizes the total above for opportunity. Over
+    <span class="num">{{ p.bbe }}</span> batted balls that interval spans
+    <span class="num">{{ p.per_100_width }}</span> runs per 100, which is the width this many
+    batted balls supports.
+  </p>
+  {% endif %}
+
+  {% if p.off_board_reason %}
+  <p class="pitcher-offboard prose">{{ p.off_board_reason }}</p>
+  {% endif %}
+</article>
+
+{# ── 4. The two batted balls that moved the total furthest ──────────────── #}
+{% if p.largest_favorable or p.largest_unfavorable %}
+<section class="pitcher-plays" aria-labelledby="pitcher-plays-heading">
+  <h2 id="pitcher-plays-heading">{% if p.single_play_season %}The batted ball behind this total{% else %}The two batted balls that moved this total furthest{% endif %}</h2>
+  <p class="prose pitcher-plays-lede">
+    {{ p.largest_play_sentence }}
+  </p>
+
+  <ol class="pitcher-play-list">
+    {% for play in p.plays %}
+    <li class="pitcher-play {{ 'is-favorable' if play.favorable else 'is-unfavorable' }}">
+      <p class="pitcher-play-label">{{ play.label }}</p>
+      <p class="pitcher-play-value num">{{ play.value | signed(2) }}<span class="pitcher-play-unit">runs</span></p>
+      <p class="pitcher-play-contact">
+        {% if play.launch_speed is not none %}<span class="num">{{ play.launch_speed }}</span> mph · {% endif %}
+        {% if play.launch_angle is not none %}<span class="num">{{ play.launch_angle }}</span>° · {% endif %}
+        {{ play.bb_type_label }} &rarr; {{ play.outcome_label }}
+      </p>
+      <p class="pitcher-play-date">{{ play.game_date_display }}</p>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+<section class="pitcher-framing" aria-labelledby="pitcher-framing-heading">
+  <h2 id="pitcher-framing-heading">How to read this</h2>
+  <p class="prose">
+    The total above is exact for the batted balls listed, given the scoring model it is
+    measured with. It counts what those outcomes were worth against what the contact itself
+    predicted, and nothing else &mdash; it is not an earned-run average, not a quality measure,
+    and not a projection. A pitcher with more batted balls has more opportunities to accumulate
+    a total in either direction, which is why the batted-ball count is printed beside it.
+  </p>
+  <p class="prose">
+    {{ p.role_label }} describes observed usage over this season &mdash;
+    <span class="num">{{ p.appearances }}</span> {{ p.appearances_noun }}{% if p.bbe_per_appearance and not p.single_play_season %} at
+    <span class="num">{{ p.bbe_per_appearance }}</span> batted balls each{% endif %} &mdash; and nothing more. This data carries no roster role.
+  </p>
+</section>
+{% endblock %}

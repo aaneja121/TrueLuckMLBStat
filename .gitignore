@@ -108,3 +108,19 @@ outputs/forecast_phase2_h200/
 
 # Contact Forecast end-of-season 2026 resolution pass namespace.
 outputs/forecast_phase2_resolution/
+
+# Version 0.14 pitcher-replication namespace -- isolated from the
+# development caches, the sealed Version 1.0 namespace and the Version 1.1
+# prospective namespace (see replication/pitcher_replication_freeze.py).
+# The freeze artifact and any future 2025 replication raw/derived data live
+# here and are never committed, and (like the namespaces above) are ignored
+# so a run's own output can never falsely dirty the working-tree-clean guard
+# for a later run.
+data/pitcher_replication/*
+outputs/pitcher_replication/*
+!artifacts/pitcher_replication/
+artifacts/pitcher_replication/*
+
+!data/pitcher_replication/.gitkeep
+!outputs/pitcher_replication/.gitkeep
+!artifacts/pitcher_replication/.gitkeep

@@ -312,6 +312,11 @@
     var limit = config.resultLimit || SEARCH_RESULT_LIMIT;
 
     var items = config.items || [];
+    // The two fields the matcher reads, as accessors so a caller whose
+    // items are not batters can supply its own. Explore's items ARE
+    // batters, so it passes neither and behaves exactly as before.
+    var itemName = config.itemName || function (item) { return item.batter_name; };
+    var itemId = config.itemId || function (item) { return item.batter_id; };
     var options = [];
     var activeIndex = -1;
     // The mobile full-screen sheet is a structural transformation, not a
@@ -435,8 +440,8 @@
       }
       var matches = items.filter(function (item) {
         return (
-          normalizeSearchText(item.batter_name).indexOf(q) !== -1 ||
-          String(item.batter_id) === q
+          normalizeSearchText(itemName(item)).indexOf(q) !== -1 ||
+          String(itemId(item)) === q
         );
       });
       render(matches, input.value.trim());
@@ -561,6 +566,11 @@
       closeBtn: closeBtn,
       sheet: true,
       items: players,
+      // The index covers both published surfaces, so its entries are
+      // people rather than batters: `mlbam_id`/`name`, matching the key
+      // `headshot_url` is built on.
+      itemName: function (p) { return p.name; },
+      itemId: function (p) { return p.mlbam_id; },
       optionIdPrefix: "global-player-search-option-",
       optionClassName: "global-search-option",
       emptyClassName: "global-search-empty",
@@ -568,7 +578,7 @@
         return "No player matches “" + query + "”. Try a surname or an MLBAM ID.";
       },
       renderOption: function (li, p) {
-        var name = p.batter_name || "Player " + p.batter_id;
+        var name = p.name;
 
         var a = document.createElement("a");
         a.href = p.url;
@@ -576,16 +586,28 @@
         a.textContent = name;
         li.appendChild(a);
 
-        // Unqualified players are searchable, findable and MARKED -- never
+        // WHICH SURFACE this result is. One person can hold both a hitter
+        // page and a pitcher page; they are two results, each saying which
+        // it is, because silently picking one would answer a question the
+        // reader did not ask. The label is resolved at build time -- this
+        // only places it.
+        var kind = document.createElement("span");
+        kind.className = "global-search-kind";
+        kind.textContent = p.label;
+        li.appendChild(kind);
+
+        // Unqualified hitters are searchable, findable and MARKED -- never
         // suppressed, never de-emphasised (a preserved product invariant).
         // The wording matches the player page's own "No official rank".
+        var spoken = name + ", " + p.label;
         if (p.ranked === false) {
           var note = document.createElement("span");
           note.className = "global-search-note";
           note.textContent = "No official rank";
           li.appendChild(note);
+          spoken += ", no official rank";
         }
-        return p.ranked === false ? name + ", no official rank" : name;
+        return spoken;
       },
       onSelect: function (p) {
         window.location.assign(p.url);

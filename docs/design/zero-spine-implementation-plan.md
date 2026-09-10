@@ -92,13 +92,23 @@ ZeroScale
   ticks          [(value, fraction), …]      explicit, for any non-league scale
 ```
 
-**The product has exactly three scales, and no fourth may be created:**
+**The product has exactly four scales, and no fifth may be created without the same
+review the fourth got:**
 
 | Scale | Unit | Where | Domain source |
 |---|---|---|---|
 | `league_per_100` | Runs / 100 | Leaderboard rows, player hero, any cross-player comparison | One snapshot-level domain, built once |
 | `run_value` | Runs | Play page gap figure, Explore play distribution, `/demo/` | One snapshot-level domain over scored plays |
 | `component_per_100` | Runs / 100 | Component decomposition on a player page | Per-player: that player's total + components |
+| `pitcher_cumulative_runs` | Runs | Pitcher boards and cards (`/pitchers/<season>/`) | One domain across every published pitcher season |
+
+The fourth was added under this rule rather than around it: the pitcher surface ranks a
+cumulative run TOTAL, which none of the first three measures, so borrowing one of them
+would have been a false alignment rather than a shared axis. Invariant Z still holds — it
+is built with `zero_fraction=league_scale.zero_fraction`, so zero sits at the same
+`--cl-zero` as every other figure — and it pays the price the exception owes by printing
+its own ticks and its own unit on every surface that draws it. The argument in full is at
+its construction site in `dashboard/build.py`.
 
 **Decision D1 — the `league_per_100` population.** Two options:
 

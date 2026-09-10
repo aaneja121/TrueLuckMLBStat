@@ -233,8 +233,19 @@ column only. What it means and what it does not:
   the name itself, which was never dependent on either.
 - **Density held.** Rows grew 37 → 40 px at 1440 and 104 → 111 px at 390, both inside the
   44 px desktop ceiling `tables.md` sets.
-- **Nowhere else.** The player page, Explore, and the play page still make no external
-  request and still contain no `<img>`; their tests assert it.
+- **Extended to the pitcher surfaces (owner-requested, 2026-09-09), and nowhere else.**
+  `/pitchers/` draws the same portrait beside the name in its identity column, and
+  `/pitchers/<id>/` draws it in the profile head at 72x80. Same decision, same terms: one
+  helper (`build.headshot_url`, keyed on an MLBAM **person** id rather than on "a batter",
+  which is what the rename to `{mlbam_id}` records), one origin, one `contain` fit, the
+  same three fallbacks, `preconnect` declared on the routes that draw it and no others. The
+  card is the first non-board surface to carry a portrait; it is a card, not a data row, so
+  the reservation is larger and the row-density guard does not apply. Below 768 the board
+  drops the portrait rather than the name: there the identity column is `width: auto` in a
+  four-column table, so the portrait's footprint would come out of the name, and decoration
+  sheds before content.
+- **The hitter player page, Explore, and the play page still make no external request and
+  still contain no `<img>`**; their tests assert it.
 
 The second decision (team/position) remains open and still blocks nothing.
 
