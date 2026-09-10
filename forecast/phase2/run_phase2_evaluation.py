@@ -585,8 +585,25 @@ def build_stability(completed: pd.DataFrame) -> dict[str, Any]:
 
     sensitivity: dict[str, Any] = {}
     for k in (5, 10):
-        keep = np.sort(order)[np.isin(np.sort(order), order[-k:], invert=True)]
-        keep = np.array([i for i in range(len(improvement)) if i not in set(order[-k:])])
+        # A cohort of k or fewer hitters has nothing left after trimming its k
+        # most-improved. That is not an error to raise -- the resolution
+        # specification's underpowered rule requires a small cohort to be
+        # reported and classified mechanically anyway -- so the trim reports
+        # that it does not apply and the classification proceeds.
+        #
+        # Previously `keep` came out empty and float-typed here, and indexing
+        # with it raised IndexError, so any cohort of <= 10 hitters crashed the
+        # evaluation outright. For a cohort larger than k this is unchanged:
+        # same indices, same arithmetic, same value.
+        tail = set(order[-k:].tolist())
+        keep = np.array([i for i in range(len(improvement)) if i not in tail], dtype=int)
+        if keep.size == 0:
+            sensitivity[f"delta_mae_excluding_{k}_most_improved"] = None
+            sensitivity[f"delta_mae_excluding_{k}_most_improved_not_applicable"] = (
+                f"only {len(improvement)} hitters in this cohort; trimming the {k} most "
+                "improved would leave none. The estimate stands untrimmed."
+            )
+            continue
         trimmed_delta = float(np.mean(forecast_error[keep]) - np.mean(benchmark_error[keep]))
         sensitivity[f"delta_mae_excluding_{k}_most_improved"] = trimmed_delta
     return {

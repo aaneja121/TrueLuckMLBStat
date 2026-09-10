@@ -477,3 +477,71 @@ def test_no_snapshot_directory_stops_rather_than_improvising(monkeypatch) -> Non
     monkeypatch.setattr(snap, "PROSPECTIVE_OUTPUTS_ROOT", Path("/nonexistent/snapshots"))
     with pytest.raises(snap.Phase2SnapshotError, match="does not generate one"):
         snap.resolve_snapshot()
+
+
+class TestStabilitySurvivesASmallCohort:
+    """Regression: `build_stability` crashed on any cohort of 10 or fewer.
+
+    `order[-k:]` covered every index, `keep` came out empty and float-typed,
+    and indexing with it raised `IndexError`. That is precisely the case the
+    end-of-season resolution specification's underpowered rule requires to be
+    handled -- "a wide interval is a wide interval; it is never grounds for
+    ... declining to report" -- so a small incremental cohort would have
+    crashed the pass instead of being classified.
+
+    Found by dry-running the resolution's decision logic on synthetic
+    cohorts before the season ended, which is the only time it could be
+    found without either losing the pass or improvising a fix while looking
+    at real outcomes.
+    """
+
+    @staticmethod
+    def _frame(n: int, seed: int = 3) -> pd.DataFrame:
+        import numpy as np
+        import pandas as pd
+
+        from forecast.phase2.run_phase2_evaluation import (
+            FORECAST_COLUMN,
+            PRIMARY_BENCHMARK,
+            TARGET,
+        )
+
+        rng = np.random.default_rng(seed)
+        target = rng.normal(0.0, 3.0, size=n)
+        return pd.DataFrame(
+            {
+                "batter": np.arange(n),
+                "batter_name": [f"Player {i}" for i in range(n)],
+                TARGET: target,
+                FORECAST_COLUMN: target + rng.normal(0.0, 0.8, size=n),
+                PRIMARY_BENCHMARK: target + rng.normal(0.0, 1.0, size=n),
+            }
+        )
+
+    @pytest.mark.parametrize("n", [1, 2, 5, 8, 10])
+    def test_a_cohort_of_ten_or_fewer_does_not_crash(self, n: int) -> None:
+        from forecast.phase2.run_phase2_evaluation import build_stability
+
+        result = build_stability(self._frame(n))
+        assert result["n_hitters"] == n
+
+    @pytest.mark.parametrize("n,k_unavailable", [(5, (5, 10)), (8, (10,)), (10, (10,))])
+    def test_an_impossible_trim_says_so_rather_than_inventing_a_number(
+        self, n: int, k_unavailable: tuple[int, ...]
+    ) -> None:
+        from forecast.phase2.run_phase2_evaluation import build_stability
+
+        sensitivity = build_stability(self._frame(n))["outlier_sensitivity"]
+        for k in k_unavailable:
+            assert sensitivity[f"delta_mae_excluding_{k}_most_improved"] is None
+            assert f"delta_mae_excluding_{k}_most_improved_not_applicable" in sensitivity
+
+    def test_a_cohort_larger_than_the_trim_is_unaffected(self) -> None:
+        """The fix must not move any number for a cohort big enough to trim --
+        the first look had 241 and 128 completed windows."""
+        from forecast.phase2.run_phase2_evaluation import build_stability
+
+        sensitivity = build_stability(self._frame(241))["outlier_sensitivity"]
+        assert isinstance(sensitivity["delta_mae_excluding_5_most_improved"], float)
+        assert isinstance(sensitivity["delta_mae_excluding_10_most_improved"], float)
+        assert "delta_mae_excluding_5_most_improved_not_applicable" not in sensitivity
