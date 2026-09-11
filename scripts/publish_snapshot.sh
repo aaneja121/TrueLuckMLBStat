@@ -126,6 +126,13 @@
 #   --skip-archive --skip-deploy    ensure -> score -> sync (read-only) -> explore -> build -> stop
 #   --skip-archive (alone)          REFUSED -- see below.
 #
+# EXIT CODES from the scoring stage that this script interprets:
+#   0   snapshot written (or an identical rerun accepted as a no-op)
+#   3   the requested date completed NO games -- nothing to score. This
+#       script stops cleanly with exit 0 and publishes nothing.
+#   *   any other non-zero code is a genuine failure and aborts the run
+#       with that same code; no later stage runs.
+#
 # --skip-archive without --skip-deploy is deliberately refused: this
 # script will not deploy a dashboard built from a snapshot that was not
 # just durably archived. There is currently no override flag for this --
@@ -336,7 +343,29 @@ else
   if [[ -n "$SNAPSHOT_LABEL" ]]; then
     SNAPSHOT_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
   fi
-  "$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}"
+  # Exit 3 from the scoring entry point is NOT a failure: it means the
+  # requested date completed no games (the regular season has ended, the
+  # date was a league-wide off day, or the whole slate was postponed), so
+  # there is no new play to score. Scoring it anyway would write a snapshot
+  # identical to the previous game date's under a new name and a new
+  # write-once archive key. The daily scheduled loop hits this every
+  # morning once the season is over, so it stops CLEANLY here rather than
+  # reporting a failure forever. Any OTHER non-zero code is a real failure
+  # and still aborts with that exact code, exactly as `set -e` would.
+  # See prospective.prospective_ingestion.assert_data_through_date_has_
+  # completed_games.
+  SCORE_STATUS=0
+  "$PYTHON" prospective/run_v1_1_2026_scoring.py "${SNAPSHOT_ARGS[@]}" || SCORE_STATUS=$?
+  if [[ "$SCORE_STATUS" -eq 3 ]]; then
+    echo
+    echo "==> Stopping cleanly: --data-through $DATA_THROUGH has no completed games."
+    echo "    Nothing was scored, archived, built, or deployed."
+    echo "    If the regular season has ended, this date is past it."
+    exit 0
+  fi
+  if [[ "$SCORE_STATUS" -ne 0 ]]; then
+    exit "$SCORE_STATUS"
+  fi
 fi
 
 if [[ "$SKIP_ARCHIVE" -eq 1 ]]; then

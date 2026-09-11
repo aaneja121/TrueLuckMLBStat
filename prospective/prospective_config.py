@@ -98,6 +98,42 @@ PROSPECTIVE_2026_SEASON_START_SOURCE = (
 PROSPECTIVE_2026_SEASON_START_VERIFIED_AT = "2026-08-06"
 PROSPECTIVE_2026_SEASON_START_VERIFIED = True
 
+#: VERIFIED 2026 MLB championship-season FINALE date -- the counterpart to
+#: the opening date above, recorded under the same rule. Source: MLB's
+#: official 2026 championship season schedule. The regular season ended
+#: Sunday, September 27, 2026, with the Regular Season Finale: the Baltimore
+#: Orioles at the New York Yankees. The AUTHORITY for this date is an
+#: explicit maintainer-provided citation of the official MLB schedule, exactly
+#: as for the opening date above.
+#:
+#: Unlike the opening date, it was ALSO corroborated: on 2026-09-11 the
+#: already-configured MLB Stats API `/schedule` endpoint (`MLB_STATS_API_BASE_
+#: URL`, a configured base URL -- never a guessed or generated one, see
+#: CLAUDE.md's URL-generation rule) was queried for `gameType=R` over
+#: 2026-09-15..2026-11-15 and returned games through 2026-09-27 and none
+#: after. That corroboration agreed with the citation but is NOT the source
+#: and must never be recorded as one -- every game in that window still had
+#: status "Scheduled", so it shows what the schedule LISTED, not what was
+#: played, and a later-added makeup game would not appear in it. If this date
+#: is ever wrong or needs revision for a future season, update the date, the
+#: source citation, and the verification date together -- never change one
+#: without the others.
+#:
+#: NOT a gate. `prospective_ingestion.assert_data_through_date_agrees_with_
+#: recorded_season_end` uses it as a CROSS-CHECK against the live schedule,
+#: never as a blind cutoff: a hardcoded end date that refused every later
+#: request would silently skip a rainout makeup played after the finale. The
+#: ordinary "the season is over" case is owned by the schedule-derived guard
+#: beside it, which needs no constant at all.
+PROSPECTIVE_2026_SEASON_END_DATE = date(2026, 9, 27)
+PROSPECTIVE_2026_SEASON_END_SOURCE = (
+    "MLB official 2026 championship season schedule -- Regular Season Finale: Baltimore "
+    "Orioles at New York Yankees, 2026-09-27 (maintainer-provided citation, not "
+    "independently fetched by this repository's tooling)."
+)
+PROSPECTIVE_2026_SEASON_END_VERIFIED_AT = "2026-09-11"
+PROSPECTIVE_2026_SEASON_END_VERIFIED = True
+
 
 class NamespaceViolationError(ValueError):
     """Raised when a path would read/write outside an isolated namespace --

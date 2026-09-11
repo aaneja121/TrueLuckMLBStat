@@ -271,6 +271,57 @@ guard FAILS rather than silently walking backward to "the preceding fully comple
 date" -- the caller must explicitly choose an earlier `--data-through` and rerun; see
 `tests/test_prospective_date_completeness_guard.py`.
 
+**A `--data-through` date that completed NO games is refused**
+(`prospective.prospective_ingestion.assert_data_through_date_has_completed_games`,
+raising `NoCompletedGamesToScoreError`). This is the guard that knows a season can
+END. Nothing else in the pipeline does: `check_data_through_date_completeness` treats
+a date with zero scheduled games as trivially complete (correctly -- there is nothing
+unfinished about a day with no baseball), both schedule fetches filter `gameType="R"`
+so the postseason is invisible here, and the coverage contract cannot report a missing
+completed date on a date that completed none. Without this guard every day after the
+final regular-season game re-scored byte-identical data into a NEW snapshot directory
+and a NEW write-once archive key -- one duplicate per day, indefinitely -- and, with
+scheduled deploys enabled, advanced the public `data_through_date` onto days no
+baseball was played. A fully postponed slate is refused for the same reason: a
+postponed game never happened, so that date carries no new play either.
+
+It takes the result `assert_data_through_date_is_complete` already returned rather
+than re-fetching, so it costs no extra network request, and it runs BEFORE ingestion
+so the off-season does not re-download a full season every morning to discover there
+is nothing to do. Like its sibling it FAILS rather than silently walking backward to
+the last date that did have games. `run_v1_1_2026_scoring.main` maps it to exit code
+**3**, distinct from the generic failure code 2, and `scripts/publish_snapshot.sh`
+treats exit 3 as a clean stop (exit 0, nothing archived/built/deployed) so the daily
+scheduled loop does not report a failure every morning of the off-season. See
+`tests/test_prospective_no_completed_games_guard.py` and
+`tests/test_publish_snapshot_orchestration.py::TestNothingToScoreIsACleanStop`.
+
+`DataThroughDateCompletenessResult.completed_games_on_date` is a derived PROPERTY, not
+a dataclass field, on purpose: `to_dict()` is `asdict()` and flows into every snapshot
+manifest's `schema_checks`, which are content-hashed to tell an idempotent rerun from a
+conflict. A new field there would change the recorded shape of every already-archived
+snapshot and turn a legitimate rerun of an archived date into a `SnapshotConflictError`.
+Do not promote it to a field.
+
+**The verified season-END date is a CROSS-CHECK, not a cutoff.**
+`PROSPECTIVE_2026_SEASON_END_DATE = date(2026, 9, 27)` records the regular-season
+finale (Baltimore Orioles at New York Yankees), under the same rule as the opening
+date: a maintainer-provided citation of the official MLB schedule, with `_SOURCE` and
+`_VERIFIED_AT` updated together and never one without the others. It was corroborated
+against the MLB Stats API `/schedule` endpoint, which returned no `gameType=R` games
+after 2026-09-27 through 2026-11-15 -- corroboration is NOT the citation, and this
+repository's tooling still never fetches or guesses a schedule of its own accord.
+
+`assert_data_through_date_agrees_with_recorded_season_end` raises
+`RecordedSeasonEndDateStaleError` ONLY when real games completed after that date. It is
+deliberately not a cutoff, and the reason is the whole point: a rainout makeup played
+after the finale is a genuine regular-season game whose plays belong in the season
+totals, and a blind cutoff would drop it silently and permanently. Dates that completed
+no games are none of this guard's business -- the ordinary off-season case belongs to
+the schedule-derived guard above and its quiet exit 3. So the constant can only ever
+cause a LOUD failure (exit 2) saying the recorded fact disagrees with observed play,
+never a silent skip. Do not "simplify" it into a date cutoff.
+
 The real 2026 season-opening date is VERIFIED:
 `prospective.prospective_config.PROSPECTIVE_2026_SEASON_START_DATE = date(2026, 3, 25)`,
 `PROSPECTIVE_2026_SEASON_START_VERIFIED = True`. Source: MLB's official 2026

@@ -26,7 +26,9 @@ minting an authorization token; see its own docstring and CLAUDE.md "Version
 commit alone. Separately, `assert_data_through_date_is_complete` refuses a
 `--data-through` date that has any game not yet final (in progress,
 suspended, or otherwise unresolved) -- see its own docstring for the
-documented postponed/suspended-game rule.
+documented postponed/suspended-game rule, and
+`assert_data_through_date_has_completed_games` for the companion guard that
+refuses a date which completed no games at all (the season-end case).
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ import pandas as pd
 from prospective_config import (
     PROJECT_ROOT,
     PROSPECTIVE_2026_SEASON_START_DATE,
+    PROSPECTIVE_2026_SEASON_END_DATE,
     PROSPECTIVE_2026_SEASON_START_VERIFIED,
     PROSPECTIVE_RAW_DIR,
     PROSPECTIVE_SEASON,
@@ -122,6 +125,22 @@ class IncompleteDataThroughDateError(ProspectiveError):
     """Raised when the requested `--data-through` date has one or more games
     that are not yet final -- see `assert_data_through_date_is_complete`'s
     docstring for the documented postponed/suspended-game rule.
+    """
+
+
+class NoCompletedGamesToScoreError(ProspectiveError):
+    """Raised when the requested `--data-through` date completed NO games at
+    all -- see `assert_data_through_date_has_completed_games`. Distinct from
+    `IncompleteDataThroughDateError`: that one means "come back when the
+    slate finishes," this one means "there was never anything here to score."
+    """
+
+
+class RecordedSeasonEndDateStaleError(ProspectiveError):
+    """Raised when real games completed AFTER `PROSPECTIVE_2026_SEASON_END_
+    DATE` -- the recorded fact and the live schedule disagree, so the
+    recorded fact is stale. See `assert_data_through_date_agrees_with_
+    recorded_season_end`.
     """
 
 
@@ -239,6 +258,25 @@ class DataThroughDateCompletenessResult:
     postponed_or_cancelled_games: list[dict[str, Any]]
     checked_at: str
 
+    @property
+    def completed_games_on_date(self) -> int:
+        """How many games on this date genuinely finished.
+
+        A derived PROPERTY, never a dataclass field, on purpose: `to_dict()`
+        is `asdict()` and flows into every snapshot manifest's
+        `schema_checks`, and manifests are content-hashed to tell an
+        idempotent rerun from a conflict. Adding a field here would change
+        the recorded shape for every already-archived snapshot, turning a
+        legitimate rerun of an archived date into a `SnapshotConflictError`.
+        A property stays out of `asdict()`. See `tests/
+        test_prospective_no_completed_games_guard.py`.
+        """
+        return (
+            self.total_games_on_date
+            - len(self.incomplete_games)
+            - len(self.postponed_or_cancelled_games)
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -334,6 +372,117 @@ def assert_data_through_date_is_complete(
             "recent date with no incomplete games -- and rerun."
         )
     return result
+
+
+def assert_data_through_date_agrees_with_recorded_season_end(
+    result: DataThroughDateCompletenessResult,
+    *,
+    season_end_date: date = PROSPECTIVE_2026_SEASON_END_DATE,
+) -> None:
+    """Cross-check the recorded season-finale date against what the schedule
+    actually shows. Fires ONLY when the two disagree.
+
+    `PROSPECTIVE_2026_SEASON_END_DATE` is a maintainer-cited fact, and facts
+    recorded in source go stale. The failure this catches is a real game
+    played after the recorded finale -- a rainout makeup, or simply a wrong
+    constant.
+
+    DELIBERATELY NOT A CUTOFF. Refusing every date after the recorded finale
+    would be the obvious implementation and the wrong one: a makeup game
+    played on the 28th is a genuine regular-season game whose plays belong in
+    the season's totals, and a blind cutoff would drop it silently and
+    forever. So this stays quiet about dates that completed no games -- the
+    ordinary off-season case, owned by `assert_data_through_date_has_
+    completed_games` and its clean exit 3 -- and speaks up only when real
+    play exists past the recorded end.
+
+    It is loud (the generic failure exit code 2, not the quiet exit 3)
+    because a stale recorded fact needs a human: per the rule in
+    `prospective_config`, the date, its source citation, and its verification
+    date are updated together, and only a maintainer can supply the new
+    citation.
+
+    Raises:
+        RecordedSeasonEndDateStaleError: if any game completed on a
+            `data_through_date` later than `season_end_date`.
+    """
+    if result.completed_games_on_date <= 0:
+        return
+    requested = date.fromisoformat(result.data_through_date)
+    if requested <= season_end_date:
+        return
+    raise RecordedSeasonEndDateStaleError(
+        f"--data-through {result.data_through_date} completed "
+        f"{result.completed_games_on_date} game(s), but the recorded regular-season finale is "
+        f"{season_end_date.isoformat()} -- real play exists after the date this repository has "
+        "on record, so PROSPECTIVE_2026_SEASON_END_DATE is stale. This is refused rather than "
+        "guessed in either direction: scoring it would extend the season past a recorded fact, "
+        "and skipping it would silently drop real games. Update PROSPECTIVE_2026_SEASON_END_"
+        "DATE, its _SOURCE citation, and its _VERIFIED_AT together (never one without the "
+        "others), then rerun."
+    )
+
+
+def assert_data_through_date_has_completed_games(
+    result: DataThroughDateCompletenessResult,
+) -> None:
+    """Refuse a `--data-through` date on which NO game was actually played to
+    completion.
+
+    Takes the result `assert_data_through_date_is_complete` already returned
+    rather than re-fetching: the schedule call this needs has, by
+    construction, just been made. This guard costs no additional network
+    request.
+
+    WHY THIS EXISTS -- the season-end duplicate-snapshot defect. Nothing else
+    in this pipeline notices that a season has ended:
+
+      - `check_data_through_date_completeness` treats a date with zero
+        scheduled games as trivially complete, which is correct (there is
+        nothing unfinished about a day with no baseball) but means an off
+        day and a post-season date both sail through it.
+      - Both schedule fetches filter `gameType="R"`, so the postseason is
+        invisible here -- October never registers as "games happening."
+      - `assert_scoring_dataset_satisfies_coverage_contract` asks whether any
+        COMPLETED date is missing from the data. On a date with no completed
+        games there is nothing to be missing, so it passes.
+      - The `observed_max_date > data_through` check in `run_v1_1_2026_
+        scoring` only fires in the opposite direction (data PAST the cutoff).
+
+    So every date after the final regular-season game would re-score
+    byte-identical data into a NEW snapshot directory and a NEW write-once
+    archive key, one per day, indefinitely -- and, with scheduled deploys
+    enabled, publish a site whose `data_through_date` advances onto days no
+    baseball was played.
+
+    This FAILS rather than silently walking backward to the last date that
+    did have games, exactly as its sibling guard does and for the same
+    reason: the caller must choose the date explicitly. `run_v1_1_2026_
+    scoring.main` maps it to a distinct exit code so the scheduled publish
+    loop can treat "nothing new to score" as a clean stop instead of an
+    error (see `scripts/publish_snapshot.sh`).
+
+    A fully postponed slate is refused for the same reason -- a postponed
+    game never happened, so such a date carries no new play either.
+
+    Raises:
+        NoCompletedGamesToScoreError: if no game on the date reached a final
+            status.
+    """
+    if result.completed_games_on_date > 0:
+        return
+    postponed = len(result.postponed_or_cancelled_games)
+    detail = (
+        f"all {postponed} scheduled game(s) were postponed or cancelled"
+        if postponed
+        else "no games were scheduled"
+    )
+    raise NoCompletedGamesToScoreError(
+        f"--data-through {result.data_through_date} completed no games ({detail}) -- there is "
+        "no new play to score, and scoring it would duplicate the previous game date's "
+        "snapshot under a new name. If the regular season has ended, this date is past it. "
+        "Choose a --data-through date on which games were actually played."
+    )
 
 
 # ---------------------------------------------------------------------------

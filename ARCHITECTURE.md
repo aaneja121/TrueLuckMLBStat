@@ -32,6 +32,25 @@ entry point and chains all of the above.
 `.github/workflows/publish-prospective.yml` triggers it daily at 13:00 UTC
 (real deploys gated on the repo variable `PROSPECTIVE_AUTO_DEPLOY=true`).
 
+### When the season ends
+
+The loop stops on its own. `prospective.prospective_ingestion.assert_data_through_date_
+has_completed_games` refuses a `--data-through` date on which no game was completed, so
+every date after the final regular-season game (and every league-wide off day, and any
+fully postponed slate) is declined instead of re-scoring identical data into a new
+snapshot and a new write-once archive key. The scoring entry point exits **3** for this
+case, `publish_snapshot.sh` treats exit 3 as a clean stop (exit 0, nothing archived,
+built, or deployed), and the daily workflow therefore goes quiet rather than red. Any
+other non-zero exit is still a genuine failure.
+
+A second, explicit layer sits beside it: `prospective_config.PROSPECTIVE_2026_SEASON_
+END_DATE` (2026-09-27, maintainer-cited) is cross-checked against the live schedule by
+`assert_data_through_date_agrees_with_recorded_season_end`, which fails loudly (exit 2)
+if real games completed after the recorded finale -- a makeup game, or a stale
+constant. It is **not** a date cutoff: dates with no completed games are handled by the
+schedule-derived guard above, so a post-finale makeup can never be silently dropped.
+See `RESEARCH_RULES.md` for the full rationale.
+
 ## `dashboard/` internals
 
 **Stack:** Python 3 + Jinja2 → static HTML; hand-written CSS; vanilla ES5-style IIFE JS.
