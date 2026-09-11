@@ -72,13 +72,35 @@ on:
         default: false
 
   schedule:
-    # 13:00 UTC daily.
+    # 13:37 UTC daily.
+    #
+    # NOT ON THE HOUR, DELIBERATELY: GitHub runs scheduled workflows on
+    # shared capacity, and :00 is the most contended minute of the hour --
+    # GitHub's own guidance is to pick a different one. Observed on this
+    # workflow, with no repo-side change in between: +0.5h to +1.0h late
+    # through late August, then +2.9h to +5.2h through September, with two
+    # +9.9h outliers on Aug 27-28. An odd minute reduces that contention;
+    # it does NOT guarantee punctuality. Scheduled delivery here is
+    # best-effort, and GitHub never retries a day it drops -- recover with
+    # a manual workflow_dispatch for that --data-through date.
+    #
+    # DO NOT add a second "catch-up" cron to cover a dropped day. A
+    # duplicate run for an already-published date re-scores it on a fresh
+    # runner with a new manifest generated_at, so the integrity hashes
+    # differ from the archived copy and scripts/archive_snapshot.py raises
+    # ArchiveConflictError (write-once, never overwritten) instead of
+    # no-opping -- i.e. it would fail red on every day the first run had
+    # already succeeded. A catch-up schedule only becomes safe once the
+    # archive compares deterministic_content_hash() rather than the raw
+    # manifest.json sha256.
     #
     # DST TRADEOFF: GitHub Actions cron is fixed UTC and does NOT shift
-    # with daylight saving. 13:00 UTC is:
-    #   - 09:00 America/New_York during EDT (UTC-4, roughly mid-March to
-    #     early November -- most of the MLB regular season)
-    #   - 08:00 America/New_York during EST (UTC-5, the rest of the year)
+    # with daylight saving. 13:37 UTC is:
+    #   - 09:37 America/New_York during EDT (UTC-4, roughly mid-March to
+    #     early November -- which covers the ENTIRE MLB regular season, so
+    #     this is the only case that applies on any day there is something
+    #     to score)
+    #   - 08:37 America/New_York during EST (UTC-5, the rest of the year)
     # Either wall-clock time is a conservative morning buffer after even a
     # late West Coast extra-inning game. The actual --data-through date is
     # resolved separately in America/New_York (see the "Resolve" step
@@ -88,7 +110,7 @@ on:
     # run_v1_1_2026_scoring.py's own date-completeness guard rejects the
     # run rather than scoring partial data. See "Failure behavior" in
     # README.md.
-    - cron: '0 13 * * *'
+    - cron: '37 13 * * *'
 
 concurrency:
   # Only one publish (scheduled or manual) may run at a time. A second
