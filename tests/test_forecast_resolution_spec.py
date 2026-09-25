@@ -297,7 +297,11 @@ def test_the_season_end_date_is_verified_and_loaded_not_restated() -> None:
     assert verification["regular_season_end_date"] == "2026-09-27"
     assert verification["verified"] is PROSPECTIVE_2026_SEASON_END_VERIFIED is True
     assert verification["source"] == PROSPECTIVE_2026_SEASON_END_SOURCE
-    assert "MLB official 2026 schedule announcement" in verification["source"]
+    # Wording follows main's citation of the same fact (the constant is shared;
+    # main's is the later-verified, corroborated record -- see
+    # prospective_config.PROSPECTIVE_2026_SEASON_END_DATE). What this asserts is
+    # unchanged: the source names the official MLB schedule, not a guess.
+    assert "MLB official 2026 championship season schedule" in verification["source"]
 
 
 def test_the_end_date_records_that_tooling_did_not_fetch_it() -> None:
