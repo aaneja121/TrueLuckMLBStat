@@ -1,6 +1,6 @@
 # Contact Luck
 
-[![Publish prospective snapshot](https://github.com/aaneja121/TrueLuckMLBStat/actions/workflows/publish-prospective.yml/badge.svg)](https://github.com/aaneja121/TrueLuckMLBStat/actions/workflows/publish-prospective.yml)
+[![Publish prospective snapshot](https://github.com/aaneja121/contact-luck/actions/workflows/publish-prospective.yml/badge.svg)](https://github.com/aaneja121/contact-luck/actions/workflows/publish-prospective.yml)
 
 Contact Luck is an MLB batted-ball metric that measures the difference, in run value,
 between what a batter's contact was expected to produce and what actually occurred. It
@@ -13,7 +13,7 @@ not a projection of future performance.
 
 **Live dashboard: [contactluck.com](https://contactluck.com)**
 
-![The Contact Luck leaderboard, showing signed per-100 scores against a shared zero line](dashboard/og-image.png)
+[![The Contact Luck leaderboard at contactluck.com: ranked hitters with signed runs-per-100 scores and 95% intervals drawn against a shared zero line](docs/images/dashboard.png)](https://contactluck.com)
 
 ## Architecture
 
