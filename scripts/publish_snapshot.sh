@@ -110,7 +110,7 @@
 #
 # --skip-archive and --skip-deploy are INDEPENDENTLY controllable, so real
 # R2 archival can be validated on its own before production deploys are
-# enabled -- see README.md "Durable archival" for the rollout plan this
+# enabled -- see docs/OPERATIONS.md "Durable archival" for the rollout plan this
 # supports. The frozen-input check and history sync ALWAYS run (even with
 # both skip flags) so a dry run still validates the real CI scoring/
 # dashboard-build behavior -- both only ever READ from R2 in the common
@@ -205,7 +205,7 @@
 # locally -- true on every fresh CI runner, false on a maintainer's own
 # machine that already has the full bundle, where this stage never
 # touches R2 at all. See scripts/archive_snapshot.py's module docstring
-# and README.md's "Durable archival" section for exactly what these need
+# and docs/OPERATIONS.md's "Durable archival" section for exactly what these need
 # to be.
 #
 # Example:

@@ -13,7 +13,8 @@ fastest one-second window," computed from ~top two-thirds of a player's
 qualifying runs that season). This is the Version 0.8 infield-opportunity
 model's ONLY source of runner-speed information -- see
 `mlb_luck_score.data.join_sprint_speed` for how it's joined onto per-play rows
-by `batter`+`season`, and README.md "Infield opportunity (Version 0.8)" for
+by `batter`+`season`, and docs/RESEARCH_LOG.md "Infield opportunity and
+execution (Version 0.8)" for
 why a per-play speed measurement does not exist in public data.
 
 One raw Parquet file PER SEASON (`sprint_speed_<season>.parquet`), columns

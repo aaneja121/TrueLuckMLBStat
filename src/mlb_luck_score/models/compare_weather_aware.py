@@ -2,9 +2,10 @@
 probability quality beyond the currently-selected production baseline?
 
 As of this writing, `selected_production_baseline` == `baseline_v02`
-(`class_weight=None`, no `venue_id`, no park geometry -- see README.md
-"Current status": neither `park_aware_v03_candidate` nor either Version 0.4
-geometry candidate was adopted). This module does not hardcode that
+(`class_weight=None`, no `venue_id`, no park geometry -- see
+docs/RESEARCH_LOG.md "Park-aware model comparison (Version 0.3)" and "Park
+geometry (Version 0.4)": neither `park_aware_v03_candidate` nor either
+Version 0.4 geometry candidate was adopted). This module does not hardcode that
 assumption beyond using `mlb_luck_score.models.train_contact_model.
 train_model()`'s current defaults for `selected_production_baseline` --
 if a future version's default ever changes, this module picks it up
