@@ -96,7 +96,8 @@ def main() -> None:
         raise SystemExit(
             f"{DEV_DATA_PATH} not found -- this script requires the local, gitignored "
             "cleaned development parquet (2021-2024 approved development data). "
-            "Never invented/downloaded here; see README.md's frozen-input-bundle section."
+            "Never invented/downloaded here; see docs/OPERATIONS.md "
+            "'Frozen input bundle portability'."
         )
 
     print(f"=== Loading {DEV_DATA_PATH.name} ===")

@@ -2,7 +2,7 @@
 
 Where things live and how data flows, so an agent can find code without re-crawling the
 repo. See `PRODUCT.md` for intent, `CONTEXT.md` for terminology, `RESEARCH_RULES.md` for
-the modeling/data-safety rules, `README.md` (184 KB) for full version history.
+the modeling/data-safety rules, `docs/RESEARCH_LOG.md` (188 KB) for full version history.
 
 ## Two halves
 
@@ -331,7 +331,9 @@ in the templates. **Do not change scoring or renderer behaviour to make either g
 
 ## Docs
 
-`README.md` (full research history) · `PRODUCT.md` · `CONTEXT.md` · `RESEARCH_RULES.md` ·
+`README.md` (1-page overview) · `docs/RESEARCH_LOG.md` (full research history) ·
+`docs/OPERATIONS.md` (publish pipeline, archival) · `docs/DATA.md` (inputs, licensing) ·
+`PRODUCT.md` · `CONTEXT.md` · `RESEARCH_RULES.md` ·
 `CLAUDE.md` (router for Claude) · `AGENTS.md` (equivalent router for Codex and other
 cross-agent tooling).
 

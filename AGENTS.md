@@ -18,7 +18,10 @@ keep the two in sync when routing changes.)
 | Metric and baseball terminology | `CONTEXT.md` |
 | Repo structure, data flow, build/run/test commands | `ARCHITECTURE.md` |
 | Frontend / visual design | `DESIGN.md` — a router itself; it points into `docs/design/*.md`. Load `docs/design/guardrails.md` for any dashboard change. Then `ARCHITECTURE.md`'s `dashboard/` section |
-| Version history and validation results | `README.md` — large; read sections, never the whole file |
+| Project overview, architecture, validation headlines | `README.md` — ~1 page |
+| Full version history and per-version validation results | `docs/RESEARCH_LOG.md` — large; read sections, never the whole file |
+| Publish pipeline, R2 archival, history sync, credentials, recovery | `docs/OPERATIONS.md` |
+| Eligible/excluded events, public-data limits, licensing, reproducibility | `docs/DATA.md` |
 
 Repository documentation is the authoritative source of durable project context. If you
 learn something durable, put it in the right document above rather than re-deriving it.

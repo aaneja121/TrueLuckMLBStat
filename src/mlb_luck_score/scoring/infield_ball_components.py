@@ -184,7 +184,8 @@ def build_infield_ball_component_report(
             still lack adequate evidence) -- so this is adopted for real
             scoring, tagged `provisional_infield_opportunity`, never claimed
             as unconditionally `calibrated_infield_opportunity`. See
-            README.md "Infield opportunity and execution (Version 0.8)".
+            docs/RESEARCH_LOG.md "Infield opportunity and execution
+            (Version 0.8)".
         run_value_map: Fixed run-value table, same as `mlb_luck_score.
             scoring.air_ball_components` -- never a redefinition.
 

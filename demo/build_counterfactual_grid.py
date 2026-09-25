@@ -82,7 +82,7 @@ byte-identical JSON on every regeneration (no generated-at/timestamp
 field; see `tests/test_counterfactual_grid.py`'s byte-determinism test).
 
 Usage (requires the full 2021-2024 development dataset already cached
-locally -- see README.md "Full development dataset" /
+locally -- see docs/RESEARCH_LOG.md "Full development dataset" /
 `make clean-development-data`; no network access):
 
     .venv/bin/python demo/build_counterfactual_grid.py
@@ -485,7 +485,8 @@ def build_counterfactual_grid(
     if not input_path.exists():
         raise CounterfactualGridBuildError(
             f"{input_path} not found. This script requires the full 2021-2024 development "
-            "dataset (see README.md 'Full development dataset' / `make clean-development-data`) "
+            "dataset (see docs/RESEARCH_LOG.md 'Full development dataset' / "
+            "`make clean-development-data`) "
             "-- it is never downloaded automatically."
         )
     if not fixture_path.exists():

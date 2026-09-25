@@ -10,8 +10,9 @@ season-level number, compute it from raw luck values, not from scores.
 
 These are aggregation PRIMITIVES, not a leaderboard: no qualification
 threshold (e.g. a minimum number of eligible events for inclusion) is
-defined or enforced here yet -- that is deliberately deferred to future
-work (see README.md "Future work").
+defined or enforced here -- qualification is a separate, later concern,
+implemented in `mlb_luck_score.scoring.qualification` (see
+docs/RESEARCH_LOG.md "Qualification rules (Phase 5)" under Version 0.11).
 """
 
 from __future__ import annotations

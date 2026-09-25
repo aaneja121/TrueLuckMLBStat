@@ -1,7 +1,7 @@
 """Download full regular-season Statcast data for the development seasons.
 
-Usage (requires internet access -- see README.md for storage/runtime notes
-before running this for real):
+Usage (requires internet access -- see docs/RESEARCH_LOG.md "Full development
+dataset" for storage/runtime notes before running this for real):
 
     python -m mlb_luck_score.data.download_development_data \\
         --seasons 2021 2022 2023 2024 --output-dir data/raw
