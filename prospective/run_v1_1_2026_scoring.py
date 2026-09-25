@@ -121,7 +121,11 @@ from prospective_config import (
     assert_not_sealed_v1_namespace,
 )
 from prospective_ingestion import (
+    NoCompletedGamesToScoreError,
     ProspectiveError,
+    RecordedSeasonEndDateStaleError,
+    assert_data_through_date_agrees_with_recorded_season_end,
+    assert_data_through_date_has_completed_games,
     assert_data_through_date_is_complete,
     assert_scoring_dataset_satisfies_coverage_contract,
     build_2026_scoring_dataset,
@@ -286,6 +290,15 @@ def run_prospective_snapshot(
 
     authorization = run_prospective_guards(repo_root=repo_root)
     completeness_result = assert_data_through_date_is_complete(data_through_date)
+    # Before ingestion on purpose: a date that completed no games has nothing
+    # new to score, and a full-season Statcast download to discover that is
+    # the expensive half of the season-end duplicate-snapshot defect. See
+    # `assert_data_through_date_has_completed_games`.
+    assert_data_through_date_has_completed_games(completeness_result)
+    # The explicit second layer: a cross-check against the maintainer-cited
+    # finale date, which fires only if real play exists past it (a makeup, or
+    # a stale constant). Deliberately not a cutoff -- see its docstring.
+    assert_data_through_date_agrees_with_recorded_season_end(completeness_result)
 
     statcast_provenance = ingest_2026_raw_statcast(
         authorization=authorization,
@@ -583,9 +596,18 @@ def main(argv: list[str] | None = None) -> int:
             snapshot_label=args.snapshot_label,
             force_redownload=args.force_redownload,
         )
+    except NoCompletedGamesToScoreError as exc:
+        # Its OWN exit code, not the generic failure code: "the season is
+        # over, or this date had no baseball" is a normal outcome for the
+        # daily scheduled loop, not a fault. scripts/publish_snapshot.sh
+        # treats exit 3 as a clean stop -- no archive, no build, no deploy.
+        # Caught before the arm below because it is a ProspectiveError too.
+        logger.info("%s", str(exc))
+        return 3
     except (
         ProspectiveError,
         ProspectiveScoringError,
+        RecordedSeasonEndDateStaleError,
         SnapshotConflictError,
         RunProspectiveScoringError,
     ) as exc:

@@ -13,8 +13,7 @@ not a projection of future performance.
 
 **Live dashboard: [contactluck.com](https://contactluck.com)**
 
-<!-- TODO: add a dashboard screenshot at docs/images/dashboard.png and reference it here.
-     No screenshot is committed yet; dashboard/og-image.png is the 1200x627 social card. -->
+![The Contact Luck leaderboard, showing signed per-100 scores against a shared zero line](dashboard/og-image.png)
 
 ## Architecture
 
@@ -22,7 +21,7 @@ The daily loop is one scheduled workflow wrapping one orchestration script. Ever
 fails closed, and a failure stops every stage after it.
 
 ```
-GitHub Actions cron (13:00 UTC daily)
+GitHub Actions cron (13:37 UTC daily)
   └─> scripts/publish_snapshot.sh          the only orchestration entry point
         ├─> scripts/ensure_frozen_inputs.py    fetch + hash-verify the frozen input
         │                                       bundle (gitignored; pulled from R2)
@@ -30,6 +29,8 @@ GitHub Actions cron (13:00 UTC daily)
         │                                       score -> immutable snapshot
         │                                       (clean-tree, date-completeness,
         │                                        coverage + conflict guards)
+        │                                       a date with no completed games exits 3
+        │                                       and the loop stops cleanly, not red
         ├─> scripts/archive_snapshot.py         durable write-once archive to
         │                                       Cloudflare R2   [before any deploy]
         ├─> scripts/archive_snapshot.py --sync-history
@@ -137,7 +138,7 @@ make check            # ruff format + ruff check + mypy + pytest
 make download-sample  # one week of 2024 Statcast data (network)
 ```
 
-The test suite is fully offline. `make check` covers `src`, `tests`, and `forecast`.
+`make check` runs 2,800+ tests, fully offline, and covers `src` and `tests`.
 
 ## Documentation
 

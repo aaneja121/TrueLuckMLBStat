@@ -67,7 +67,7 @@ if [[ -n "${ARGV_LOG:-}" ]]; then
 fi
 if [[ "${FAIL_STAGE:-}" == "$STAGE_NAME" ]]; then
   echo "fake python: simulating failure for stage $STAGE_NAME" >&2
-  exit 1
+  exit "${FAIL_EXIT_CODE:-1}"
 fi
 exit 0
 """
@@ -111,7 +111,11 @@ def fake_project(tmp_path: Path) -> Path:
 
 
 def _run(
-    fake_project: Path, call_log: Path, *extra_args: str, fail_stage: str | None = None
+    fake_project: Path,
+    call_log: Path,
+    *extra_args: str,
+    fail_stage: str | None = None,
+    fail_exit_code: int = 1,
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["PATH"] = f"{fake_project / 'fake-bin'}:{env['PATH']}"
@@ -125,8 +129,10 @@ def _run(
     env["R2_SECRET_ACCESS_KEY"] = "fake-secret"
     if fail_stage is not None:
         env["FAIL_STAGE"] = fail_stage
+        env["FAIL_EXIT_CODE"] = str(fail_exit_code)
     else:
         env.pop("FAIL_STAGE", None)
+        env.pop("FAIL_EXIT_CODE", None)
     return subprocess.run(
         ["scripts/publish_snapshot.sh", "--data-through", "2026-08-09", "--yes", *extra_args],
         cwd=fake_project,
@@ -570,3 +576,44 @@ class TestFeatureOnlyBuildFromExistingSnapshot:
         assert "python:score" in lines
         assert "python:archive" in lines
         assert "python:verify_snapshot" not in lines
+
+
+class TestNothingToScoreIsACleanStop:
+    """Exit 3 from the scoring entry point means "this date completed no
+    games" -- the season ended, or the slate was postponed. That is a normal
+    outcome for the daily scheduled loop, not a fault, so the orchestrator
+    must stop cleanly: publish nothing, and exit 0 so the workflow does not
+    report a failure every morning of the off-season. See `prospective.
+    prospective_ingestion.assert_data_through_date_has_completed_games`.
+    """
+
+    def test_exit_three_from_scoring_is_not_a_failure(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="score", fail_exit_code=3)
+        assert result.returncode == 0, result.stderr
+
+    def test_exit_three_says_plainly_why_it_stopped(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="score", fail_exit_code=3)
+        assert "no completed games" in (result.stdout + result.stderr).lower()
+
+    def test_exit_three_publishes_nothing(self, fake_project: Path, tmp_path: Path) -> None:
+        """The whole point: no archive write, no history sync, no build, no
+        deploy -- and above all no NEW snapshot for a day without baseball.
+        """
+        call_log = tmp_path / "calls.log"
+        _run(fake_project, call_log, fail_stage="score", fail_exit_code=3)
+        assert _log_lines(call_log) == ["python:ensure", "python:score"]
+
+    def test_an_ordinary_scoring_failure_still_fails_the_run(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """Exit 3 is special; every other non-zero code must stay a failure."""
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="score", fail_exit_code=2)
+        assert result.returncode != 0
+        assert _log_lines(call_log) == ["python:ensure", "python:score"]

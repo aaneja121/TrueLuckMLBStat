@@ -98,27 +98,45 @@ PROSPECTIVE_2026_SEASON_START_SOURCE = (
 PROSPECTIVE_2026_SEASON_START_VERIFIED_AT = "2026-08-06"
 PROSPECTIVE_2026_SEASON_START_VERIFIED = True
 
-#: VERIFIED 2026 MLB regular-season CLOSING date -- the counterpart to the
-#: opening date above, recorded by the same mechanism and under the same
-#: policy. Source: MLB's official 2026 schedule announcement. The 2026 regular
-#: season ended Sunday, September 27, 2026. As with the opening date, this was
-#: confirmed via an explicit maintainer-provided citation -- Claude Code did
-#: not independently fetch or cross-check a live schedule source for this date
-#: (this repository's tooling never guesses or generates a schedule URL on its
-#: own -- see CLAUDE.md's URL-generation rule). If this date is ever wrong or
-#: needs revision for a future season, update the date, the source citation,
-#: and the verification date together -- never change one without the others.
+#: VERIFIED 2026 MLB championship-season FINALE date -- the counterpart to
+#: the opening date above, recorded under the same rule. Source: MLB's
+#: official 2026 championship season schedule. The regular season ended
+#: Sunday, September 27, 2026, with the Regular Season Finale: the Baltimore
+#: Orioles at the New York Yankees. The AUTHORITY for this date is an
+#: explicit maintainer-provided citation of the official MLB schedule, exactly
+#: as for the opening date above.
 #:
-#: This date gates the end-of-season resolution pass
-#: (`forecast.phase2.resolution_spec`), which may not open a single outcome
-#: before the season it resolves has actually finished.
+#: Unlike the opening date, it was ALSO corroborated: on 2026-09-11 the
+#: already-configured MLB Stats API `/schedule` endpoint (`MLB_STATS_API_BASE_
+#: URL`, a configured base URL -- never a guessed or generated one, see
+#: CLAUDE.md's URL-generation rule) was queried for `gameType=R` over
+#: 2026-09-15..2026-11-15 and returned games through 2026-09-27 and none
+#: after. That corroboration agreed with the citation but is NOT the source
+#: and must never be recorded as one -- every game in that window still had
+#: status "Scheduled", so it shows what the schedule LISTED, not what was
+#: played, and a later-added makeup game would not appear in it. If this date
+#: is ever wrong or needs revision for a future season, update the date, the
+#: source citation, and the verification date together -- never change one
+#: without the others.
+#:
+#: TWO CONSUMERS, and it means something different to each.
+#:
+#: 1. NOT a gate for ingestion. `prospective_ingestion.assert_data_through_
+#:    date_agrees_with_recorded_season_end` uses it as a CROSS-CHECK against
+#:    the live schedule, never as a blind cutoff: a hardcoded end date that
+#:    refused every later request would silently skip a rainout makeup played
+#:    after the finale. The ordinary "the season is over" case is owned by the
+#:    schedule-derived guard beside it, which needs no constant at all.
+#: 2. A GATE for the Contact Forecast end-of-season resolution pass
+#:    (`forecast.phase2.resolution_spec`), which may not open a single outcome
+#:    before the season it resolves has actually finished.
 PROSPECTIVE_2026_SEASON_END_DATE = date(2026, 9, 27)
 PROSPECTIVE_2026_SEASON_END_SOURCE = (
-    "MLB official 2026 schedule announcement -- the 2026 regular season ended "
-    "2026-09-27 (maintainer-provided citation, not independently fetched by this "
-    "repository's tooling)."
+    "MLB official 2026 championship season schedule -- Regular Season Finale: Baltimore "
+    "Orioles at New York Yankees, 2026-09-27 (maintainer-provided citation, not "
+    "independently fetched by this repository's tooling)."
 )
-PROSPECTIVE_2026_SEASON_END_VERIFIED_AT = "2026-09-05"
+PROSPECTIVE_2026_SEASON_END_VERIFIED_AT = "2026-09-11"
 PROSPECTIVE_2026_SEASON_END_VERIFIED = True
 
 

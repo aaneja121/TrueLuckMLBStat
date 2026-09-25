@@ -135,9 +135,9 @@ guard.
   workflow". Inputs: `data_through` (optional -- blank auto-resolves yesterday in
   America/New_York) and `deploy` (checkbox, default OFF -- manual runs default to a dry
   run, matching the scheduled default below).
-- **Schedule**: once daily at `13:00 UTC` (`0 13 * * *`). GitHub Actions cron is fixed
-  UTC and does not shift for daylight saving: `13:00 UTC` is `09:00 America/New_York`
-  during EDT (roughly mid-March to early November -- most of the season) and `08:00`
+- **Schedule**: once daily at `13:37 UTC` (`37 13 * * *`). GitHub Actions cron is fixed
+  UTC and does not shift for daylight saving: `13:37 UTC` is `09:37 America/New_York`
+  during EDT (roughly mid-March to early November -- most of the season) and `08:37`
   during EST. Either is a conservative morning buffer after even a late West Coast
   extra-inning game; the cron time only needs to land "safely after games usually end,"
   not be exact, because the actual `--data-through` date is resolved separately (next
@@ -190,6 +190,18 @@ guard.
   inputs) -- exactly as it would locally. The workflow does not retry (a retry could race
   or attempt to bypass Version 1.1's own immutability/conflict handling) and never falls
   back to an earlier date on its own.
+- **When there was no baseball, the loop stops cleanly rather than failing.** A
+  `--data-through` date on which no game was completed -- every date after the final
+  regular-season game, a league-wide off day, a fully postponed slate -- is declined by
+  `assert_data_through_date_has_completed_games` instead of re-scoring identical data into
+  a new snapshot and a new write-once archive key. Scoring exits **3**, which
+  `publish_snapshot.sh` treats as a clean stop (exit 0; nothing archived, built, or
+  deployed), so the daily workflow goes quiet rather than red. Any other non-zero exit is
+  still a genuine failure. A second layer, `PROSPECTIVE_2026_SEASON_END_DATE`, is
+  cross-checked against the live schedule and fails loudly (exit 2) if real games
+  completed after the recorded finale; it is not a date cutoff. See `ARCHITECTURE.md`
+  § "Data flow (production)" for the full mechanism and `RESEARCH_RULES.md` for the
+  rationale.
 
 ### Frozen input bundle portability: `scripts/ensure_frozen_inputs.py`
 

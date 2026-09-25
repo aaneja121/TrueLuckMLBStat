@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pandas as pd
+import prospective_ingestion as pi
 import prospective_manifest as pm
 import pytest
 import run_v1_1_2026_scoring as runner
@@ -51,10 +52,35 @@ def _init_clean_repo(root: Path) -> Path:
     return repo_root
 
 
-@dataclass(frozen=True)
-class _FakeCompletenessResult:
-    def to_dict(self) -> dict[str, Any]:
-        return {"is_complete": True}
+def _completeness_result() -> pi.DataThroughDateCompletenessResult:
+    """A REAL `DataThroughDateCompletenessResult`, not a duck-typed stand-in.
+
+    The stand-in this replaces carried only the attributes the guards of the
+    day happened to read, so it silently went out of step every time a guard
+    started reading a new one -- which is exactly how the season-end
+    cross-check landed with two whole test files raising AttributeError.
+    Constructing the real frozen dataclass makes that drift impossible: a new
+    required field is a loud error here, at construction, instead of a
+    surprise inside a monkeypatched call.
+
+    `checked_at` is PINNED rather than real: it lands in the manifest's
+    `schema_checks`, and `SnapshotManifest.deterministic_content_hash` pops
+    only TOP-LEVEL wall-clock fields (`generated_at`, `retrieval_timestamps`),
+    so a nested live timestamp would be hashed and make two otherwise
+    identical runs look like a genuine conflict.
+
+    2026-08-05 is an ordinary in-season date: a completed slate, at or before
+    the recorded finale, so both season-end guards pass and these tests
+    exercise the path they are actually about.
+    """
+    return pi.DataThroughDateCompletenessResult(
+        data_through_date="2026-08-05",
+        is_complete=True,
+        total_games_on_date=15,
+        incomplete_games=[],
+        postponed_or_cancelled_games=[],
+        checked_at="2026-01-01T00:00:00+00:00",
+    )
 
 
 @dataclass(frozen=True)
@@ -94,7 +120,7 @@ def _stub_pipeline(
     auth = SimpleNamespace(token="stub-token", granted_at="2026-01-01T00:00:00+00:00")
     monkeypatch.setattr(runner, "run_prospective_guards", lambda **kw: auth)
     monkeypatch.setattr(
-        runner, "assert_data_through_date_is_complete", lambda *a, **kw: _FakeCompletenessResult()
+        runner, "assert_data_through_date_is_complete", lambda *a, **kw: _completeness_result()
     )
     # v1.1.2: the final independent pre-scoring coverage check also hits the
     # network by default -- stub it here too, same as the other guards.
