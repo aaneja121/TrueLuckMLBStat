@@ -5,7 +5,7 @@ gate.
 Pure logic (eligibility, candidate selection) runs fully offline with
 synthetic data. The reconciliation-gate/grid-construction tests need the
 real, ~500MB, local-only 2021-2024 development parquet (never committed,
-never fetched automatically -- see README.md "Full development dataset")
+never fetched automatically -- see docs/RESEARCH_LOG.md "Full development dataset")
 and are skipped when it's absent, exactly mirroring `tests/
 test_counterfactual_grid.py`'s own real-data-gated pattern. This file never
 touches 2025/2026 data and never contacts the network.
@@ -29,8 +29,8 @@ REAL_DEVELOPMENT_DATA_PATH = (
 
 _requires_real_dev_data = pytest.mark.skipif(
     not REAL_DEVELOPMENT_DATA_PATH.exists(),
-    reason="requires the real, local-only 2021-2024 development parquet (see README.md "
-    "'Full development dataset') -- not present in CI",
+    reason="requires the real, local-only 2021-2024 development parquet (see "
+    "docs/RESEARCH_LOG.md 'Full development dataset') -- not present in CI",
 )
 
 

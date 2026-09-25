@@ -539,7 +539,7 @@ class TestByteDeterministicGeneration:
         not REAL_DEVELOPMENT_DATA_PATH.exists(),
         reason=(
             "requires the real, local-only 2021-2024 development dataset (see "
-            "README.md 'Full development dataset') -- never present in CI, per "
+            "docs/RESEARCH_LOG.md 'Full development dataset') -- never present in CI, per "
             "CLAUDE.md's fully-offline test suite requirement"
         ),
     )

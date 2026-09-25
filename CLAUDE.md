@@ -14,7 +14,10 @@ This file is a router. It stays short on purpose — load only what your task ne
 | Domain/metric terminology | `CONTEXT.md` |
 | Where code lives, data flow, build/test commands | `ARCHITECTURE.md` |
 | Frontend/design work | `DESIGN.md` — a router itself; it points into `docs/design/*.md`. Load `docs/design/guardrails.md` for any dashboard change. Then `ARCHITECTURE.md`'s `dashboard/` section |
-| Full version history and validation results | `README.md` (large — read sections, never the whole file) |
+| Project overview, architecture, validation headlines | `README.md` (~1 page) |
+| Full version history and per-version validation results | `docs/RESEARCH_LOG.md` (large — read sections, never the whole file) |
+| Publish pipeline, R2 archival, history sync, credentials, recovery | `docs/OPERATIONS.md` |
+| Eligible/excluded events, public-data limits, licensing, reproducibility | `docs/DATA.md` |
 
 `AGENTS.md` is the same router for Codex and other cross-agent tooling — keep the two in
 sync when routing changes.
@@ -40,7 +43,7 @@ sync when routing changes.
 
 ## Working style
 
-- **Search before reading.** grep/glob to locate; never read the repo (or `README.md`)
+- **Search before reading.** grep/glob to locate; never read the repo (or `docs/RESEARCH_LOG.md`)
   broadly by default.
 - **Inspect before editing.** Read the real file and its tests first.
 - **Prefer small, reviewable diffs.** No unrelated refactors.

@@ -6,7 +6,8 @@ previously the body of `CLAUDE.md`; the text below is unchanged. `CLAUDE.md` is 
 short router that points here so purely presentational work (`dashboard/`) does not have
 to load the whole research rulebook — but nothing here is optional for research work.
 
-Read `README.md` for project scope and version history; this file is about *how to work
+Read `README.md` for project scope and `docs/RESEARCH_LOG.md` for version history; this
+file is about *how to work
 here safely*, not *what the project is*.
 
 ## The single most important rule
@@ -108,6 +109,14 @@ The authorization is deliberately narrow:
   because it records the state at freeze time. Do not "fix" it -- that flag is the
   evidence the questions preceded the sign-off, and editing it would invalidate the
   freeze.
+
+**A freeze hashes bytes, not behavior: editing only a comment or docstring in a frozen
+file still breaks it.** The two frozen sets are
+`replication.pitcher_replication_freeze.FROZEN_SOURCE_RELATIVE_PATHS` (15 files, verified
+by the freeze) and `evaluation.v1_final_evaluation_manifest.FROZEN_ARTIFACT_RELATIVE_PATHS`
+(32, pinned in `outputs/final_evaluation/v1/v1_final_report.json`'s
+`manifest.artifact_hashes`). Before touching any file in either list -- even to fix a stale
+doc reference -- check it against both, and leave it alone.
 
 It does NOT authorize: changing the metric, denominator, interval estimator,
 resolving-power or split-half methodology, the role/display rules, or the primary and
@@ -369,7 +378,7 @@ All fair-batted-ball eligibility rules, outcome-class mapping, and training-excl
 reasons live in `mlb_luck_score/eligibility.py` and nowhere else. Do not duplicate the
 eligible-event list, the outcome mapping, or the ambiguous-event handling in another
 module, script, or notebook -- import from `eligibility.py`. If the rules need to
-change, change them there and update its docstrings and `README.md`/this file together.
+change, change them there and update its docstrings, `docs/DATA.md` and this file together.
 
 ## Never silently redefine the Luck Score
 
@@ -398,7 +407,7 @@ changed FROM `class_weight="balanced"` after that setting was confirmed (via a c
 comparison on real 2021-2024 data, isolating `class_weight` as the only variable changed)
 to cause severe probability miscalibration -- e.g. rows called ~54% likely to be a triple
 were observed to be one ~3.6% of the time. See "Model comparison and probability
-calibration" in README.md and `mlb_luck_score.models.compare_models` for the exact numbers
+calibration" in docs/RESEARCH_LOG.md and `mlb_luck_score.models.compare_models` for the exact numbers
 and methodology. `class_weight="balanced"` is preserved ONLY as the explicitly-labeled
 `VARIANT_CLASS_BALANCED` comparison model (`mlb_luck_score.models.train_contact_model`) --
 never use its output, or any other class-reweighting/oversampling scheme, to produce
@@ -430,27 +439,27 @@ Version 0.4 park-geometry candidates (`geometry_only_v04_candidate` and
 despite a large, bootstrap-confirmed log-loss and near-wall-calibration improvement on real
 2021-2024 data, `recommend_geometry_adoption` reports `recommend_adopt_any_v04_candidate:
 False` because a reliably-sampled venue (loanDepot park) shows a material calibration
-regression -- see "Park geometry (Version 0.4)" in README.md for the full numbers. The
+regression -- see "Park geometry (Version 0.4)" in docs/RESEARCH_LOG.md for the full numbers. The
 Version 0.5 weather candidates (`weather_basic_v05_candidate` and `weather_vector_v05_
 candidate`, `mlb_luck_score.models.compare_weather_aware`) are an even sharper illustration of
 why: they pass ALL 8 automatable adoption criteria (`recommend_adopt_any_v05_candidate: True`)
 with a real, bootstrap-confirmed (if tiny) log-loss improvement, but a direct physical
 -plausibility check -- the one criterion the rule deliberately never automates -- found the
 per-play weather attribution weak and partly wrong-signed (see "Weather and air density
-(Version 0.5)" in README.md), so neither has been adopted either. Version 0.5.1
+(Version 0.5)" in docs/RESEARCH_LOG.md), so neither has been adopted either. Version 0.5.1
 (`mlb_luck_score.models.compare_weather_variants`) went further and made the physical
 -plausibility check itself a checkable, automated gate (controlled-perturbation directional
 checks, see `mlb_luck_score.models.weather_perturbation`) combined via AND with the usual
 statistical criteria -- `density_only_v051_candidate` and `density_anomaly_v051_candidate`
 don't even clear bootstrap significance on real 2024 data, and `components_only_v051_candidate`
 does but fails the perturbation checks (backwards density AND wind direction) -- see "Weather
-correction (Version 0.5.1)" in README.md. `recommend_adopt_any_v051_candidate: False`;
+correction (Version 0.5.1)" in docs/RESEARCH_LOG.md. `recommend_adopt_any_v051_candidate: False`;
 `baseline_v02` remains the default. Version 0.6 (`mlb_luck_score.models.
 compare_alignment_aware`) confirms the same pattern for defensive alignment: `alignment_
 interactions_v06` shows a real, bootstrap-confirmed aggregate improvement, yet fails
 adoption on both a material `bb_type_ground_ball` subgroup regression and a
 backwards-signed controlled-perturbation check (see "Watch for confounding-by-indication"
-above and "Alignment-aware positioning (Version 0.6)" in README.md) --
+above and "Alignment-aware positioning (Version 0.6)" in docs/RESEARCH_LOG.md) --
 `recommend_adopt_any_v06_candidate: False`; `baseline_v02` remains the default. This
 pattern generalizes: any future comparison variant (more park factors, exact defender
 positioning/execution, etc.) stays a candidate, reported with its exact metrics via
@@ -588,7 +597,7 @@ When evaluating ANY future feature that reflects a strategic choice rather than 
 physical fact (park geometry and weather are physical facts; alignment, positioning, and
 similar decisions are not), treat a backwards-signed controlled-perturbation result as a
 likely confounding signal first, not immediately as a bug to "fix" by relaxing the check --
-see "Alignment-aware positioning (Version 0.6)" in README.md for the full real-data writeup.
+see "Alignment-aware positioning (Version 0.6)" in docs/RESEARCH_LOG.md for the full real-data writeup.
 
 ## pandas' `pd.NA` sentinel breaks more than `SimpleImputer` -- audit raw comparisons too
 
@@ -700,7 +709,7 @@ the specialist is still comparatively much better than the alternative. The rema
 subgroups/venues are honestly `insufficient_evidence` (mostly smaller venues and the
 `near_wall_5ft`/`spray_sector_left`/`spray_sector_left_center`/`spray_sector_right`/
 `opportunity_time_q1_shortest`/`opportunity_time_q2` subgroups) -- NOT reported as passing.
-See "Version 0.7D: calibration-gate correction" in README.md for the full table.
+See "Version 0.7D: calibration-gate correction" in docs/RESEARCH_LOG.md for the full table.
 
 `near_wall_specialist_calibrated` is `True` ONLY if every subgroup/venue is EITHER
 `calibrated` or has adequate evidence with nothing `not_calibrated` -- if some groups are
@@ -782,7 +791,7 @@ never touch CI/CD configuration without the user explicitly asking first in that
 conversation. Downloading Statcast data requires internet access -- that's expected and
 fine, but always say so before running a download. The full development dataset download
 (`make download-development-data`, all four 2021-2024 seasons) is large and can take a
-long time (see README.md "Full development dataset" for storage/runtime estimates) --
+long time (see docs/RESEARCH_LOG.md "Full development dataset" for storage/runtime estimates) --
 implement and test that workflow with synthetic data first, then show the user the exact
 command and its storage/runtime considerations, and get explicit approval before actually
 running it against the network.

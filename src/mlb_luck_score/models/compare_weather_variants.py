@@ -8,8 +8,8 @@ derived quantity alongside every variable used to compute it creates severe
 multicollinearity: individual linear-model coefficients (and therefore
 per-play weather attribution) become unstable and can flip sign even when
 the model's AGGREGATE calibration looks fine. This is exactly what Version
-0.5's physical-plausibility check found (see README.md "Weather and air
-density (Version 0.5)") -- a real, tiny, bootstrap-confirmed log-loss
+0.5's physical-plausibility check found (see docs/RESEARCH_LOG.md "Weather
+and air density (Version 0.5)") -- a real, tiny, bootstrap-confirmed log-loss
 improvement paired with a weather attribution that correlated the WRONG
 direction with air density and following wind.
 
@@ -133,8 +133,8 @@ DEFAULT_MEANINGFUL_LOG_LOSS_REGRESSION_MARGIN = 0.0
 DEFAULT_MIN_WEATHER_COVERAGE = 0.5
 
 #: Controlled-perturbation scenario magnitudes. Chosen to span a physically
-#: realistic real-world range (see README.md "Weather and air density
-#: (Version 0.5)": real air density across 2021-2024 games ranges roughly
+#: realistic real-world range (see docs/RESEARCH_LOG.md "Weather and air
+#: density (Version 0.5)": real air density across 2021-2024 games ranges roughly
 #: 0.95-1.30 kg/m^3) without extrapolating to absurd values. Documented
 #: Version 0.5.1 research placeholders, not validated thresholds.
 LOW_DENSITY_KG_M3 = 1.05

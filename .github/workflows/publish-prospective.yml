@@ -13,14 +13,14 @@ name: Publish prospective snapshot
 #        ALL correctness/safety guards: clean working tree, date
 #        completeness, coverage validation, conflict detection)
 #     -> scripts/archive_snapshot.py             (durable Cloudflare R2
-#        archive -- see "Durable archival" in README.md. Runs BEFORE
+#        archive -- see "Durable archival" in docs/OPERATIONS.md. Runs BEFORE
 #        history sync/the dashboard build; if it fails, nothing after it
 #        ever runs.)
 #     -> scripts/archive_snapshot.py --sync-history
 #                                                 (repopulate any OTHER
 #        archived snapshot missing on this disposable runner, so the
 #        dashboard's season-to-date trend charts see the full history, not
-#        just today's point -- see "Durable archival" in README.md)
+#        just today's point -- see "Durable archival" in docs/OPERATIONS.md)
 #     -> dashboard/build.py                     (static site)
 #     -> wrangler pages deploy                  (Cloudflare Pages)
 #
@@ -41,7 +41,8 @@ name: Publish prospective snapshot
 # History sync ALWAYS runs, even in dry-run mode -- it only READS from R2,
 # never writes, so it validates the real CI dashboard-build behavior
 # (multi-point trend charts) without touching any external WRITE path. See
-# "Enabling production scheduled deploys" below and in README.md.
+# the SCHEDULED_AUTO_DEPLOY comment below, and "Toggling the mode" under
+# "Scheduled publication" in docs/OPERATIONS.md.
 
 on:
   workflow_dispatch:
@@ -86,8 +87,8 @@ on:
     # only needs to be "safely after games usually end," not exact -- if a
     # slate isn't actually complete yet for some other reason,
     # run_v1_1_2026_scoring.py's own date-completeness guard rejects the
-    # run rather than scoring partial data. See "Failure behavior" in
-    # README.md.
+    # run rather than scoring partial data. See "When a guard rejects a
+    # run" under "Scheduled publication" in docs/OPERATIONS.md.
     - cron: '0 13 * * *'
 
 concurrency:
@@ -120,9 +121,10 @@ jobs:
           MANUAL_DATE: ${{ inputs.data_through }}
           MANUAL_DEPLOY: ${{ inputs.deploy }}
           # The ONE switch that turns scheduled runs from dry-run into real
-          # production deploys -- see "Enabling production scheduled
-          # deploys" in README.md. Unset/anything-other-than-"true" means
-          # dry run; this is the safe default.
+          # production deploys -- see "Toggling the mode" under "Scheduled
+          # publication" in docs/OPERATIONS.md.
+          # Unset/anything-other-than-"true" means dry run; this is the safe
+          # default.
           SCHEDULED_AUTO_DEPLOY: ${{ vars.PROSPECTIVE_AUTO_DEPLOY }}
           # Manual only. The scheduled path never sets it, so the normal
           # production loop is byte-for-byte unaffected by this mode.
@@ -171,7 +173,7 @@ jobs:
           if [ "$DEPLOY_REQUESTED" = "true" ]; then
             MODE="DEPLOY (production: score -> archive -> sync-history -> build -> deploy)"
           else
-            # Conservative initial rollout (see README.md "Durable
+            # Conservative initial rollout (see docs/OPERATIONS.md "Durable
             # archival"): dry runs pass BOTH --skip-archive and
             # --skip-deploy, so scheduled/manual dry runs never WRITE to R2
             # and never touch Cloudflare Pages until real R2 archival has

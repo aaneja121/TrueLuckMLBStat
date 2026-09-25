@@ -5,7 +5,8 @@ adoption rule (`mlb_luck_score.models.compare_weather_aware.
 recommend_weather_adoption`) -- this module provides the reusable
 computation, but a caller should not treat its output as a validated,
 headline Contact Luck component unless that gate has actually been passed
-(see README.md "Weather attribution (Version 0.5)"). Building and testing
+(see docs/RESEARCH_LOG.md "Weather and air density (Version 0.5)").
+Building and testing
 this infrastructure does not itself constitute adoption.
 
     expected_run_value_actual_environment   = E[run_value | actual effective weather]

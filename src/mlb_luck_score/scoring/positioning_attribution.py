@@ -5,7 +5,8 @@ adoption rule (`mlb_luck_score.models.compare_alignment_aware.
 recommend_alignment_adoption`) -- this module provides the reusable
 computation, but a caller should not treat its output as a validated,
 headline Contact Luck component unless that gate has actually been passed
-(see README.md "Alignment-aware positioning (Version 0.6)"). Building and
+(see docs/RESEARCH_LOG.md "Alignment-aware positioning (Version 0.6)").
+Building and
 testing this infrastructure does not itself constitute adoption.
 
     expected_run_value_actual_alignment  = E[run_value | actual starting alignment]

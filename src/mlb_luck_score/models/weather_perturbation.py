@@ -3,7 +3,8 @@
 Version 0.5's adoption process caught two real bugs precisely because it
 checked whether the model's WEATHER effects made physical sense, not just
 whether aggregate calibration improved (see `mlb_luck_score.scoring.
-weather_attribution` and README.md "Weather and air density"). This module
+weather_attribution` and docs/RESEARCH_LOG.md "Weather and air density
+(Version 0.5)"). This module
 generalizes that idea into a reusable, directly-testable mechanism:
 override specific feature columns to controlled values across a row sample,
 predict with an already-trained model, and check whether the AGGREGATE

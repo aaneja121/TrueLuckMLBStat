@@ -47,8 +47,8 @@ build_play_explorer_fixture.py`) places no limit on ledger size -- it is
 equally capable of processing a full canonical season ledger; only the
 INPUT here is intentionally bounded.
 
-Usage (requires the full 2021-2024 development dataset -- see README.md
-"Full development dataset"; real 2021-2024 data is local-only, gitignored,
+Usage (requires the full 2021-2024 development dataset -- see
+docs/RESEARCH_LOG.md "Full development dataset"; real 2021-2024 data is local-only, gitignored,
 never committed; requires network access for name resolution only):
 
     .venv/bin/python demo/build_play_explorer_dev_ledger.py

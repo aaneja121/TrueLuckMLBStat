@@ -21,8 +21,8 @@ DEFAULT_RUN_VALUE_MAP`. Nothing here retrains, recalibrates, or reselects
 any model, feature, or threshold -- it only asks the ALREADY-FROZEN Version
 0.2 pipeline what it says about two real, already-recorded 2024 plays.
 
-Usage (requires the full 2021-2024 development dataset -- see README.md
-"Full development dataset" / `make clean-development-data`; no network
+Usage (requires the full 2021-2024 development dataset -- see
+docs/RESEARCH_LOG.md "Full development dataset" / `make clean-development-data`; no network
 access, this reads the already-cached local parquet):
 
     .venv/bin/python demo/build_demo_fixture.py
@@ -266,7 +266,8 @@ def build_demo_fixture(input_path: Path = DEFAULT_INPUT_PATH) -> dict[str, Any]:
     if not input_path.exists():
         raise DemoFixtureBuildError(
             f"{input_path} not found. This script requires the full 2021-2024 development "
-            "dataset (see README.md 'Full development dataset' / `make clean-development-data`) "
+            "dataset (see docs/RESEARCH_LOG.md 'Full development dataset' / "
+            "`make clean-development-data`) "
             "-- it is never downloaded automatically."
         )
 

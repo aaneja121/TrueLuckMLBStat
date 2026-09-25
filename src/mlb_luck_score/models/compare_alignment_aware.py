@@ -12,8 +12,8 @@ pre-pitch category labels ("Standard"/"Strategic"/"Infield shift"/"Infield
 shade" for the infield; "Standard"/"Strategic"/"4th outfielder" for the
 outfield), never exact coordinates, pre-contact movement, reaction time,
 route efficiency, or a judgment of whether the alignment chosen was
-strategically appropriate. See README.md "Alignment-aware positioning
-(Version 0.6)" for the full limitation statement.
+strategically appropriate. See docs/RESEARCH_LOG.md "Alignment-aware
+positioning (Version 0.6)" for the full limitation statement.
 
 Controlled variants, trained on the SAME 2021-2023 rows and evaluated on the
 SAME untouched 2024 validation rows (2025 never touched), all with

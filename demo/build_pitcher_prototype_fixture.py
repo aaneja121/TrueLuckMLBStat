@@ -26,8 +26,8 @@ from importing.
   convention and the season arithmetic come from `mlb_luck_score.scoring.
   pitching_contact_luck` unchanged.
 - Never resolves a name over the network. Raw Statcast's `player_name`
-  column IS the pitcher's name (see README.md Version 0.13, "`batter_name`
-  is not populated"), so pitcher identity is available locally and this
+  column IS the pitcher's name (see docs/RESEARCH_LOG.md Version 0.13,
+  "`batter_name` is not populated"), so pitcher identity is available locally and this
   script makes no API call at all.
 
 ## What it adds beyond the Version 0.13 season table

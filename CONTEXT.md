@@ -1,7 +1,7 @@
 # CONTEXT.md -- domain and project terminology
 
 Terms a future agent needs to read this repository, its data, and its UI copy correctly.
-Definitions only — no model methodology (see `RESEARCH_RULES.md` and `README.md` for
+Definitions only — no model methodology (see `RESEARCH_RULES.md` and `docs/RESEARCH_LOG.md` for
 that), no product intent (see `PRODUCT.md`).
 
 ## The metric
