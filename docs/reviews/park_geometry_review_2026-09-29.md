@@ -179,14 +179,17 @@ Nationals, Chase.
 The table covers 2021–2024 venues only. Before v1.2 can score 2026 or 2027:
 
 - **Kauffman Stadium's configuration ends 2025-12-31**, implying a known wall change for
-  2026 that has no record yet.
+  2026. *Now sourced — see the gap resolution pass below.*
 - **Camden Yards changed again for 2025** (left-field wall moved in to about 373–374 ft and
   lowered to 8 ft, per [FanGraphs, 2024-11-18](https://blogs.fangraphs.com/wall-over-but-the-shoutin-camden-yards-gets-new-dimensions/)),
   but `camden_yards_2022_2024` has **no end date**, so it would silently cover 2025 onward.
-  v1.2 needs an end date on it and a new 2025+ configuration.
+  v1.2 needs an end date on it and a new 2025+ configuration. *End date approved; the 2025+
+  configuration is drafted in the gap resolution pass below.*
 - **Venues used after 2024 are absent**, including the Athletics' and Rays' temporary homes.
   Which venues each team used in 2025–2027 must be confirmed from an official source, not
-  assumed.
+  assumed. *Confirmed in the gap resolution pass below: Sutter Health Park 2025–27, Las Vegas
+  Ballpark (six A's games each in 2026 and 2027), Steinbrenner Field 2025, Tropicana Field again
+  from 2026.*
 - Any other wall changes made after the 2024 season.
 
 ## Official alley pass (MLB.com ballpark guides) — in progress
@@ -214,7 +217,7 @@ renovation rather than a stored error.
 | `dodger_stadium_v1` | 330 / **375** / 400 / **375** / 330 | 330; left-center 385; CF 395; right-center 385; 330 | ⚠ **alleys 385 vs stored 375.** CF 395 is the posted sign; stored true 400 stays under measured-over-posted |
 | `petco_park_v1` | 336 / **390** / 396 / 391 / 331→322 | 336; left-center 386; 396; right-center 391; 322 | ⚠ **LC 386 vs 390**; RF 322 confirms the approved fix |
 | `guaranteed_rate_field_v1` | 330 / 375 / 400 / 375 / **335** | 330; left-center 375; 400; right-center 375; **right field 330** | ⚠ **RF 330 vs 335** — contradicts Wikipedia and Ballparks of Baseball |
-| `kauffman_stadium_v1` (ends 2025) | 330 / 387 / 410 / 387 / 330 | **2026:** lines 364; LC/RC 379; CF 410; fence 8.5 | ℹ new 2026 configuration — the coverage gap, now sourced |
+| `kauffman_stadium_v1` (ends 2025) | 330 / 387 / 410 / 387 / 330 | **2026:** "Left and right field, 364"; LC/RC 379; CF 410; fence 8.5 | ℹ new 2026 configuration — the coverage gap, now sourced. *Correction (gap pass below):* 364 is straightaway LF/RF; the foul poles stay 330 |
 
 ### Guide gives lines and center only — alleys still need a team source
 
@@ -272,6 +275,8 @@ renovation rather than a stored error.
 Angel Stadium, Great American Ball Park, Target Field, Nationals Park, Tropicana Field,
 T-Mobile Park, Chase Field, Daikin Park, loanDepot park. Their lines and center match the
 MLB.com guides (above); their stored alleys stay as they are, unconfirmed.
+*Superseded by the gap resolution pass below:* official figures were later found for six of the
+nine (T-Mobile, Chase, Nationals, Target, loanDepot and Daikin) and for Angel Stadium's LC.
 
 **Questions for the maintainer:**
 
@@ -283,3 +288,83 @@ MLB.com guides (above); their stored alleys stay as they are, unconfirmed.
 - **B. American Family Field RF:** official 345 (Brewers ground rules) vs stored 337, whose
   only source for being "measured" is Wikipedia. *Suggestion:* 345 — without an official or
   independent measured source, the team figure is the documented value.
+
+## Gap resolution pass (2026-09-29)
+
+Covers every item left open above. All rows are **proposals awaiting the maintainer**;
+nothing here changes a `review_status`. Sources retrieved 2026-09-29.
+
+**New corroborating source: MLB Stats API `fieldInfo`**
+(`https://statsapi.mlb.com/api/v1/venues/<id>?hydrate=fieldInfo&season=<year>`). This is the
+league's own data, but it is **not reliable on its own**. It still has loanDepot's pre-2020
+CF 407 / RC 392, T-Mobile's pre-2013 alleys 390 / 387 and Angel Stadium's pre-2014 signs
+389 / 365. For some parks it gives deep-corner values (Coors 420 / 424, Chase 412 / 414,
+Tropicana 410 / 404). Use it only to corroborate a team figure, never as the deciding source.
+
+### Petco left-center: 386 or 390 — resolved in favour of 386
+
+| Evidence | Quote / value |
+|---|---|
+| 2013 move-in ([Ballpark Digest, 2012-10-23](https://ballparkdigest.com/201210235751/major-league-baseball/news/padres-moving-in-petco-park-fences-for-2013)) | "The deepest portion of the left center field gap will be decreased from 402 feet to 390 feet" |
+| **2015 move-in** (Padres press release, [MLB.com, 2014-11-06](https://www.mlb.com/padres/news/san-diego-padres-announce-left-field-renovations-for-2015/c-100712862)) | "the padded outfield wall in left field and left center field will be brought in approximately 34"-38" from where it begins in left field to the bullpen entrance in left center field. That same portion of the wall will be lowered to seven-feet tall, from its existing height of eight-feet." |
+| MLB.com guide; Stats API (2021–2026) | left-center 386 |
+
+The dated 2015 change explains the gap: 390 minus about 3 ft is about 386–387. **Proposed:**
+`petco_park_v1` LC **386** for 2021–24 (the frozen config starts 2013, so strictly it has
+been stale since 2015). **Heights:** proposed **7 ft at LC**. Stored LF height is none: the
+wall "begins in left field", so it is unclear whether the 7 ft section reaches the −45° point
+at the Western Metal building corner. Leave LF open.
+
+### Oracle Park wall heights
+
+| Point | Frozen | Evidence | Proposal |
+|---|---|---|---|
+| CF (0°) | 8.5 (midpoint) | Giants' 2020 announcement: "The new center-field wall will be seven feet high instead of eight" ([MLB.com, 2019-12-16](https://www.mlb.com/news/giants-to-move-in-outfield-fences-in-2020)). Then, before the 2020 home opener: "The center field wall, which used to be seven feet tall, has been lengthened to 10 feet tall. The change happened after the Giants' exhibition against the Oakland A's last week." ([NBC Sports Bay Area, 2020-07-28](https://www.nbcsportsbayarea.com/mlb/why-giants-raised-oracle-park-center-field-wall-to-10-feet-last-week/1305229/); quote re-verified verbatim 2026-09-29) | **10 ft** for 2021–24. Dated, specific, and it explains the 7 / 8 / 10 spread behind the midpoint |
+| LF (−45°) | 8 | Wikipedia 8; Clem 8; Seamheads 8. No team figure found | **Keep 8.** Three sources agree, but none is official |
+| RCF (+22.5°, 415) | 20 | Triples Alley is "where the center field and the brick right field wall intersect" ([SFGate, 2019-12](https://www.sfgate.com/giants/article/SF-Giants-new-bullpen-location-at-Oracle-Park-14904163.php)). Wikipedia 20; Seamheads 25 (stale, pre-2020); Ballpark Pal 25 (already rejected for RF) | **Maintainer decision.** The +22.5° point sits on the junction between the ~7 ft CF fence and the 24 ft brick wall, so no single height is correct there. Options: 24 (the brick wall, consistent with RF), the lower CF-fence height, or keep 20 (no source). *Suggestion:* 24. Ballpark Pal describes the brick wall running "to the deep '415' sign", so the 415 point is the brick wall's end |
+
+### Parks that had no official alley figure
+
+| Config | Stored LC / RC | Official figure found (quoted) | Proposal |
+|---|---|---|---|
+| `t_mobile_park_v1` | 378 / 381 | Mariners, 2012-10-02 ([MLB.com](https://www.mlb.com/news/mariners-revise-outfield-wall-dimensions-in-2013/c-39366456)): "The distance at the left field power alley will decrease from 390-feet to 378-feet … At straightaway center field, the distance will decrease from 405-feet to 401-feet … The distance at the power alley will decrease from 385-feet to 381-feet … the height of the outfield wall will be eight-feet from foul pole to foul pole." | ✅ **LC/RC confirmed.** The dated source also settles the CF conflict: **401 stands.** **Heights 8 ft all** (stored none) |
+| `chase_field_v1` | 374 / 374 (RF 334) | D-backs facts page ([team page](https://www.mlb.com/dbacks/ballpark/information/facts-figures)): "Field dimensions : LF: 330' LCF: 376' CF: 407' RCF: 376' RF: 335' Outfield Wall Height : LF: 7'6" CF: 25' RF: 7'6"" | ⚠ **Proposed LC/RC 376, RF 335** (matches the MLB.com guide). **Heights LF 7.5, CF 25, RF 7.5**; alley heights not given |
+| `nationals_park_v1` | 377 / 370 (LF 337) | Nationals facts page ([team page](https://www.mlb.com/nationals/ballpark/information/facts-and-figures)): "Left Field: 336 Feet Left-Center Field: 377 Feet Center Field: 402 Feet Right-Center Field: 370 Feet Right Field: 335 Feet" | ✅ **LC/RC confirmed.** ⚠ **Proposed LF 336** (team page, MLB.com guide and Stats API agree) |
+| `target_field_v1` | 377 / 367 | Minnesota Ballpark Authority, the public owner ([facts](https://ballparkauthority.com/about/target-field-facts/)): "339' to left; 377' to left field power alley; 404' to center; 367' to right field power alley; and 328' to right. The outfield walls are 8' from the left field foul pole to right center field and 23' from right center field to the right field foul pole." | ✅ **LC/RC confirmed** (the owner, not the team; Stats API agrees). **Heights: LF/LC/CF 8, RF 23.** RC falls on the 8 → 23 boundary: maintainer decision, like Oracle RCF |
+| `loandepot_park_v1` | 386 / 387 | 2012 original "386 feet in left-center"; 2016 change left it alone ("the out-of-town scoreboard built into the wall in left-center will not change", [MLB.com, 2015-12](https://www.mlb.com/marlins/news/marlins-park-fences-to-be-moved-in-soon/c-159184524)); 2020: "Center field went from 407 feet to 400 feet, and right-center moved in from 399 feet to 387 feet" ([MLB.com, 2020-07](https://www.mlb.com/news/marlins-think-ballpark-new-dimensions-will-help)) | ✅ **LC 386 and RC 387 confirmed** by dated official articles. LF: the 2015 article says 344 ("Down the line, the distances will remain 344 and 335"), the guide says 345. Keep 344; 1 ft |
+| `minute_maid_park_v1` (Daikin) | 366 / 370 | Astros facts page ([team page](https://www.mlb.com/astros/ballpark/information/facts-and-figures)): "Left field - 315 feet Left-center - 366-399 feet Center field - 409 feet Right-center - 370 feet Right field - 326 feet Height of wall: Left field - 19 feet Left-center - 25 feet Center field - 10 feet Deepest point - 10 feet Right-center - 10 feet Right field - 7 feet" | ✅ **RC 370 confirmed; CF 409 confirmed** (settles that conflict). **LC: question C below.** **Heights: LF 19 (as stored), LC 25, CF 10, RC 10, RF 7** |
+| `angel_stadium_v1` | 390 / 370 | Angels, 2014-03-31 ([MLB.com](https://www.mlb.com/angels/news/angel-stadiums-wall-markers-get-true-distance-updates/c-70561164)): "Left-center has gone from 387 to 390 … the numbers now read 'true distance'" | ✅ **LC 390 confirmed.** RC 370: no team figure; stays unconfirmed |
+| `gabp_v1` | 379 / 370 | Reds FAQ ([team page](https://www.mlb.com/reds/news/great-american-ball-park-dimensions-faq)): "The left-field distance is 328 feet with a 12-foot wall, center field is 404 feet and right field is 325 feet, with both having a wall height of 8 feet." No alleys | Alleys stay unconfirmed; Stats API agrees with 379 / 370. **Heights: LF 12, CF 8, RF 8** |
+| `tropicana_field_v1` | 370 / 370 | Nothing found (Rays history page not retrievable; the Stats API values are unusable) | Stays unconfirmed |
+
+**Question C (Daikin Park): the team gives left-center as a range, "366-399 feet".** Rule A
+does not cover a range. *Suggestion:* **366**, the stored value. It is the Crawford Boxes
+face at the alley. 399 is the deep notch next to center field, which the MLB.com guide
+mislabelled as CF. Put 399 on the deferred list for a later version with sourced angles.
+
+### Coverage gaps — configurations to add in v1.2
+
+| New config | Dates | LF / LC / CF / RC / RF | Heights | Source |
+|---|---|---|---|---|
+| `kauffman_stadium_2026` | from 2026 (v1 ends 2025-12-31) | **330 / 379 / 410 / 379 / 330** | **8.5 all** | Royals history page ([team page](https://www.mlb.com/royals/history/ballparks)): "Foul Poles 330 feet Left Field Corner 347 feet Straightaway Left Field 364 feet Left-Center Gap 379 feet Center Field 410 feet Right Field Corner 344 feet Straightaway Right Field 364 feet Right-Center Gap 379 feet Fence Height 8.5 feet". The MLB.com guide's "Left and right field, 364" is **straightaway** left/right, not the lines (corrected in the table above). Corners 347 / 344 and straightaway 364 / 364 go to the deferred list |
+| `camden_yards_2025` | from 2025 (2022–24 config ends with the 2024 season, already approved) | **333 / 363 / 400 / 373 / 318** | LF **8**; LC between 8 and 6.92 (see note) | Orioles ground rules ([team page](https://www.mlb.com/orioles/ballpark/ground-rules)): "Lowering the previous 13-foot wall to 8 feet near the left field foul pole and to 6 feet, 11 inches closer to the left-center bullpens … Distance from home plate – left field corner: 373 ft., left-center: 363 ft., left-center bullpen 376 ft." Lines, CF and RC are not listed as changed. LC 363 is the point the team labels left-center (rule A). *Note:* the LC height is not stated at 363; the wall slopes from 8 ft to 6 ft 11 in. *Suggestion:* 6.92 (6 ft 11 in), the nearer figure, pending an official diagram. Corner 373 and bullpen 376 go to the deferred list |
+| `sutter_health_park` (venue 2529) | 2025–2027 (Athletics; [MLB.com press release, 2024-04-04](https://www.mlb.com/press-release/press-release-sutter-health-park-in-west-sacramento-to-host-a-s-for-2025-2027-seasons)) | **330 / 380 / 403 / 380 / 325** | none found | Lines and CF from the MLB.com guide. **Alleys from the Stats API only** (lower confidence: no team, River Cats or guide figure exists; Clem marks them unknown) |
+| `las_vegas_ballpark` (venue 5355) | **6 A's home games in 2026 and 6 in 2027** ([MLB.com 2026 schedule](https://www.mlb.com/news/a-s-announce-2026-schedule-including-homestand-in-las-vegas): "June 8-14 at Las Vegas Ballpark") | **340 / 380 / 415 / 380 / 340** | none found | Stats API and Wikipedia agree; the Aviators' facts page gives no dimensions. **A venue the earlier gap list missed** |
+| `steinbrenner_field` (venue 2523) | 2025 only | 318 / ? / 408 / ? / 314 | none found | MLB.com guide: "Left field, 318 feet; center field, 408 feet; right field, 314 feet". Alleys conflict: MLB.com calls the field "identical to Yankee Stadium" (which would mean 399 / 385), Seamheads gives 385 / 360, the Stats API has none. **Needed only to score 2025, which is sealed**, so it does not block 2026–27; left open |
+| Tropicana Field return | 2026– | reuse `tropicana_field_v1` (no end date) | — | Rays returned for the 2026 home opener ([SI](https://www.si.com/mlb/rays/onsi/news/rays-return-to-tropicana-field-in-long-awaited-2026-home-opener)); the 2026 upgrades article ([MLB.com, 2025-11-12](https://www.mlb.com/news/rays-announce-tropicana-field-upgrades-ticket-information-2026)) names no field-dimension change. Unconfirmed: whether the rebuilt walls kept their exact positions |
+
+**Still open after this pass:** Oracle RCF height, Target RC height and Daikin LC (the three
+maintainer decisions above); Camden 2025 LC height; Petco LF height; Angel RC,
+GABP LC/RC and Tropicana LC/RC (no team figure exists online); Steinbrenner alleys
+(2025 only). Not yet checked: one-off neutral-site games in 2025–27 (e.g. special-event
+venues), which need a schedule check against the Stats API venue IDs.
+
+### Maintainer decisions on the gap pass (2026-09-29)
+
+| Question | Decision | Reason |
+|---|---|---|
+| Oracle RCF (+22.5°, 415) height | **24 ft** | The 415 point is the end of the brick right-field wall; consistent with the RF 24 ft decision |
+| Target Field RC (+22.5°) height | **8 ft** | The owner: walls are "8' from the left field foul pole to right center field", read as including right-center; 23 ft starts after it |
+| Question C, Daikin LC | **366 ft** (stored value) | Crawford Boxes face at the alley; 399 (deep notch beside center) goes to the deferred list |
+
+The other rows in the gap pass remain **proposals** until the maintainer approves them.
