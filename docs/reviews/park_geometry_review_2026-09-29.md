@@ -227,3 +227,33 @@ renovation rather than a stored error.
 | `guaranteed_rate_field_v1` | RF 335; LC/RC 375 / 375 | White Sox ballpark page: "Left Field Line: 330 feet Left Centerfield: 377 feet Centerfield: 400 feet Right Centerfield: 372 feet Right Field Line: 335 feet" ([team page](https://www.mlb.com/whitesox/ballpark/information/guide)); MLB.com guide says 330 / 375 / 400 / 375 / 330 | No change found | **RF: keep 335** (team page beats the guide). **Proposed under team-official rule: LC 377, RC 372** — awaiting maintainer. |
 | `dodger_stadium_v1` | 330 / 375 / 400 / 375 / 330 | Dodgers history page: "Left field: 330; Left-center: 385; Center field: 395; Right-center: 385; Right field: 330"; "From foul pole to the bullpens, the outfield fence is 55 inches high (about 4.5 feet). From bullpen to bullpen, the fence is 8 feet high." ([team page](https://www.mlb.com/dodgers/history/ballparks)) | 385 / 395 are posted signs; true CF is 400 (signs sit left and right of dead center); stored 375 alleys are listed elsewhere as "true" | **Rule conflict — maintainer decision:** team-official LC/RC (385) vs measured-over-posted (375). **Heights:** official 4.5 ft (lines to bullpens) and 8 ft (between bullpens) proposed; stored has none. |
 | `petco_park_v1` | LC 390 | MLB.com guide 386 | 2013 fence move took left-center 402 → 390 (announcements); no later change found | **Unresolved.** No dated source for 386. Keep 390 until one is found. |
+
+### Team-site pass (official team pages on MLB.com, retrieved 2026-09-29)
+
+| Config | Stored LF / LC / CF / RC / RF (heights) | Official team figure (quoted) | Result |
+|---|---|---|---|
+| `wrigley_field_v1` | 355 / 368 / 400 / 368 / 353 (11.5 → approved 15 at corners) | Cubs: "Height of wall: Bleachers - 11 1/2 feet In corners - 15.0 feet Distances from plate: Left field - 355 feet Left-center - 368 feet Center field - 400 feet Right-center - 368 feet Right field - 353 feet" ([team page](https://www.mlb.com/cubs/ballpark/information/history)) | ✅ all match; **confirms the approved 15 ft corners** |
+| `progressive_field_v1` | 325 / 370 / 400→405 / 375 / 325 | Guardians: "Left field: 325 ft.; left-center: 370 ft.; center field: 405 ft.; right-center: 375 ft.; right field: 325 ft." ([team page](https://www.mlb.com/guardians/history/ballparks)) | ✅ all match (with approved CF fix) |
+| `rogers_centre_pre2023` | 328 / 375 / 400 / 375 / 328 (10) | Blue Jays: "previously measuring 328 feet down the foul lines, 375 feet to the power alleys, and 400 feet to dead center field, with 10-foot-high walls" ([team page](https://www.mlb.com/bluejays/ballpark/information/history)) | ✅ all match |
+| `camden_yards_pre2022` | 333 / 376→**364** / 400 / 373 / 318 | Orioles: "333 feet to left field, 364 feet to left center, 400 feet to center, 373 feet to right center and 318 feet to right" ([team page](https://www.mlb.com/orioles/ballpark/ground-rules)) | ✅ confirms the approved 364 |
+| `american_family_field_v1` | 344 / 371 / 400 / 374 / 337 (none) | Brewers: "Left-Field Foul Line: 342 feet/8 feet Left-Field Power Alley: 370 feet/8 feet Center Field: 400 feet/8 feet Right-Field Power Alley: 374 feet/8 feet Right-Field Foul Line: 345 feet/8 feet" ([ground rules](https://www.mlb.com/brewers/ballpark/ground-rules)) | ⚠ **Proposed: LF 342, LC 370, heights 8 ft all.** RF: official 345 vs stored 337 ("measured", sourced only to Wikipedia) — see question B |
+| `citi_field_v1` | 335 / **358** / 408 / **375** / 330 (none) | Mets: "Left Field Foul Pole 335 feet Left Field 358 feet Left Center Field 370 feet Center Field 408 feet Right Center Field 380 feet Right Field 370 feet Right Field Foul Pole 330 feet Height of Wall: 8 feet consistent from Foul Pole to Foul Pole" ([team page](https://www.mlb.com/mets/ballpark/information/guide)) | ⚠ **Stored 358 is the Mets' "Left Field" marker, not "Left Center" (370).** Proposed: **LC 370, RC 380, heights 8 ft all** |
+| `rogers_centre_2023_2024` | 328 / 368 / 400 / 359 / 328 (14.33 / 11.17 / 8 / 14.33 / 12.58) | Blue Jays: "Left Center: 368 feet; wall: 11 feet 2 inches … Right Center: 359 feet; wall: 14 feet 4 inches Left Center Power Alley: 381 feet; wall: 12 feet 9 inches Right Center Power Alley: 372 feet; wall: 10 feet 9 inches" (same page) | ⚠ Team labels **both** "Left Center" (368 / 359, as stored) and "Power Alley" (381 / 372) — see question A |
+| `camden_yards_2022_2024` | 333 / **384** / 400 / 373 / 318 (13) | Orioles, 2022: "Wall height raised from 7 ft. to 13 ft. Distance from home plate – left field foul line: 333 ft., left field corner: 384 ft., left-center corner: 398 ft." | ⚠ Team labels 384 "left field corner" and **398 "left-center corner"** — see question A |
+| *new* Camden Yards 2025+ | — | Orioles, 2025: "Lowering the previous 13-foot wall to 8 feet near the left field foul pole and to 6 feet, 11 inches closer to the left-center bullpens … left field corner: 373 ft., left-center: 363 ft., left-center bullpen 376 ft." | ℹ new configuration; `camden_yards_2022_2024` needs an end date |
+
+**Still no official alley figure** (team pages checked: guide, facts, history, ground rules):
+Angel Stadium, Great American Ball Park, Target Field, Nationals Park, Tropicana Field,
+T-Mobile Park, Chase Field, Daikin Park, loanDepot park. Their lines and center match the
+MLB.com guides (above); their stored alleys stay as they are, unconfirmed.
+
+**Questions for the maintainer:**
+
+- **A. When a team labels more than one left-/right-center point**, which one is the
+  power alley? Rogers Centre labels "Left Center" 368 and "Left Center Power Alley" 381;
+  Camden 2022 labels "left field corner" 384 and "left-center corner" 398.
+  *Suggestion:* a point the team explicitly calls the **power alley** wins (Rogers 381 /
+  372); otherwise the point labelled **left-/right-center** (Camden 398).
+- **B. American Family Field RF:** official 345 (Brewers ground rules) vs stored 337, whose
+  only source for being "measured" is Wikipedia. *Suggestion:* 345 — without an official or
+  independent measured source, the team figure is the documented value.
