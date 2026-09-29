@@ -79,6 +79,24 @@ they are in the alleys — exactly where near-wall and home-run decisions happen
 keep posted values (documented, reproducible) or adopt a documented angle-accurate source.
 **This is a maintainer decision, not a per-park correction.**
 
+**Decision, maintainer, 2026-09-29: one marker per side at ±22.5°, and it is the
+power-alley marker.** Where a park has several markers on a side (a power alley plus a
+deeper left-/right-center or corner point), the v1.2 table puts the **power-alley** distance
+at ±22.5°. Deeper points are not discarded: they are recorded in the worksheet for a later
+version that adds points at sourced angles (option 2). The measured-over-posted rule still
+applies to the chosen marker.
+
+Known consequences to resolve per park:
+
+- **Oracle Park:** stored ±22.5° values 399 / 415 are the deep left-center corner and
+  Triples Alley, not the power alleys. Seamheads lists the alleys at 364 (left) and 365
+  (right). The maintainer's confirmation that 399 is a correct *distance* stands; under this
+  rule it moves to the deferred deep-point list, and the ±22.5° values become the alley
+  markers once confirmed from a current source.
+- **American Family Field:** stored 371 / 374 are already the alley markers (Seamheads
+  371 / 371; deeper 382 / 383 go to the deferred list).
+- **Every other park:** not yet checked for which marker the stored ±22.5° value is.
+
 ## Rows that need a human look
 
 ☐ = not yet reviewed. Tick and note what you confirmed and from where.
