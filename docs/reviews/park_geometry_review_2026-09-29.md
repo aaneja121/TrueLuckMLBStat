@@ -217,3 +217,13 @@ renovation rather than a stored error.
 |---|---|
 | Sutter Health Park (Athletics) | LF 330, CF 403, RF 325 |
 | George M. Steinbrenner Field (Rays) | guide not found at the standard address |
+
+### Conflicts, date-checked (2026-09-29)
+
+| Config | Stored | Official figure | Dated history | Resolution |
+|---|---|---|---|---|
+| `minute_maid_park_v1` | CF 409 | MLB.com guide 399 | CF 436 → 409 with Tal's Hill removal (announced 2015, done by 2017); no later change found | **Keep 409.** Guide's 399 matches what other listings give as deep left-center. |
+| `t_mobile_park_v1` | CF 401 | MLB.com guide 409 | CF 405 → 401 before 2013; no later change found | **Keep 401.** Guide is the outlier. |
+| `guaranteed_rate_field_v1` | RF 335; LC/RC 375 / 375 | White Sox ballpark page: "Left Field Line: 330 feet Left Centerfield: 377 feet Centerfield: 400 feet Right Centerfield: 372 feet Right Field Line: 335 feet" ([team page](https://www.mlb.com/whitesox/ballpark/information/guide)); MLB.com guide says 330 / 375 / 400 / 375 / 330 | No change found | **RF: keep 335** (team page beats the guide). **Proposed under team-official rule: LC 377, RC 372** — awaiting maintainer. |
+| `dodger_stadium_v1` | 330 / 375 / 400 / 375 / 330 | Dodgers history page: "Left field: 330; Left-center: 385; Center field: 395; Right-center: 385; Right field: 330"; "From foul pole to the bullpens, the outfield fence is 55 inches high (about 4.5 feet). From bullpen to bullpen, the fence is 8 feet high." ([team page](https://www.mlb.com/dodgers/history/ballparks)) | 385 / 395 are posted signs; true CF is 400 (signs sit left and right of dead center); stored 375 alleys are listed elsewhere as "true" | **Rule conflict — maintainer decision:** team-official LC/RC (385) vs measured-over-posted (375). **Heights:** official 4.5 ft (lines to bullpens) and 8 ft (between bullpens) proposed; stored has none. |
+| `petco_park_v1` | LC 390 | MLB.com guide 386 | 2013 fence move took left-center 402 → 390 (announcements); no later change found | **Unresolved.** No dated source for 386. Keep 390 until one is found. |
