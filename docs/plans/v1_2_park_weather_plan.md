@@ -135,6 +135,10 @@ every feature DERIVED from it").
 
 ## Data preconditions
 
+- **v1.2 gets its own versioned geometry table.** `park_geometry.py` is a frozen v1.0
+  input and is never edited. Confirmed corrections from
+  `docs/reviews/park_geometry_review_2026-09-29.md` (e.g. Oracle RCF/RF heights 25 ft) are
+  applied only in the v1.2 table, which carries its own provenance and review status.
 - Geometry records are `agent_sourced_pending_human_review`. **A human spot-check of the
   30 venues is required before adoption**, recorded honestly in `review_status`.
 - Weather comes only from the MLB Stats API per-game field and the IEM ASOS archive.
