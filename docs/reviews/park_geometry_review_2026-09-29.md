@@ -45,6 +45,32 @@ and applied only in the separately versioned v1.2 geometry table.
 | `progressive_field_v1` | CF (0°) distance | 400 ft | **405 ft** | Maintainer, 2026-09-29 | Ballparks of Baseball; Clem; Guardians history page |
 | `petco_park_v1` | RF (+45°) distance | 331 ft | **322 ft** | Maintainer, 2026-09-29 | Yahoo (2013); Clem |
 | `wrigley_field_v1` | LF/RF (±45°) corner barrier height | 11.5 ft | **15 ft** | Maintainer, 2026-09-29 | Wikipedia (post-2015, incl. signage); Ballpark Pal says 16 |
+| `wrigley_field_v1` | (confirmation) | — | 15 ft corners | Cubs team page | Cubs: "In corners - 15.0 feet" |
+| `citi_field_v1` | LC (−22.5°) distance | 358 ft | **370 ft** | Maintainer, 2026-09-29 | Mets team page ("Left Center Field 370"); Ballparks of Baseball ("370-LC") |
+| `citi_field_v1` | RC (+22.5°) distance | 375 ft | **380 ft** | Maintainer, 2026-09-29 | Mets team page; Ballparks of Baseball; 2014 move-in 390 → 380 |
+| `citi_field_v1` | all five heights | none | **8 ft** | Maintainer, 2026-09-29 | Mets team page ("8 feet consistent from Foul Pole to Foul Pole") |
+| `american_family_field_v1` | LF (−45°) distance | 344 ft | **342 ft** | Maintainer, 2026-09-29 | Brewers ground rules; Wikipedia |
+| `american_family_field_v1` | LC (−22.5°) distance | 371 ft | **370 ft** | Maintainer, 2026-09-29 | Brewers ground rules ("Left-Field Power Alley: 370 feet"); Clem 370 |
+| `american_family_field_v1` | RF (+45°) distance | 337 ft | **345 ft** | Maintainer, 2026-09-29 | Brewers ground rules; Clem; Seamheads; Ballparks of Baseball (337 was Wikipedia-only) |
+| `american_family_field_v1` | all five heights | none | **8 ft** | Maintainer, 2026-09-29 | Brewers ground rules ("…/8 feet" at every point); Seamheads' RF 6 ft overruled by the team |
+| `guaranteed_rate_field_v1` | LC / RC (±22.5°) distance | 375 / 375 ft | **377 / 372 ft** | Maintainer, 2026-09-29 | White Sox ballpark page; Ballparks of Baseball ("377-LC … 372-RC") |
+| `rogers_centre_2023_2024` | LC (−22.5°) distance / height | 368 ft / 11.17 ft | **381 ft / 12.75 ft** | Maintainer, 2026-09-29 | Blue Jays page ("Left Center Power Alley: 381 feet; wall: 12 feet 9 inches"); MLB Trade Rumors; SI |
+| `rogers_centre_2023_2024` | RC (+22.5°) distance / height | 359 ft / 14.33 ft | **372 ft / 10.75 ft** | Maintainer, 2026-09-29 | Blue Jays page ("Right Center Power Alley: 372 feet; wall: 10 feet 9 inches"); MLB Trade Rumors; SI |
+| `camden_yards_2022_2024` | LC (−22.5°) distance | 384 ft | **398 ft** | Maintainer, 2026-09-29 | Orioles ground rules ("left-center corner: 398 ft."); FanGraphs ("Deep left-center corner: 398") |
+| `camden_yards_2022_2024` | effective end date | none | **end of 2024 season** | Maintainer, 2026-09-29 | Orioles: wall changed again "Prior to the 2025 season" |
+| `dodger_stadium_v1` | heights | none | **4.5 ft foul pole → bullpens; 8 ft between bullpens** | Maintainer, 2026-09-29 | Dodgers history page (official). Which ±22.5° points fall in each segment depends on the bullpen positions — resolve when building the v1.2 table |
+| `dodger_stadium_v1` | distances | 330 / 375 / 400 / 375 / 330 | **unchanged** (true values) | Maintainer, 2026-09-29 | Measured-over-posted: posted 385 / 395 / 385; true 375 / 400 / 375 confirmed by a second source |
+
+**Two rule refinements, maintainer, 2026-09-29 (confirmed against online sources):**
+
+- **A. Several labelled left-/right-center points:** a point the team explicitly calls the
+  **power alley** wins (Rogers Centre 381 / 372); otherwise the point the team labels
+  **left-/right-center** (Camden 2022: "left-center corner" 398, not the "left field corner"
+  384).
+- **B. Team figure vs. an unsourced "measured" figure:** without an official or
+  independent measured source, the **team figure** is the documented value (American
+  Family Field RF 345, not Wikipedia's 337). Measured-over-posted still applies where the
+  measured value is independently sourced (Dodger Stadium 375 / 400).
 
 **Withdrawn, 2026-09-29:** Oracle RCF/RF heights 25 / 25 (approved earlier the same day from Ballpark Pal and Seamheads). The official MLB.com Oracle Park guide says "the 24-foot brick wall in right field"; the maintainer chose **24 ft for RF** — the frozen value, so no RF correction is needed. The RCF approval rested on the same rejected claim and is withdrawn; **RCF height is open again** (frozen 20 ft; no official figure found).
 
