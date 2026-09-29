@@ -291,7 +291,7 @@ nine (T-Mobile, Chase, Nationals, Target, loanDepot and Daikin) and for Angel St
 
 ## Gap resolution pass (2026-09-29)
 
-Covers every item left open above. All rows are **proposals awaiting the maintainer**;
+Covers every item left open above. All proposals were **approved by the maintainer on 2026-09-29** (see the end of this section);
 nothing here changes a `review_status`. Sources retrieved 2026-09-29.
 
 **New corroborating source: MLB Stats API `fieldInfo`**
@@ -367,4 +367,26 @@ venues), which need a schedule check against the Stats API venue IDs.
 | Target Field RC (+22.5°) height | **8 ft** | The owner: walls are "8' from the left field foul pole to right center field", read as including right-center; 23 ft starts after it |
 | Question C, Daikin LC | **366 ft** (stored value) | Crawford Boxes face at the alley; 399 (deep notch beside center) goes to the deferred list |
 
-The other rows in the gap pass remain **proposals** until the maintainer approves them.
+**All remaining gap-pass proposals APPROVED by the maintainer, 2026-09-29.** For the v1.2
+table this means:
+
+- `petco_park_v1`: LC **386** (2015 move-in); LC height **7 ft**. LF height stays open.
+- `oracle_park_v1`: CF height **10 ft** (2020); LF height **8 ft** (kept); RCF **24 ft** (above).
+- `t_mobile_park_v1`: LC/RC 378 / 381 and CF 401 confirmed; heights **8 ft all**.
+- `chase_field_v1`: LC/RC **376 / 376**, RF **335**; heights LF **7.5**, CF **25**, RF **7.5** (alley heights not given).
+- `nationals_park_v1`: LC/RC 377 / 370 confirmed; LF **336**.
+- `target_field_v1`: LC/RC 377 / 367 confirmed; heights LF / LC / CF **8**, RC **8** (above), RF **23**.
+- `loandepot_park_v1`: LC/RC 386 / 387 confirmed; LF stays 344.
+- `minute_maid_park_v1` (Daikin): RC 370, CF 409 confirmed; LC 366 (above); heights LF 19, LC **25**, CF **10**, RC **10**, RF **7**.
+- `angel_stadium_v1`: LC 390 confirmed.
+- `gabp_v1`: heights LF **12**, CF **8**, RF **8**.
+- New configurations: `kauffman_stadium_2026` (330 / 379 / 410 / 379 / 330, 8.5 ft);
+  `camden_yards_2025` (333 / 363 / 400 / 373 / 318; LF height 8, LC height **6.92** pending an
+  official diagram); `sutter_health_park` 2025–27 (330 / 380 / 403 / 380 / 325; **alleys from the
+  Stats API only — low confidence**); `las_vegas_ballpark` 2026–27 (340 / 380 / 415 / 380 / 340).
+- Tropicana Field 2026–: reuse `tropicana_field_v1`.
+
+**Still open (not proposals, nothing to approve):** Petco LF height; Angel RC; GABP and
+Tropicana alleys; Steinbrenner alleys (sealed 2025 only); one-off neutral-site games in
+2025–27. These stay as frozen values or unconfirmed, and are listed as known limitations of
+the v1.2 table.
