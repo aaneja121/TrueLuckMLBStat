@@ -116,8 +116,7 @@ separately, after the 2027 result, not a side effect of building the model.
 ## Sequencing
 
 1. ~~Contact Forecast resolution pass~~ — done 2026-09-29.
-2. Maintainer decides: single-season inputs (no 2025) or two-season inputs (sign the 2025
-   authorization first).
+2. ~~Inputs decided: single-season (2026 only); no 2025 authorization needed.~~
 3. Decide ordering against the v1.2 park/weather plan (`docs/plans/v1_2_park_weather_plan.md`).
    If v1.2 is adopted, projections should use v1.2 deserved values, so v1.2's adoption
    decision comes first.
@@ -127,9 +126,18 @@ separately, after the 2027 result, not a side effect of building the model.
 6. Score 2026 once as input. Hash the 2027 projections before Opening Day 2027.
 7. Resolve after the 2027 regular season.
 
+## Decision record
+
+Decided by the maintainer on 2026-09-29, before any projection development:
+
+1. **Inputs: 2026 only (single-season).** Matches what the two development pairs can
+   support. **The 2025 authorization is not needed and is not requested**; the draft text
+   above stays unsigned, and 2025 remains sealed for this model.
+2. **Target: the contact stage** (Rc − E0 scale, `target_realized_rv_per_100`), the same
+   quantity R1 and Contact Forecast measured, so the 2027 result is comparable with the
+   existing evidence. Not the published metric with batter-runner advancement.
+
 ## Open questions for the maintainer
 
-1. Single-season or two-season inputs (and therefore: is the 2025 authorization needed)?
-2. Contact-stage target or published-metric target?
-3. v1.0 or v1.2 deserved values as inputs — i.e., does v1.2 come first?
-4. Minimum 2027 sample for a hitter to be evaluated.
+1. v1.0 or v1.2 deserved values as inputs — i.e., does v1.2 come first?
+2. Minimum 2027 sample for a hitter to be evaluated.
