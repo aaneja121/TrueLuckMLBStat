@@ -52,6 +52,44 @@ maintainer's decision and it must be recorded, with reasons, before development 
 If A is kept, this plan reduces to "no contact-model change" and the work below applies
 only to the defensive components.
 
+### Decision record
+
+**Park: Option B (park-specific).** Decided by the maintainer on 2026-09-29, before any
+v1.2 development. Reason, in the maintainer's words: park effects should be "considered as
+part of what that contact earns in the park considering every park is different," because
+it "tells the actual story" batted ball by batted ball.
+
+Consequences accepted with this decision:
+
+- Park effects leave the luck number. A hitter's home park no longer registers as luck.
+- v1.2 scores are not directly comparable with v1.1 (park-neutral) scores. Adoption needs
+  its own `scoring_version`, separate artifacts, and public methodology copy saying the
+  definition changed.
+- Errors in park geometry become errors in the score, so the human geometry spot-check
+  (Data preconditions) is a hard precondition, not a nicety.
+
+**Weather: Option B (conditions-specific), same logic as park.** Decided by the
+maintainer on 2026-09-29, before any v1.2 development. Reason: weather "is an everyday part
+of MLB games," so outside a dome "the logic shouldn't be any different from that of the
+parks." The maintainer flagged roofed stadiums as the case needing separate logic.
+
+Roof handling starts from the existing rules (`classify_roof_status`, `RESEARCH_RULES.md`
+"Never fabricate weather, roof status, or indoor climate conditions"):
+
+- **Outdoor:** measured weather drives the carry adjustment.
+- **Fixed dome / retractable roof explicitly closed:** wind = 0 (certain). Temperature,
+  humidity, pressure and density stay null; no invented indoor climate.
+- **Roof status unknown:** never guessed.
+
+Open development questions (do not block the decision):
+
+1. **Altitude still applies indoors.** A roof removes wind and controls temperature but not
+   elevation (e.g. Chase Field, retractable, ~1,100 ft). Options: an elevation-based
+   pressure term plus cited per-venue indoor climate data (new reviewed data required), or
+   no density adjustment indoors.
+2. **Unknown roof status.** Measure how many batted balls it affects, then choose: leave
+   those games unadjusted, or find a documented roof-state source.
+
 ## Approach, if Option B is chosen
 
 Constrain the model with known physics instead of letting it learn park and weather freely.
