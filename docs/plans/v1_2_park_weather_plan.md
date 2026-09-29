@@ -109,7 +109,24 @@ Constrain the model with known physics instead of letting it learn park and weat
    The contact model is a five-class logistic regression; verify against current
    scikit-learn docs whether any candidate class supports multiclass monotonic constraints
    before relying on this.
-5. **Roof and indoor games** follow existing rules: an explicit "Roof Closed" string only,
+5. **Airport wind is not in-park wind.** Weather comes from nearby ASOS stations (airports),
+   not from inside parks. Some parks were designed to block or redirect wind. Oracle Park
+   is the documented example: its forecast wind blows out to center 98% of the time, yet
+   "the tall flags overlooking McCovey Cove can often be seen blowing back toward home
+   plate" and "many players have discussed in-blowing winds at Oracle despite the
+   out-blowing forecast" ([Ballpark Pal](https://www.ballparkpal.com/Park-Description.php?VenueId=2395),
+   retrieved 2026-09-29). Applying station wind to that park feeds the model the wrong
+   direction, and correct physics on wrong wind could look "backwards" — **a plausible
+   contributor to v0.5/v0.5.1's wrong-signed wind results, to be tested, not assumed.**
+   Consequences for the design:
+   - Treat the **wind term per venue as unproven** until station wind is shown to relate
+     to in-park carry there (on development seasons only). Where it cannot be shown, the
+     wind term is off for that venue, documented.
+   - Temperature and air density travel from station to park far better than wind;
+     keep them separate from wind in every check so one cannot mask the other.
+   - Never invent in-park wind. If no in-park source exists, the documented fallback is
+     "no wind adjustment", not a guess.
+6. **Roof and indoor games** follow existing rules: an explicit "Roof Closed" string only,
    wind 0 when closed, climate otherwise null. No invented indoor climate.
 
 Every derived feature must be recomputed whenever its source is overridden in

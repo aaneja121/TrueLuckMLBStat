@@ -22,6 +22,8 @@ geometry becomes an error in the score (`docs/plans/v1_2_park_weather_plan.md`).
 - **Clem is itself stale in places.** It still shows Oracle Park's pre-2020 center field and
   Houston's pre-2017 436 ft center field (Tal's Hill). A disagreement is a reason to look,
   not proof the stored value is wrong.
+- **Lesson from Oracle:** summary pages (Clem, Seamheads) lag renovations. For each flagged
+  park, prefer the team's own announcement or official diagram.
 - A rejected source: [ballparksavvy.com/comparisons](https://www.ballparksavvy.com/comparisons/)
   lists, for example, Kauffman's left field as 387 and Petco's as 357 (left-center values in
   the left-field column), so it was not used.
@@ -53,7 +55,7 @@ keep posted values (documented, reproducible) or adopt a documented angle-accura
 
 | ☐ | Config | Stored | Clem | Likely explanation / what to check |
 |---|---|---|---|---|
-| ☐ | `oracle_park_v1` | LCF **399** | est (365) | Stored note: "left-center 404→399" in 2020. 399 appears to be the *deep* left-center marker; the posted left-center marker is commonly ~364. Which one belongs at 22.5°? |
+| ☑ distances | `oracle_park_v1` | 339 / **399** / 391 / 415 / 309 | est (365) | **Maintainer, 2026-09-29: LCF 399 confirmed.** All five stored distances match the Giants' 2020 announcement ([Ballpark Digest, 2019-12-13](https://ballparkdigest.com/2019/12/13/giants-unveil-2020-oracle-park-dimensions/)): LF 339, left-center 399 (from 404), CF 391 (from 399), Triples Alley 415 (from 421), RF 309. The agent's "~364" was recalled, not sourced, and is withdrawn. Clem and [Seamheads](https://www.seamheads.com/ballparks/ballpark.php?parkID=SFO03) both omit the 2020 change. **Heights, right side:** stored RCF 20 / RF 24 ft; two sources say 25 / 25 — [Ballpark Pal](https://www.ballparkpal.com/Park-Description.php?VenueId=2395) ("a 25-foot brick wall which takes a nearly vertical line from the shallow '309' foul pole marker to the deep '415' sign in right-center", retrieved 2026-09-29) and Seamheads (RCF wall 25, RF wall 25). **Proposed correction: RCF 25, RF 25 — awaiting maintainer confirmation.** **Open:** LF and CF heights (no new source; stored CF 8.5 is a midpoint), and whether the team's deepest left-center point belongs at 22.5° (Seamheads also lists 364 and 378 markers nearer the line — see the systematic issue above). `review_status` unchanged until heights are confirmed. |
 | ☐ | `oakland_coliseum_v1` | LCF 388, RCF 388 | 362, 362 | Real disagreement on posted alleys. Only matters for 2021–24 (A's left after 2024). |
 | ☐ | `coors_field_v1` | LF height **13** | 8 | Stored note says LF raised to 13 ft in 2016. Confirm which wall was raised. |
 | ☐ | `wrigley_field_v1` | LF/RF height 11.5 | 16 | Stored note: 11.5 ft bleacher wall. Clem may include the basket. Which height matters for a ball in play? |
