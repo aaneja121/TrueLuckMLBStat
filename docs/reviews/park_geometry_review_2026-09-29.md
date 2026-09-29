@@ -74,17 +74,23 @@ keep posted values (documented, reproducible) or adopt a documented angle-accura
 | ☐ | Config | Stored | Clem | Likely explanation / what to check |
 |---|---|---|---|---|
 | ☑ distances | `oracle_park_v1` | 339 / **399** / 391 / 415 / 309 | est (365) | **Maintainer, 2026-09-29: LCF 399 confirmed.** All five stored distances match the Giants' 2020 announcement ([Ballpark Digest, 2019-12-13](https://ballparkdigest.com/2019/12/13/giants-unveil-2020-oracle-park-dimensions/)): LF 339, left-center 399 (from 404), CF 391 (from 399), Triples Alley 415 (from 421), RF 309. The agent's "~364" was recalled, not sourced, and is withdrawn. Clem and [Seamheads](https://www.seamheads.com/ballparks/ballpark.php?parkID=SFO03) both omit the 2020 change. **Heights, right side:** stored RCF 20 / RF 24 ft; two sources say 25 / 25 — [Ballpark Pal](https://www.ballparkpal.com/Park-Description.php?VenueId=2395) ("a 25-foot brick wall which takes a nearly vertical line from the shallow '309' foul pole marker to the deep '415' sign in right-center", retrieved 2026-09-29) and Seamheads (RCF wall 25, RF wall 25). **Correction CONFIRMED by the maintainer, 2026-09-29: RCF 25 ft, RF 25 ft** (to be applied in the v1.2 geometry table, not in the frozen v1.0 file — see "Where corrections go" below). **Open:** LF and CF heights (no new source; stored CF 8.5 is a midpoint), and whether the team's deepest left-center point belongs at 22.5° (Seamheads also lists 364 and 378 markers nearer the line — see the systematic issue above). `review_status` unchanged until heights are confirmed. |
-| ☐ | `oakland_coliseum_v1` | LCF 388, RCF 388 | 362, 362 | Real disagreement on posted alleys. Only matters for 2021–24 (A's left after 2024). |
-| ☐ | `coors_field_v1` | LF height **13** | 8 | Stored note says LF raised to 13 ft in 2016. Confirm which wall was raised. |
-| ☐ | `wrigley_field_v1` | LF/RF height 11.5 | 16 | Stored note: 11.5 ft bleacher wall. Clem may include the basket. Which height matters for a ball in play? |
-| ☐ | `petco_park_v1` | RF 331, RF height 8 | 322, 10 | Check the current posted RF line and wall height. |
-| ☐ | `american_family_field_v1` | RF 337 | 345 | Check the posted RF line. |
-| ☐ | `guaranteed_rate_field_v1` | LF 330, RF 335 | 335, 330 | **Possible LF/RF swap.** Confirm which line is 330. |
-| ☐ | `pnc_park_v1` | LF 320 | 325 | Check the posted LF line (the famous one is RF 320). |
-| ☐ | `dodger_stadium_v1` | CF 400 | 395 | Check the posted CF. |
-| ☐ | `progressive_field_v1` | CF 400 | 405 | Check the posted CF. |
-| ☐ | `camden_yards_pre2022` | LCF 376 | 364 | Check pre-2022 posted LCF (the 2022 change moved left field back). |
-| ☐ | `loandepot_park_v1` | CF 400, RCF 387 | 407, 392 | Stored values match the 2020 fence move-in; Clem likely pre-2020. **This is the park where v0.4 calibration regressed** — worth a careful look. |
+| ☐ **WRONG** | `pnc_park_v1` | LF **320** | 325 | Agent research 2026-09-29: official guide says "left field, 325 feet; left-center, 383 feet; center field, 399 feet; right-center, 375 feet; right field, 320 feet" ([MLB.com PNC Park guide, 2026-03-25](https://www.mlb.com/news/featured/pnc-park-guide-capacity-seating-chart-parking-and-more)); Clem agrees. **Proposed correction: LF 325.** Other four distances match. RF height 21 (Clemente Wall) matches. |
+| ☐ **WRONG** | `camden_yards_pre2022` | LCF **376** | 364 | Pre-2022 left-center marker was 364; 2022 moved it to 384 ([FanGraphs, 2024-11-18](https://blogs.fangraphs.com/wall-over-but-the-shoutin-camden-yards-gets-new-dimensions/): "The left-center field marker went out an additional 20 feet, from 364 feet to 384 feet"); Clem agrees. 376 is a later bullpen-edge figure. **Proposed correction: LCF 364.** |
+| ☐ **WRONG** | `progressive_field_v1` | CF **400** | 405 | Three sources say 405: [Ballparks of Baseball](https://www.ballparksofbaseball.com/ballparks/progressive-field/) ("325-L, 370-LC, 405-C, 375-RC, 325-R"), Clem, and the Guardians' history page per search summary (direct fetch blocked, HTTP 406; it also lists 410 to deep center). **Proposed correction: CF 405.** LF wall 19 ft matches. |
+| ☐ **LIKELY WRONG** | `petco_park_v1` | RF **331** | 322 | Multiple sources give 322 down the right-field line, unchanged by the 2013 fence moves ([Yahoo, 2013](https://sports.yahoo.com/petco-park-dimensions-shrink-2013-082013530--mlb.html); Clem). Some listings show 331, origin unclear. **Proposed correction: RF 322** — confirm 331 isn't a measured-vs-posted figure. RF height 8 is right (lowered from 10 to just under 8 in 2013; Clem is pre-2013). |
+| ☐ correct | `guaranteed_rate_field_v1` | LF 330, RF 335 | 335, 330 | **No swap.** [Ballparks of Baseball](https://www.ballparksofbaseball.com/ballparks/rate-field/): "330-L, 377-LC, 400-C, 372-RC, 335-R"; Clem transposed. Alleys differ by 2–3 ft (stored 375/375), below the flag threshold. |
+| ☐ correct | `loandepot_park_v1` | CF 400, RCF 387 | 407, 392 | Stored values are the 2020 move-in: 407 → 400 in center, right-center moved in 7 ft ([MLB.com: "Marlins moving in fences"](https://www.mlb.com/news/marlins-unveil-major-changes-for-ballpark)). Clem is pre-2020. |
+| ☐ correct | `coors_field_v1` | LF height 13 | 8 | 2016 raised the left-field wall from 8 to 13 ft and the right-center segment to 16 ft 6 in ([MLB.com: "Coors Field outfield walls being raised"](https://www.mlb.com/news/coors-field-outfield-walls-being-raised-c165840326)). Stored 13 / 16.5 match; Clem is pre-2016. |
+| ☐ correct | `oakland_coliseum_v1` | LCF 388, RCF 388 | 362, 362 | Posted: 330 lines, 388 power alleys, 400 center; 367 is straightaway left/right, between line and alley ([BR Bullpen](https://www.baseball-reference.com/bullpen/Oakland_Coliseum) per search summary). Stored matches. |
+| ☐ close | `wrigley_field_v1` | LF/RF height 11.5 | 16 | Corner walls lowered from 16 to 11 ft in 2015 (Wikipedia, "Wrigley Field renovations", per search summary). Clem is pre-2015. Stored 11.5 vs sourced 11 — **0.5 ft; your call** (stored note says 11.5 bleacher wall). |
+| ☐ principle | `dodger_stadium_v1` | CF 400 | 395 | Posted 395 since 1980, but the signs sit left and right of dead center; true center is 400 (BR Bullpen / Clem per search summary). Stored uses **true** 400 at 0°. Correct under the measured-distance principle below. |
+| ☐ principle | `american_family_field_v1` | RF 337 | 345 | Posted 345, measured 337 (Wikipedia, per search summary). Stored uses **measured** 337. [Ballparks of Baseball](https://www.ballparksofbaseball.com/ballparks/american-family-field/) lists posted "344-L, 390-LC, 400-C, 381-RC, 345-R" — its alleys (390/381) disagree with stored 371/374 by far more; alleys need a closer look. |
+
+**Measured vs. posted — a principle to confirm.** Dodger Stadium and American Family Field
+both post a distance that differs from the true one, and the stored table already uses the
+**true (measured)** figure in both. For a physical model that is the right choice: the ball
+meets the real wall, not the sign. Confirming this as the rule also answers part of the
+systematic alley question above.
 
 ## Rows where the disagreement is probably Clem being out of date
 
@@ -113,6 +119,10 @@ The table covers 2021–2024 venues only. Before v1.2 can score 2026 or 2027:
 
 - **Kauffman Stadium's configuration ends 2025-12-31**, implying a known wall change for
   2026 that has no record yet.
+- **Camden Yards changed again for 2025** (left-field wall moved in to about 373–374 ft and
+  lowered to 8 ft, per [FanGraphs, 2024-11-18](https://blogs.fangraphs.com/wall-over-but-the-shoutin-camden-yards-gets-new-dimensions/)),
+  but `camden_yards_2022_2024` has **no end date**, so it would silently cover 2025 onward.
+  v1.2 needs an end date on it and a new 2025+ configuration.
 - **Venues used after 2024 are absent**, including the Athletics' and Rays' temporary homes.
   Which venues each team used in 2025–2027 must be confirmed from an official source, not
   assumed.
