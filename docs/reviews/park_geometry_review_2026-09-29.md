@@ -370,7 +370,7 @@ venues), which need a schedule check against the Stats API venue IDs.
 **All remaining gap-pass proposals APPROVED by the maintainer, 2026-09-29.** For the v1.2
 table this means:
 
-- `petco_park_v1`: LC **386** (2015 move-in); LC height **7 ft**. LF height stays open.
+- `petco_park_v1`: LC **386** (2015 move-in); LC height **7 ft**. LF height **4 ft** (maintainer, 2026-09-29; see the follow-up below).
 - `oracle_park_v1`: CF height **10 ft** (2020); LF height **8 ft** (kept); RCF **24 ft** (above).
 - `t_mobile_park_v1`: LC/RC 378 / 381 and CF 401 confirmed; heights **8 ft all**.
 - `chase_field_v1`: LC/RC **376 / 376**, RF **335**; heights LF **7.5**, CF **25**, RF **7.5** (alley heights not given).
@@ -390,3 +390,50 @@ table this means:
 Tropicana alleys; Steinbrenner alleys (sealed 2025 only); one-off neutral-site games in
 2025–27. These stay as frozen values or unconfirmed, and are listed as known limitations of
 the v1.2 table.
+
+### Follow-up on the remaining limitations (2026-09-29)
+
+**One-off neutral-site games — resolved (full list).** Every regular-season venue comes from
+the MLB Stats API schedule
+(`/api/v1/schedule?sportId=1&season=<year>&gameType=R`), not from memory. Venues beyond the
+regular home parks and the temporary homes above:
+
+| Season | Venue (Stats API id) | Games | Dimensions (Stats API `fieldInfo`) | Needed? |
+|---|---|---|---|---|
+| 2025 | Tokyo Dome (2397), Cubs "home" | 2 (Mar 18–19) | 329 / 375 / 400 / 375 / 329 | 2025 is sealed; record only |
+| 2025 | Bristol Motor Speedway (6130), Reds "home" | 2 (Aug 2–3) | 330 / 385 / 400 / 375 / 330 (also "left" 378, "right" 360) | 2025 is sealed; record only |
+| 2025 | Journey Bank Ballpark (2735), Little League Classic | 1 | 345 / — / 405 / — / 350 | 2025 is sealed; record only |
+| 2026 | Estadio Alfredo Harp Helú (5340), D-backs "home" | 2 (Apr 25–26) | 325 / — / 400 / — / 325 | yes; no alleys |
+| 2026 | Field of Dreams (5445), Twins "home" | 1 (Aug 13) | 335 / 380 / 400 / 380 / 335 | yes |
+| 2026 | Journey Bank Ballpark (2735) | 1 (Aug 23) | as above | yes; no alleys |
+| 2027 | Field of Dreams (5445), Royals "home" | 1 (Aug 12) | as above | yes |
+| 2027 | Journey Bank Ballpark (2735) | 1 (Aug 19) | as above | yes; no alleys |
+
+These are 6 games in 2026–27 out of about 2,430 a season. *Suggestion:* exclude them from
+v1.2 geometry (the scorer's unknown-venue path) rather than build configurations on the Stats
+API's thin, unverified figures. **Maintainer decision, 2026-09-29: excluded — no v1.2 geometry for these six games; they take the scorer's unknown-venue path.** (Verified against the Stats API schedule on 2026-09-29: the 2026 and 2027 low-use venues are exactly those listed, plus Las Vegas Ballpark, covered above.)
+*Anomaly, resolved:* the 2026 schedule lists one game at Tropicana Field with the **Red Sox as
+home team** (vs Cubs, 2026-09-27). **Maintainer confirmed, 2026-09-29: a relocated game.** Score
+it with `tropicana_field_v1` geometry (the venue, not the home team, decides).
+
+**Steinbrenner Field alleys — proposed 399 / 385** (2025 only, so record only). MLB.com says the
+field is "identical to Yankee Stadium"; Ballparks of Baseball ("318-L, 399-LC, 408-C, 385-RC,
+314-R") and Wikipedia agree. Seamheads' 385 / 360 is the lone dissent. No team figure exists.
+
+**Unofficial but uncontested — best available, flag as secondary-sourced:**
+
+- **Great American Ball Park 379 / 370:** Wikipedia, Ballparks of Baseball, Clem and the Stats API
+  all agree; no source disagrees. The Reds publish no alley figure.
+- **Tropicana Field 370 / 370:** Wikipedia and Ballparks of Baseball agree, with no dissent. The
+  Rays publish no alley figure, and the Stats API values (410 / 404) are unusable.
+- **Angel Stadium RC 370:** Wikipedia lists "Right-Center – 370" plus a shallow 365 marker. The
+  Stats API's 365 predates the 2014 true-distance re-signing. No team figure.
+
+**Petco left-field (−45°) height — 4 ft, confirmed by the maintainer, 2026-09-29.**
+
+- **Petco left-field (−45°) height.** The only figure is 4 ft at the left-field corner
+  ([Ballpark Digest, 2009-04-06](https://ballparkdigest.com/200904061706/major-league-baseball/visits/petco-park-san-diego-padres-page-2):
+  "The fence line starts at only 4 feet in the left field corner, 7 feet in left center"). That
+  predates the 2015 change, which lowered the wall "from where it begins in left field" to 7 ft
+  and conflicts with the Padres' stated prior height of 8 ft. Candidates were 4 or 7.
+  **Maintainer, 2026-09-29: 4 ft.** No longer a known limitation.
