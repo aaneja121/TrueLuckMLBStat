@@ -28,6 +28,15 @@ data-through date does not reach it. There is no flag that overrides either.
 7. The maintainer authorizes the second look in the moment -- an explicit
    argument with no default, so the pass cannot run by accident or by cron.
 
+## Both horizons, once each
+
+Each sealed ledger in `FROZEN_PREDICTION_LEDGERS` (H100 and H200) is resolved
+by its own run, `--horizon-key`, into its own subdirectory
+(`horizon_results_dir`). Both were decided before any outcome was opened. A
+horizon whose result manifest exists is never resolved again, and an
+interrupted run restarts only against the snapshot it pinned
+(`assert_horizon_may_resolve`).
+
 ## Cohorts
 
 INCREMENTAL is primary and the only cohort the four-way classification
@@ -214,6 +223,56 @@ def assert_snapshot_reaches_season_end(snapshot: Any) -> dict[str, Any]:
         "snapshot_data_through": through.isoformat(),
         "reaches_verified_season_end": True,
     }
+
+
+# --------------------------------------------------------------------------
+# Each horizon resolves once, into its own directory
+# --------------------------------------------------------------------------
+
+
+def horizon_results_dir(outputs_dir: Path, horizon_key: str) -> Path:
+    """Where one horizon's resolution artifacts are written.
+
+    Both sealed ledgers (`FROZEN_PREDICTION_LEDGERS`) are resolved, one run per
+    horizon. The artifact names carry no horizon, so each horizon gets its own
+    subdirectory; otherwise the second run would overwrite the first. The
+    frozen specification itself stays in `outputs_dir`, where its freeze
+    manifest is verified.
+
+    Raises:
+        ResolutionGateError: If the horizon has no sealed ledger.
+    """
+    if horizon_key not in FROZEN_PREDICTION_LEDGERS:
+        raise ResolutionGateError(
+            f"{horizon_key!r} has no sealed prediction ledger; the frozen horizons are "
+            f"{sorted(FROZEN_PREDICTION_LEDGERS)}."
+        )
+    return outputs_dir / horizon_key.lower()
+
+
+def assert_horizon_may_resolve(results_dir: Path, *, snapshot_label: str) -> None:
+    """Refuse a second resolution of a horizon, or a restart on a new snapshot.
+
+    A completed pass (its result manifest exists) is never rerun. An
+    interrupted pass (authorization written, no result manifest) may restart,
+    but only against the snapshot it pinned -- `PINNED_SNAPSHOT_RULE`.
+
+    Raises:
+        ResolutionGateError: On either violation.
+    """
+    if (results_dir / "resolution_2026_result_manifest.json").exists():
+        raise ResolutionGateError(
+            f"This horizon was already resolved ({results_dir}). The resolution pass "
+            "runs once; it is never rerun."
+        )
+    authorization_path = results_dir / "resolution_2026_authorization.json"
+    if authorization_path.exists():
+        pinned = json.loads(authorization_path.read_text()).get("snapshot_label")
+        if pinned != snapshot_label:
+            raise ResolutionGateError(
+                f"An interrupted pass pinned snapshot {pinned!r}; it restarts against the "
+                f"same pinned snapshot, never {snapshot_label!r}."
+            )
 
 
 # --------------------------------------------------------------------------
@@ -700,6 +759,45 @@ def frozen_model_features(*, resolution_dir: Path = RESOLUTION_OUTPUTS_DIR) -> l
     return list(features)
 
 
+def attach_cutoff_features(
+    cohorts: dict[str, Any], cutoff_features: pd.DataFrame
+) -> dict[str, pd.DataFrame]:
+    """Join each hitter's pre-cutoff model features onto the evaluated cohorts.
+
+    The sealed ledgers carry predictions and targets but not the features
+    behind them, so the distribution-shift diagnostic rebuilds them from the
+    pinned snapshot with the frozen Phase 1 builder (`build_window_features`),
+    exactly as the first look did. The features read only the first `cutoff`
+    resolved BBE. Used for the diagnostic alone: the returned frames are copies,
+    and nothing evaluated or classified reads them.
+
+    Raises:
+        ResolutionIntegrityError: If a cohort hitter has no pre-cutoff features.
+    """
+    features = cutoff_features.drop(columns=["cutoff", "horizon"], errors="ignore")
+    joined: dict[str, pd.DataFrame] = {}
+    for cohort in ("incremental", "full_season"):
+        frame = cohorts.get(cohort)
+        if frame is None:
+            continue
+        new_columns = [c for c in features.columns if c not in frame.columns]
+        merged = frame.merge(
+            features[["batter", "season", *new_columns]],
+            on=["batter", "season"],
+            how="left",
+            validate="one_to_one",
+            indicator=True,
+        )
+        unmatched = merged.loc[merged["_merge"] != "both", "batter"].tolist()
+        if unmatched:
+            raise ResolutionIntegrityError(
+                f"cohort {cohort!r} hitters {unmatched} have no pre-cutoff features in the "
+                "pinned snapshot, yet received a sealed forecast from those features."
+            )
+        joined[cohort] = merged.drop(columns="_merge")
+    return joined
+
+
 def build_cohort_distribution_shift(
     cohorts: dict[str, Any],
     development_focal: pd.DataFrame,
@@ -796,6 +894,11 @@ def run(
     snapshot_gate = assert_snapshot_reaches_season_end(snapshot)
     logger.info("pinned %s (data through %s)", snapshot.label, snapshot.data_through_date)
 
+    results_dir = horizon_results_dir(outputs_dir, horizon_key)
+    assert_phase2_path_allowed(results_dir)
+    assert_horizon_may_resolve(results_dir, snapshot_label=snapshot.label)
+    results_dir.mkdir(parents=True, exist_ok=True)
+
     authorization = {
         "stage": "resolution_2026",
         "authorized_by": authorized_by,
@@ -807,6 +910,7 @@ def run(
         "horizon_key": horizon_key,
         "cutoff": sealed["cutoff"],
         "horizon": sealed["horizon"],
+        "snapshot_label": snapshot.label,
         "gate": {
             "season_has_ended": season,
             "snapshot_reaches_season_end": snapshot_gate,
@@ -826,7 +930,7 @@ def run(
     authorization["record_sha256"] = hash_json(
         {k: v for k, v in authorization.items() if k != "record_sha256"}
     )
-    _write_json(outputs_dir / "resolution_2026_authorization.json", authorization)
+    _write_json(results_dir / "resolution_2026_authorization.json", authorization)
 
     # --- outcomes, attached to sealed predictions -------------------------
     ledger, _ = load_contact_stage_ledger(snapshot)
@@ -845,16 +949,16 @@ def run(
     )
 
     cohorts["incremental"].to_parquet(
-        outputs_dir / "resolution_2026_incremental.parquet", index=False
+        results_dir / "resolution_2026_incremental.parquet", index=False
     )
     cohorts["full_season"].to_parquet(
-        outputs_dir / "resolution_2026_full_season.parquet", index=False
+        results_dir / "resolution_2026_full_season.parquet", index=False
     )
     cohorts["never_completed"].to_parquet(
-        outputs_dir / "resolution_2026_never_completed.parquet", index=False
+        results_dir / "resolution_2026_never_completed.parquet", index=False
     )
     _write_json(
-        outputs_dir / "resolution_2026_cohorts.json",
+        results_dir / "resolution_2026_cohorts.json",
         {"counts": cohorts["counts"], "first_look_integrity": integrity},
     )
 
@@ -902,10 +1006,10 @@ def run(
         },
         "n_hitters_reaching_cutoff": int(completion["reached_cutoff"].sum()),
     }
-    _write_json(outputs_dir / "resolution_2026_metrics.json", metrics)
+    _write_json(results_dir / "resolution_2026_metrics.json", metrics)
 
     survivorship = build_survivorship(sealed, cohorts, ordered)
-    _write_json(outputs_dir / "resolution_2026_survivorship.json", survivorship)
+    _write_json(results_dir / "resolution_2026_survivorship.json", survivorship)
 
     # Required analysis 3. The development frame is loaded here rather than
     # earlier because nothing before this point needs it, and the pass should
@@ -913,14 +1017,19 @@ def run(
     development_focal, _prior_events, _development_audit = load_development_training(
         research_dir=research_dir, data_dir=data_dir
     )
+    from forecast.features import build_window_features
+
+    cutoff_features = build_window_features(ordered, sealed["cutoff"])
     shift = build_cohort_distribution_shift(
-        cohorts, development_focal, features=frozen_model_features()
+        attach_cutoff_features(cohorts, cutoff_features),
+        development_focal,
+        features=frozen_model_features(),
     )
-    _write_json(outputs_dir / "resolution_2026_distribution_shift.json", shift)
+    _write_json(results_dir / "resolution_2026_distribution_shift.json", shift)
 
     from forecast.phase2.run_resolution_report import render_resolution_report
 
-    report_path = outputs_dir / "resolution_2026_report.md"
+    report_path = results_dir / "resolution_2026_report.md"
     report_path.write_text(
         render_resolution_report(
             authorization=authorization,
@@ -930,8 +1039,8 @@ def run(
         )
     )
     logger.info("wrote %s", report_path)
-    _write_provenance(outputs_dir, chain=chain, authorization=authorization)
-    return {name: outputs_dir / name for name in REQUIRED_ARTIFACTS}
+    _write_provenance(results_dir, chain=chain, authorization=authorization)
+    return {name: results_dir / name for name in REQUIRED_ARTIFACTS}
 
 
 def _write_provenance(
@@ -940,6 +1049,7 @@ def _write_provenance(
     """Hash every resolution artifact and chain it to the frozen stages."""
     record = {
         "stage": "resolution_2026",
+        "horizon_key": authorization["horizon_key"],
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "artifact_sha256": {
             name: hash_file(outputs_dir / name)

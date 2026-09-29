@@ -411,3 +411,86 @@ def test_an_empty_primary_cohort_does_not_fall_back() -> None:
     report = _report(_cohort_frame(range(0, 0), seed=8))
     assert "There is no primary result" in report
     assert "does not fall back to the full-season" in report
+
+
+# --------------------------------------------------------------------------
+# Both horizons resolve, each into its own directory, each exactly once
+# --------------------------------------------------------------------------
+
+
+def test_each_horizon_writes_to_its_own_directory(tmp_path: Any) -> None:
+    h100 = rr.horizon_results_dir(tmp_path, "H100")
+    h200 = rr.horizon_results_dir(tmp_path, "H200")
+    assert h100 != h200
+    assert h100.parent == h200.parent == tmp_path
+
+
+def test_every_frozen_horizon_has_a_results_directory(tmp_path: Any) -> None:
+    dirs = {rr.horizon_results_dir(tmp_path, key) for key in rr.FROZEN_PREDICTION_LEDGERS}
+    assert len(dirs) == len(rr.FROZEN_PREDICTION_LEDGERS)
+
+
+def test_an_unknown_horizon_has_no_results_directory(tmp_path: Any) -> None:
+    with pytest.raises(rr.ResolutionGateError, match="H300"):
+        rr.horizon_results_dir(tmp_path, "H300")
+
+
+def test_a_fresh_horizon_may_resolve(tmp_path: Any) -> None:
+    rr.assert_horizon_may_resolve(tmp_path / "h100", snapshot_label="2026-09-27")
+
+
+def test_a_resolved_horizon_is_never_resolved_again(tmp_path: Any) -> None:
+    (tmp_path / "resolution_2026_result_manifest.json").write_text("{}")
+    with pytest.raises(rr.ResolutionGateError, match="already resolved"):
+        rr.assert_horizon_may_resolve(tmp_path, snapshot_label="2026-09-27")
+
+
+def test_an_interrupted_pass_restarts_against_the_same_snapshot(tmp_path: Any) -> None:
+    (tmp_path / "resolution_2026_authorization.json").write_text(
+        json.dumps({"snapshot_label": "2026-09-27"})
+    )
+    rr.assert_horizon_may_resolve(tmp_path, snapshot_label="2026-09-27")
+    with pytest.raises(rr.ResolutionGateError, match="same pinned snapshot"):
+        rr.assert_horizon_may_resolve(tmp_path, snapshot_label="2026-09-28")
+
+
+# --------------------------------------------------------------------------
+# The distribution-shift diagnostic gets its features from the pinned snapshot
+# --------------------------------------------------------------------------
+
+
+def _feature_frame(batters: range) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "batter": list(batters),
+            "season": 2026,
+            "cutoff": 100,
+            "launch_speed_mean": np.linspace(85.0, 95.0, len(batters)),
+        }
+    )
+
+
+def test_cutoff_features_are_joined_without_adding_or_dropping_rows() -> None:
+    cohorts = {
+        "incremental": pd.DataFrame({"batter": [1, 2], "season": 2026, "cutoff": 100}),
+        "full_season": pd.DataFrame({"batter": [1, 2, 3], "season": 2026, "cutoff": 100}),
+        "never_completed": pd.DataFrame({"batter": [9], "season": 2026, "cutoff": 100}),
+    }
+    joined = rr.attach_cutoff_features(cohorts, _feature_frame(range(1, 4)))
+    assert len(joined["incremental"]) == 2
+    assert len(joined["full_season"]) == 3
+    assert joined["full_season"]["launch_speed_mean"].notna().all()
+    assert "never_completed" not in joined
+
+
+def test_a_cohort_hitter_without_cutoff_features_is_refused() -> None:
+    cohorts = {"incremental": pd.DataFrame({"batter": [1, 7], "season": 2026, "cutoff": 100})}
+    with pytest.raises(rr.ResolutionIntegrityError, match="no pre-cutoff features"):
+        rr.attach_cutoff_features(cohorts, _feature_frame(range(1, 4)))
+
+
+def test_the_feature_join_leaves_the_cohort_frames_untouched() -> None:
+    frame = pd.DataFrame({"batter": [1, 2], "season": 2026, "cutoff": 100})
+    before = frame.copy()
+    rr.attach_cutoff_features({"incremental": frame}, _feature_frame(range(1, 4)))
+    pd.testing.assert_frame_equal(frame, before)
