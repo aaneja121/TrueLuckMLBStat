@@ -162,3 +162,58 @@ The table covers 2021–2024 venues only. Before v1.2 can score 2026 or 2027:
   Which venues each team used in 2025–2027 must be confirmed from an official source, not
   assumed.
 - Any other wall changes made after the 2024 season.
+
+## Official alley pass (MLB.com ballpark guides) — in progress
+
+Source: each park's MLB.com ballpark guide,
+`https://www.mlb.com/news/featured/<park>-guide-capacity-seating-chart-parking-and-more`,
+retrieved 2026-09-29 (pages carry no visible date). Official league/team content only, per
+the maintainer. **Caveat: the guides describe the park as it is now (2025–26), not
+necessarily as it was in the 2021–24 development seasons.** A difference can be a later
+renovation rather than a stored error.
+
+### Official left-center / right-center found — compare with stored ±22.5°
+
+| Config | Stored LF / LC / CF / RC / RF | MLB.com guide (quoted labels) | Result |
+|---|---|---|---|
+| `busch_stadium_v1` | 336 / 375 / 400 / 375 / 335 | 336; left-center 375; 400; right-center 375; 335 | ✅ match |
+| `citizens_bank_park_v1` | 329 / 374 / 401 / 369 / 330 | LF pole 329; LF power alley 374; CF 401; RF power alley 369; RF pole 330 | ✅ match |
+| `comerica_park_2023_2024` | 342 / 370 / 412 / 365 / 330 | 342; left-center 370; 412; right-center 365; 330 | ✅ match |
+| `coors_field_v1` | 347 / 390 / 415 / 375 / 350 | 347; left-center 390; 415; right-center 375; 350 | ✅ match |
+| `globe_life_field_v1` | 329 / 372 / 407 / 374 / 326 | 329; LF power alley 372; CF 407; RF power alley 374; 326 | ✅ match |
+| `pnc_park_v1` | 320→**325** / 383 / 399 / 375 / 320 | 325; left-center 383; 399; right-center 375; 320 | ✅ match (with approved LF fix) |
+| `yankee_stadium_v1` | 318 / 399 / 408 / 385 / 314 | 318; left-center 399; 408; right-center 385; 314 | ✅ match |
+| `truist_park_v1` | 335 / 385 / 400 / 375 / 325 | LF corner 335; "left field" 375; left-center 385; 400; right-center 375; 325 | ✅ match (385 is the labelled left-center) |
+| `fenway_park_v1` | 310 / 379 / 390 / 380 / 302 | 310; deep left-center 379; CF 389; right-center triangle 420; right-center 380; 302 | ✅ alleys match; CF 389 vs 390 (1 ft) |
+| `dodger_stadium_v1` | 330 / **375** / 400 / **375** / 330 | 330; left-center 385; CF 395; right-center 385; 330 | ⚠ **alleys 385 vs stored 375.** CF 395 is the posted sign; stored true 400 stays under measured-over-posted |
+| `petco_park_v1` | 336 / **390** / 396 / 391 / 331→322 | 336; left-center 386; 396; right-center 391; 322 | ⚠ **LC 386 vs 390**; RF 322 confirms the approved fix |
+| `guaranteed_rate_field_v1` | 330 / 375 / 400 / 375 / **335** | 330; left-center 375; 400; right-center 375; **right field 330** | ⚠ **RF 330 vs 335** — contradicts Wikipedia and Ballparks of Baseball |
+| `kauffman_stadium_v1` (ends 2025) | 330 / 387 / 410 / 387 / 330 | **2026:** lines 364; LC/RC 379; CF 410; fence 8.5 | ℹ new 2026 configuration — the coverage gap, now sourced |
+
+### Guide gives lines and center only — alleys still need a team source
+
+| Config | Stored LF / CF / RF | MLB.com guide | Result |
+|---|---|---|---|
+| `angel_stadium_v1` | 347 / 396 / 350 | 347 / 396 / 350 | ✅ |
+| `camden_yards_2022_2024` | 333 / 400 / 318 | 333 / 400 / 318 | ✅ lines/CF |
+| `citi_field_v1` | 335 / 408 / 330 | 335 / 408 / 330 | ✅ |
+| `gabp_v1` | 328 / 404 / 325 | 328 / 404 / 325 | ✅ |
+| `target_field_v1` | 339 / 404 / 328 | 339 / 404 / 328 | ✅ |
+| `tropicana_field_v1` | 315 / 404 / 322 | 315 / 404 / 322 | ✅ |
+| `rogers_centre_2023_2024` | 328 / 400 / 328 | 328 / 400 / 328 | ✅ |
+| `wrigley_field_v1` | 355 / 400 / 353 | 355 / 400 / 353 | ✅ |
+| `progressive_field_v1` | 325 / 400→**405** / 325 | 325 (19-ft wall) / 405 (9-ft) / 325 (9-ft) | ✅ confirms approved CF fix and stored heights |
+| `american_family_field_v1` | **344** / 400 / 337 | **342** / 400 / 345 | ⚠ LF 342 vs 344; RF 345 is posted (stored measured 337 stays) |
+| `chase_field_v1` | 330 / 407 / **334** | 330 / 407 / 335 | ⚠ RF 1 ft |
+| `nationals_park_v1` | **337** / 402 / 335 | 336 / 402 / 335 | ⚠ LF 1 ft |
+| `loandepot_park_v1` | **344** / 400 / 335 | 345 / 400 / 335 | ⚠ LF 1 ft |
+| `minute_maid_park_v1` | 315 / **409** / 326 | 315 / **399** / 326 (as Daikin Park) | ⚠ **CF 399 vs 409** — later change or guide error; check dates |
+| `t_mobile_park_v1` | 331 / **401** / 326 | 331 / **409** / 327 | ⚠ **CF 409 vs 401** — later change or guide error |
+| `oracle_park_v1` | 339 / 391 / 309 | 339 / 391 / 309; "the **24-foot** brick wall in right field" | ⚠ **height conflict:** guide says 24 ft; the approved correction is 25 ft (Ballpark Pal, Seamheads) |
+
+### New venues (2025+), not in the stored table
+
+| Venue | MLB.com guide |
+|---|---|
+| Sutter Health Park (Athletics) | LF 330, CF 403, RF 325 |
+| George M. Steinbrenner Field (Rays) | guide not found at the standard address |
