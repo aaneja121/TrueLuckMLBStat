@@ -170,6 +170,46 @@ batted balls; no 2025/2026 read; nothing fitted for model use;
   (Statcast's definition should be cited, not inferred) matters for geometry gating near
   the wall.
 
+## Step 2: per-venue station-wind check (rule frozen 2026-09-30, before any per-venue CI)
+
+**Question:** at each venue, does station (ASOS) wind relate to in-park carry? The answer
+decides only whether that venue's wind-direction perturbation check applies. It is never a
+model input, and it chooses no model.
+
+**Disclosure:** step 1 already printed per-venue point estimates (no CIs) before this rule
+was written. The rule below reuses existing repository conventions and was not chosen to
+produce any particular venue's result. 2024 was used by v0.5/v0.5.1 for weather and is
+not pristine.
+
+**Frozen rule** (`mlb_luck_score.models.venue_wind_support`):
+
+- **Rows:** development seasons 2021–2024 only; `eligible_for_training`; `bb_type ==
+  fly_ball`; `hit_distance_sc`, `air_density_kg_m3` and `following_wind_mps` all present;
+  roof status `outdoor_open_air` or `retractable_roof_open` (closed or indoor games have
+  no station wind to test); launch speed 90–115 mph and launch angle 20–40° (the step 1
+  carry band).
+- **Estimator, per venue (`venue_id`):** OLS of `hit_distance_sc` on following wind and
+  air density, with fixed effects for 2 mph × 2° launch-speed/launch-angle cells
+  (within-cell demeaning). Cells with fewer than 5 rows are dropped. The wind coefficient
+  is reported as ft per mph.
+- **Interval:** game-clustered bootstrap, 500 replicates, seed 42, 95% percentile CI,
+  following the `compare_near_wall_calibration_gate` convention.
+- **Support minimum:** at least 100 plays and 20 games (reusing `MIN_SUBGROUP_PLAYS` and
+  `MIN_SUBGROUP_GAMES`).
+- **Three-way status** (v0.7D pattern; insufficient evidence is never a pass):
+  - `wind_supported`: adequate support and the whole CI is above 0. The venue's
+    wind-direction perturbation check **applies**.
+  - `wind_contradicted`: adequate support and the whole CI is below 0. Station wind points
+    the wrong way there. The check is **not applicable**, and this is reported as a
+    finding.
+  - `insufficient_evidence`: below the support minimum, or the CI straddles 0. The check is
+    **not applicable**.
+- **Multiplicity (reported, not gating):** with about 28 venues, 95% intervals would give
+  about 0.7 venues falsely `wind_supported` by chance alone. A Bonferroni sensitivity
+  column (a normal approximation from the bootstrap SE) is reported alongside.
+- Only the direction is tested. A supported venue's slope says nothing about in-park wind
+  magnitude.
+
 ## Data preconditions
 
 - **v1.2 gets its own versioned geometry table — built 2026-09-29:**
