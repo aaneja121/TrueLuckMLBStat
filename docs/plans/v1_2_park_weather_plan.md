@@ -210,6 +210,40 @@ not pristine.
 - Only the direction is tested. A supported venue's slope says nothing about in-park wind
   magnitude.
 
+### Step 2 result (computed 2026-09-30, code `d298d26`)
+
+Command: `.venv/bin/python -m mlb_luck_score.models.venue_wind_support`. Output:
+`outputs/tables/v1_2_venue_wind_check.csv` (gitignored). 29 venues in total. Slopes are ft per
+mph of station wind blowing out, with the 95% game-clustered CI.
+
+| Status | Venues |
+|---|---|
+| `wind_supported` (15) | Wrigley +0.95 [0.80, 1.10]; PNC +0.50; Citizens Bank +0.47; **Oracle +0.46 [0.21, 0.91]**; Kauffman +0.43; Camden Yards +0.40; Angel +0.38; Comerica +0.38; Fenway +0.36; Nationals +0.31; Guaranteed Rate +0.25; Great American +0.22; Target +0.21; Yankee +0.17; Busch +0.15 |
+| `wind_contradicted` (5) | Oakland −0.52 [−0.73, −0.28]; Petco −0.39 [−0.60, −0.16]; loanDepot −0.51 (n=152); American Family −0.27; Rogers Centre −0.22 |
+| `insufficient_evidence` (9) | Citi, Coors, Dodger, Progressive, T-Mobile, Truist, Chase (n=295); Globe Life (n=22) and Minute Maid (0 rows after the cell minimum): too few roof-open games |
+
+**Bonferroni sensitivity (reported, not gating):** 9 venues stay supported (Wrigley, PNC,
+Citizens Bank, Kauffman, Camden Yards, Angel, Comerica, Fenway, Guaranteed Rate). 2 stay
+contradicted (Oakland, Petco). Oracle, Busch, Yankee, Target, Great American and Nationals
+drop to insufficient evidence under the correction.
+
+**Reading it:**
+
+- **Oracle Park is supported, not contradicted.** This cuts against the hypothesis (approach
+  item 5) that station wind points the wrong way there. Its interval is the widest among the
+  supported venues, and it doesn't survive Bonferroni.
+- The contradicted venues are Oakland and Petco, which survive the correction, plus three
+  roofed parks with roof open (loanDepot, American Family, Rogers Centre), which don't. The
+  roofed-park result fits open-roof wind not reaching the field the way airport wind
+  suggests, but that isn't tested.
+- Every slope is 1 ft/mph or less. Any physical carry effect is presumably larger, so
+  station wind is a heavily attenuated proxy even where the direction holds. The magnitude
+  is unusable; only the direction is used.
+- These are observational associations. Game-level wind can travel with other conditions
+  that aren't controlled (only launch cell and density are held fixed).
+- **Consequence:** the v1.2 wind-direction perturbation check applies at the 15 supported
+  venues under the frozen rule. Every other venue reports "not applicable", never a pass.
+
 ## Data preconditions
 
 - **v1.2 gets its own versioned geometry table — built 2026-09-29:**
