@@ -297,13 +297,14 @@ drop to insufficient evidence under the correction.
   never the decision.
 
 The outline above (2026-09-29) is kept for the record. The step 3 specification below
-replaces it once approved.
+replaces it (approved and frozen 2026-09-30).
 
-### Step 3: v1.2 evaluation specification — PROPOSED 2026-09-30, NOT FROZEN
+### Step 3: v1.2 evaluation specification — FROZEN 2026-09-30
 
-**Status:** drafted by the agent. It is frozen only when the maintainer approves the
-decisions marked **[D1]–[D4]** and the approval is committed, before any v1.2 metric is
-computed. Nothing has been fitted or evaluated for v1.2.
+**Status: frozen 2026-09-30.** The maintainer approved decisions **[D1]–[D4]** exactly as
+proposed on 2026-09-30, before any v1.2 model was fitted or any v1.2 metric computed. From
+here, a change to this specification is a new decision: record it here, with its date and
+reason, before the result it would affect is looked at.
 
 **One candidate, declared in advance: `gated_geometry_v12`.** A single candidate keeps
 the number of looks small (v0.4 and v0.5 each compared several).
@@ -385,7 +386,7 @@ the number of looks small (v0.4 and v0.5 each compared several).
 **Output:** a `recommend_v12_adoption`-style summary. It is input to the maintainer's
 decision, never the decision.
 
-**Decisions for the maintainer before the freeze:**
+**Decisions approved by the maintainer on 2026-09-30 (all as proposed):**
 
 - **[D1]** Leave-one-season-out within 2021–2023 as the decision basis, with 2024 able only
   to block (plan open question 3).
