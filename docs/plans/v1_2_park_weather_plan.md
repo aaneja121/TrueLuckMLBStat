@@ -94,11 +94,11 @@ Open development questions (do not block the decision):
 
 Constrain the model with known physics instead of letting it learn park and weather freely.
 
-1. **Carry adjustment from physics, not from fitting.** Compute an expected change in
-   carry distance from air density and wind direction/speed using a published,
-   cited physical relationship, then derive an adjusted projected distance. The model
-   receives the adjusted distance, not raw weather columns. Its sign is fixed by physics
-   (thinner air → farther; wind out → farther) and cannot be learned backwards.
+1. ~~**Carry adjustment from physics, not from fitting.**~~ **Withdrawn 2026-09-30 by the
+   maintainer — see "Step 1 re-scope" below.** The measured `hit_distance_sc` already
+   reflects the real conditions, so adjusting it for weather would double-count under
+   Option B. Physics (Kagan & Nathan trajectory model) is kept only to set the expected
+   direction of the perturbation checks, never as a model input.
 2. **Geometry only where it can matter.** Apply wall geometry to balls whose adjusted
    projected distance is near or beyond the wall in that spray direction, extending the
    gating idea the near-wall defensive model already uses. Open-field balls are
@@ -132,6 +132,43 @@ Constrain the model with known physics instead of letting it learn park and weat
 Every derived feature must be recomputed whenever its source is overridden in
 perturbation checks (`RESEARCH_RULES.md`, "Any override of a raw feature must recompute
 every feature DERIVED from it").
+
+## Step 1 re-scope (decided 2026-09-30)
+
+**Decision (maintainer, 2026-09-30):** do not adjust `hit_distance_sc` for weather. Under
+Option B, weather is context, and the contact model's measured distance already contains
+it. The v1.2 core is park geometry applied to the measured distance. A published
+trajectory model is used only for the perturbation checks' expected directions:
+D. Kagan and A. M. Nathan, "Statcast and the Baseball Trajectory Calculator," *The
+Physics Teacher* (<https://baseball.physics.illinois.edu/Statcast-TPT.pdf>), with Nathan's
+calculator (<https://baseball.physics.illinois.edu/trajectory-calculator-new3D.html>).
+The papers themselves were not read in full when this was recorded; read them before
+writing the check code.
+
+**Evidence: descriptive check on 2021–2024 development data only** (486,443 eligible
+batted balls; no 2025/2026 read; nothing fitted for model use;
+`scripts/v1_2_hit_distance_check.py`, bootstrap seed 20260930):
+
+| Question | Result |
+|---|---|
+| Coverage of `hit_distance_sc` | 99.9–100% for every batted-ball type, outcome and season |
+| Home runs: projected landing point? | Yes. 97.4% land beyond the recorded wall (median 29 ft beyond); 0.7% are more than 10 ft short (geometry or spray-angle error, not investigated) |
+| Deep air-ball outs (within 30 ft of the wall) | n=24,451. 11.2% sit beyond the recorded wall, 2.2% by more than 10 ft. **Unresolved:** we can't tell whether that is the catch point plus geometry/spray error, or a projected landing point for robbed homers |
+| Hits off the wall | **Inconclusive.** Play descriptions almost never say "wall" (7 of 23,768), so this can't be isolated this way |
+| Does distance carry the density effect? | Yes, in the physical direction. Within launch-speed × launch-angle bins, outdoor fly balls (EV 90–115, LA 20–40; n=45,554, 7,360 games): −1.29 ft per +0.01 kg/m³ (game-clustered 95% CI −1.33 to −1.26). **Within venue** (day-to-day only, so altitude can't drive it; n=43,576): −1.45 ft (−1.52 to −1.37). A 10 °F change is about 0.024 kg/m³, or about 3.5 ft, close to the widely quoted ~3 ft per 10 °F |
+| Does distance carry the station-wind effect? | Positive but small: +0.25 ft per mph following wind within venue (CI +0.21 to +0.28). Per-venue point estimates range from −0.52 (Oakland) to +0.95 (Wrigley). This fits airport wind being a noisy proxy for in-park wind (approach item 5). It is descriptive only: no per-venue CIs yet, and it doesn't prove anything about in-park wind |
+
+**Consequences for the plan:**
+
+- The per-venue wind check (next step 2) no longer feeds a carry term. It becomes a
+  perturbation-check question: where station wind can't be shown to matter, that venue's
+  wind-direction check is reported as not applicable, not as a pass.
+- Correlation, not causation: the density coefficient sits in the physical direction and
+  near the published magnitude, but it's an observational association with other things
+  held only partly fixed (bins, venue).
+- Open: whether deep caught balls' distance is the catch point or a projection
+  (Statcast's definition should be cited, not inferred) matters for geometry gating near
+  the wall.
 
 ## Data preconditions
 
