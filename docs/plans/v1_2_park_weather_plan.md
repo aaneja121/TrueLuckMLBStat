@@ -106,9 +106,11 @@ Constrain the model with known physics instead of letting it learn park and weat
 3. **No bare venue identity.** v0.3 showed it memorizes venue quirks unevenly.
 4. **Monotonic constraints** where a direction is physically certain (farther wall → more
    catchable; more carry → more likely to leave), where the model class supports them.
-   The contact model is a five-class logistic regression; verify against current
-   scikit-learn docs whether any candidate class supports multiclass monotonic constraints
-   before relying on this.
+   **Checked 2026-09-30: not available.** On the installed scikit-learn 1.9.0,
+   `HistGradientBoostingClassifier(monotonic_cst=...)` raises "monotonic constraints are not
+   supported for multiclass classification" when fitted on a three-class target, and
+   multinomial logistic regression has no such option. The perturbation checks carry the
+   physical-direction burden instead.
 5. **Airport wind is not in-park wind.** Weather comes from nearby ASOS stations (airports),
    not from inside parks. Some parks were designed to block or redirect wind. Oracle Park
    is the documented example: its forecast wind blows out to center 98% of the time, yet
@@ -142,8 +144,14 @@ trajectory model is used only for the perturbation checks' expected directions:
 D. Kagan and A. M. Nathan, "Statcast and the Baseball Trajectory Calculator," *The
 Physics Teacher* (<https://baseball.physics.illinois.edu/Statcast-TPT.pdf>), with Nathan's
 calculator (<https://baseball.physics.illinois.edu/trajectory-calculator-new3D.html>).
-The papers themselves were not read in full when this was recorded; read them before
-writing the check code.
+**Update 2026-09-30:** the Kagan & Nathan PDF is a scanned image, so its text could not
+be read or quoted. Physics is only needed for *directions*, and the direction source used
+instead is verified text: drag and lift both scale with air density (Nathan, "Analysis of
+Baseball Trajectories," 2017, <https://baseball.physics.illinois.edu/TrajectoryAnalysis.pdf>).
+Nathan's Physics of Baseball page (<https://baseball.physics.illinois.edu/aero.html>,
+retrieved 2026-09-30) also says: "an increase of temperature by 1-deg F increases fly ball
+distances by about 0.33 ft." That is about 3.3 ft per 10 °F, which matches the step 1
+within-venue estimate (about 3.5 ft).
 
 **Evidence: descriptive check on 2021–2024 development data only** (486,443 eligible
 batted balls; no 2025/2026 read; nothing fitted for model use;
@@ -166,9 +174,19 @@ batted balls; no 2025/2026 read; nothing fitted for model use;
 - Correlation, not causation: the density coefficient sits in the physical direction and
   near the published magnitude, but it's an observational association with other things
   held only partly fixed (bins, venue).
-- Open: whether deep caught balls' distance is the catch point or a projection
-  (Statcast's definition should be cited, not inferred) matters for geometry gating near
-  the wall.
+- **Resolved 2026-09-30: for a caught ball it is the catch point.** MLB's Statcast
+  glossary, "Hit Distance (DST)" (<https://www.mlb.com/glossary/statcast/hit-distance>,
+  retrieved 2026-09-30): "Hit Distance represents the distance away from home plate that a
+  batted ball lands -- whether by hitting the ground, the seats, the wall or a fielder's
+  glove." It is a different metric from Projected Home Run Distance (flight "unhindered by
+  obstructions"). So a home run's distance is its seat landing point, and a robbed homer
+  reads at the glove, near the wall. The deep outs "beyond the wall" in the table above are
+  therefore glove points, and may include reach-over catches or geometry/spray error. The
+  glossary also says Statcast "can record Hit Distances at the moment a ball touches the
+  ground or where a ball ultimately ends up". That ambiguity is recorded, not resolved.
+- Adjacent, not chased: because a caught ball's distance is the glove point, the feature
+  partly reflects where the fielder made the play. It has been a baseline feature since
+  v0.1; flagged only.
 
 ## Step 2: per-venue station-wind check (rule frozen 2026-09-30, before any per-venue CI)
 
@@ -277,6 +295,106 @@ drop to insufficient evidence under the correction.
   - no open-field regression (bit-identical by construction).
 - **Candidates stay candidates.** A `recommend_*` rule is input to a maintainer decision,
   never the decision.
+
+The outline above (2026-09-29) is kept for the record. The step 3 specification below
+replaces it once approved.
+
+### Step 3: v1.2 evaluation specification — PROPOSED 2026-09-30, NOT FROZEN
+
+**Status:** drafted by the agent. It is frozen only when the maintainer approves the
+decisions marked **[D1]–[D4]** and the approval is committed, before any v1.2 metric is
+computed. Nothing has been fitted or evaluated for v1.2.
+
+**One candidate, declared in advance: `gated_geometry_v12`.** A single candidate keeps
+the number of looks small (v0.4 and v0.5 each compared several).
+
+- **Gate (which rows use geometry)** [D3]: v1.2 geometry resolved (`geometry_status ==
+  ok` from `park_geometry_v12`), `bb_type` in {`fly_ball`, `line_drive`}, and
+  `hit_distance_sc − wall_distance_in_spray_direction ≥ −20 ft` (every ball at or beyond
+  the wall is included). The 20 ft band reuses the near-wall defensive model's existing
+  convention and was not chosen from v1.2 data. Gate membership uses only pre-outcome
+  inputs the baseline already reads.
+- **Specialist for gated rows:** multinomial logistic regression, the same model class and
+  preprocessing as `baseline_v02` (`train_model`, `class_weight=None`). It adds exactly
+  these features: `wall_distance_in_spray_direction`, `wall_height_in_spray_direction`
+  (missing heights go through the existing impute + missing-category path),
+  `projected_distance_to_wall_margin`, `wall_margin_x_launch_angle` and
+  `launch_angle_x_wall_height`. It is trained on the gated rows of the training seasons only.
+- **Everything else:** the `baseline_v02` prediction, bit-identical.
+- **Never included:** venue identity (v0.3), and any weather column (step 1: measured
+  distance already carries the weather).
+- **Comparator:** `baseline_v02`, retrained on exactly the same training rows.
+
+**Evaluation scheme** [D1]:
+
+- **Primary:** leave-one-season-out within 2021–2023 (three folds: fit on two seasons,
+  predict the third). Out-of-fold predictions are pooled over 2021–2023. These seasons
+  have been training data for earlier versions but never the evaluation set for a park or
+  weather decision.
+- **Confirmation:** fit on 2021–2023, evaluate 2024. Disclosed as previously used. It can
+  block adoption (a credible regression on 2024 blocks) but cannot establish it.
+- **Intervals:** game-clustered bootstrap, 500 replicates, seed 42, 95%. These are the
+  repository's conventions, not new choices.
+
+**Adoption criteria. ALL must hold on the primary pool, stated before any computation:**
+
+1. **Log loss:** the paired candidate-minus-baseline log-loss CI over all eligible rows sits
+   entirely below 0. The gated-rows-only delta is also reported.
+2. **Calibration:** overall ECE and home-run ECE do not materially worsen under the
+   existing v0.3 material-regression rule (`compare_park_aware`, absolute margin 0.01 AND
+   relative margin 50%).
+3. **No credible venue or subgroup regression** [D2]: for every venue, and for the
+   subgroups wall height (short/medium/tall/unknown), spray sector, `bb_type`, the
+   0–5/5–10/10–20 ft bands short of the wall and beyond the wall, the paired log-loss delta
+   CI must not sit entirely above 0 (support minimums: 100 plays, 20 games). This is the
+   v0.7D `not_calibrated` rule, part (b).
+   **Deviation from the outline:** v0.7D's absolute-ECE part (a) is reported for both models
+   side by side, but it is not gating. At near-wall sample sizes it flagged 19 groups as
+   `not_calibrated` even for a model that credibly improved on its baseline (v0.7D, real
+   2024 data). Under v0.7D's own rules, a gate that the baseline itself would fail can't
+   tell a good candidate from a bad one. `insufficient_evidence` is still never reported as
+   a pass.
+4. **Physical-direction perturbation checks** [D4], on the gated rows, home-run
+   probability. Each check recomputes every derived column (margin and both interaction
+   terms). Gate membership is held at its unperturbed value.
+   - (a) Farther wall: wall distance +10 ft vs −10 ft → P(HR) lower.
+   - (b) Taller wall: height 16 ft vs 8 ft, on rows with a known height → P(HR) lower.
+   - (c) Longer ball: `hit_distance_sc` +10 ft vs −10 ft → P(HR) higher. This is where
+     weather physics now enters: thinner air or a tailwind shows up as a longer measured
+     distance (step 1; Nathan).
+   The aggregate direction is required for each check. Per-venue directions are reported,
+   and at the 15 `wind_supported` venues check (c) is labelled as also standing in for wind.
+   **Deviation from the outline:** its "Coors thin air" and "wind in/out" checks cannot apply
+   to a model with no weather inputs. They are replaced by (c) plus the diagnostic below.
+5. **Open field unchanged:** a test asserts that every non-gated row's predicted
+   probabilities are bit-identical to `baseline_v02`'s.
+
+**Reported, never gating:**
+
+- **Gate-boundary continuity:** mean |specialist − baseline| P(HR) for rows within 2 ft of
+  the −20 ft boundary. A jump there means a ball's expectation changes because it crossed
+  an arbitrary line.
+- **Weather absorbed?** Within-venue association of the per-play home-run residual
+  (indicator minus P(HR)) with air density (all outdoor/roof-open venues) and following
+  wind (the 15 `wind_supported` venues only), for both models, with CIs. Under Option B
+  this should sit near zero. It is not gating because it is observational and confounded
+  (step 1).
+- Geometry coverage of gated rows by venue and season, and the count of rows whose wall
+  height is unknown.
+
+**Output:** a `recommend_v12_adoption`-style summary. It is input to the maintainer's
+decision, never the decision.
+
+**Decisions for the maintainer before the freeze:**
+
+- **[D1]** Leave-one-season-out within 2021–2023 as the decision basis, with 2024 able only
+  to block (plan open question 3).
+- **[D2]** Venue/subgroup gate on credible *paired regression*, with absolute ECE reported
+  but not gating.
+- **[D3]** One candidate: a logistic specialist, a 20 ft gate, and the five geometry
+  features listed.
+- **[D4]** The weather perturbation checks replaced by the longer-ball check plus a
+  weather-residual diagnostic.
 
 ## Freeze and prospective test
 
