@@ -92,17 +92,27 @@ V12_EXCLUDED_VENUE_IDS: frozenset[int] = TEMPORARY_OR_SPECIAL_VENUE_IDS | frozen
 LF, LC, CF, RC, RF = STANDARD_ANGLES
 
 
-#: (config_id, spray angle) -> (field, new value, source). `field` is
+#: Date and worksheet of the maintainer's wall-height review.
+V12_HEIGHT_REVIEW_DATE: Final = "2026-10-01"
+_HEIGHT_WORKSHEET: Final = "docs/reviews/park_wall_height_review_2026-10-01.md"
+_HEIGHT_REVIEW: Final = f"approved {V12_HEIGHT_REVIEW_DATE}, {_HEIGHT_WORKSHEET}"
+
+#: (config_id, spray angle) -> (field, new value, source, approval). `field` is
 #: "wall_distance_feet", "wall_height_feet" or "effective_end_date".
-_Override = tuple[str, float | int | str | None, str]
+_Override = tuple[str, float | int | str | None, str, str]
 _OVERRIDES: dict[tuple[str, float], list[_Override]] = {}
 
 
 def _add(
-    config_id: str, angles: tuple[float, ...], field: str, value: float | str | None, source: str
+    config_id: str,
+    angles: tuple[float, ...],
+    field: str,
+    value: float | str | None,
+    source: str,
+    approval: str = f"approved {V12_REVIEW_DATE}, {_WORKSHEET}",
 ) -> None:
     for angle in angles:
-        _OVERRIDES.setdefault((config_id, angle), []).append((field, value, source))
+        _OVERRIDES.setdefault((config_id, angle), []).append((field, value, source, approval))
 
 
 _ALL = STANDARD_ANGLES
@@ -280,6 +290,111 @@ _add(
     "Mariners release 2012-10-02: 'eight-feet from foul pole to foul pole'",
 )
 
+
+# --- heights: wall-height review (2026-10-01) ---------------------------------
+# Each source names its evidence tier from the height worksheet: O = official,
+# S2 = two secondary sources agree, S1 = one secondary source, X = maintainer
+# decision on contested evidence. review_status still describes the DISTANCE.
+def _height(config_id: str, angles: tuple[float, ...], value: float, source: str) -> None:
+    _add(config_id, angles, _H, value, source, _HEIGHT_REVIEW)
+
+
+_SH = "Seamheads Ballparks Database"
+_height("truist_park_v1", (LF,), 6.0, "O: Braves guide 'Left field corner 335' 6' 0\"'")
+_height(
+    "truist_park_v1", (LC, CF), 8.67, "O: Braves guide 'Left center field 385' 8' 8\"', CF 8' 8\""
+)
+_height("truist_park_v1", (RC, RF), 16.0, "O: Braves guide 'Right center field 375' 16' 0\"'")
+_height(
+    "citizens_bank_park_v1", (LF, LC), 10.5, "O: Phillies guide 'Left field power alley ... 10'6\"'"
+)
+_height(
+    "citizens_bank_park_v1", (CF,), 6.0, "O: Phillies guide 'Center field, straightaway ... 6''"
+)
+_height(
+    "citizens_bank_park_v1",
+    (RC, RF),
+    13.25,
+    "O: Phillies guide 'Right field power alley ... 13'3\"'",
+)
+_height(
+    "globe_life_field_v1",
+    _ALL,
+    8.0,
+    "O: Rangers release 2019-12-04 'eight feet in height from the left field foul pole to the right'",
+)
+_height("wrigley_field_v1", (LC, CF, RC), 11.5, "O: Cubs history page 'Bleachers - 11 1/2 feet'")
+_height(
+    "camden_yards_pre2022", (LC,), 7.0, "O: Orioles ground rules, 2022 wall 'raised from 7 ft.'"
+)
+_height("camden_yards_2022_2024", (LC,), 13.0, "O: Orioles ground rules, 2022 wall raised to 13 ft")
+for _cfg_id in ("camden_yards_pre2022", "camden_yards_2022_2024"):
+    _height(_cfg_id, (CF,), 7.0, f"S2: {_SH} CF 7; Clem CF 7")
+    _height(_cfg_id, (RC,), 7.0, f"S1: {_SH} RCF 7")
+    _height(_cfg_id, (RF,), 21.0, f"S2: {_SH} RF 21; Clem RF 21")
+_height("fenway_park_v1", (CF,), 17.0, "O: Red Sox guide 'The center field wall is 17 feet'")
+_height("fenway_park_v1", (RC,), 5.0, "O: Red Sox guide 'the bullpen fences measure five feet'")
+_height("fenway_park_v1", (LC,), 17.0, "X: junction of the 37-ft wall and the 17-ft CF wall")
+_height("fenway_park_v1", (RF,), 3.0, "X: Red Sox guide RF fence '3 to 5 feet'; Seamheads RF 3")
+_height(
+    "coors_field_v1",
+    (RF,),
+    16.5,
+    "O: MLB.com 2016-03-01, out-of-town scoreboard '16 feet, 6 inches'",
+)
+_height("coors_field_v1", (LC, CF), 8.0, f"X: {_SH} (post-2016) LCF 8, CF 8")
+_height(
+    "comerica_park_pre2023", (CF, RF), 8.5, "O: MLB.com 2023-01-11 'lowered from 8 1/2 to 7 feet'"
+)
+_height("comerica_park_pre2023", (RC,), 13.0, "X: MLB.com 2023-01-11 right-center wall 'from 13'")
+_height(
+    "loandepot_park_v1", (LF, RF), 7.0, "O: MLB.com 2016-01-25 'lowered ... from 11 1/2 feet to 7'"
+)
+_height(
+    "loandepot_park_v1", (LC,), 11.5, "O: MLB.com 2016-01-25 scoreboard stretch '11 1/2 feet tall'"
+)
+_height("petco_park_v1", (CF, RC), 7.0, "O: Padres 2013 'sub-eight-foot'; Seamheads and Clem CF 7")
+_height("oakland_coliseum_v1", (LF, CF, RF), 8.0, f"S2: {_SH} 8; Clem 8")
+_height(
+    "oakland_coliseum_v1", (LC, RC), 15.0, f"S2: {_SH} 15; Clem '15-foot section in the alleys'"
+)
+_height("busch_stadium_v1", (LF, CF, RF), 8.0, f"S2: {_SH} 8; Clem 8")
+_height("busch_stadium_v1", (LC, RC), 8.0, f"S1: {_SH} 8")
+_height("tropicana_field_v1", (LF, RF), 11.0, f"S2: {_SH} 11; Clem 11")
+_height("tropicana_field_v1", (CF,), 9.0, f"S2: {_SH} 9; Clem 9")
+_height("tropicana_field_v1", (LC, RC), 11.0, f"S1: {_SH} 11")
+_height("angel_stadium_v1", (LF,), 5.0, f"S2: {_SH} LF 5; Clem LF 5")
+_height("angel_stadium_v1", (CF,), 8.0, f"S2: {_SH} CF 8; Clem CF 8")
+_height(
+    "angel_stadium_v1",
+    (RC,),
+    8.0,
+    f"S2: CBS Sports 2018-02-20 'lowered from 18 feet to eight'; {_SH} 8",
+)
+_height("angel_stadium_v1", (LC,), 8.0, f"S1: {_SH} LCF 8")
+_height("angel_stadium_v1", (RF,), 5.0, f"X: {_SH} RF 5; Clem 5; 18-ft wall is the RF seating wall")
+_height(
+    "yankee_stadium_v1",
+    (LC, CF),
+    8.0,
+    f"S2: Wikipedia '8 ft high from the left-field foul pole'; {_SH} 8",
+)
+_height("yankee_stadium_v1", (RC,), 8.0, f"S1: {_SH} RCF 8 (fence descends toward RF)")
+_height(
+    "progressive_field_v1", (RC,), 9.0, f"S2: thisgreatgame 'nine-foot walls elsewhere'; {_SH} 9"
+)
+_height("progressive_field_v1", (LC,), 19.0, f"S1: {_SH} LCF 19")
+_height("gabp_v1", (LC,), 12.0, f"S1: {_SH} LCF 12")
+_height("gabp_v1", (RC,), 8.0, f"S1: {_SH} RCF 8")
+_height(
+    "chase_field_v1",
+    (LC, RC),
+    7.5,
+    "S1: thisgreatgame '25 feet as opposed to the 7.5 feet elsewhere'",
+)
+_height("pnc_park_v1", (LC,), 10.0, "X: Pirates ground rules '10 feet by the left-center bullpens'")
+_height("pnc_park_v1", (RC,), 21.0, "X: junction of the 21-ft Clemente Wall and the 10-ft wall")
+
 # --- dates -----------------------------------------------------------------
 _add(
     "camden_yards_2022_2024",
@@ -361,12 +476,14 @@ def _new_configs() -> tuple[ParkGeometryPoint, ...]:
             "2025-01-01",
             None,
             (333.0, 363.0, 400.0, 373.0, 318.0),
-            (8.0, 6.92, None, None, None),
+            (8.0, 6.92, 7.0, 7.0, 21.0),
             source_name="Orioles ground rules",
             source_reference="https://www.mlb.com/orioles/ballpark/ground-rules",
             notes="v1.2: 2025 wall 'to 8 feet near the left field foul pole and to 6 feet, 11 inches "
             "closer to the left-center bullpens'; 'left-center: 363 ft.' (rule A). LC height 6.92 "
-            "pending an official diagram. Corner 373 and bullpen 376 are on the deferred list.",
+            "pending an official diagram. Corner 373 and bullpen 376 are on the deferred list. "
+            f"CF 7 / RC 7 / RF 21 (S2: {_SH} and Clem CF 7, RF 21; S1: {_SH} RCF 7) -- the 2025 "
+            f"change touched only the left-field wall; {_HEIGHT_REVIEW}.",
             source_accessed_date=V12_REVIEW_DATE,
         ),
         *_cfg(
@@ -411,13 +528,11 @@ def _status(config_id: str, angle: float) -> str:
 def _apply(point: ParkGeometryPoint) -> ParkGeometryPoint:
     changes: dict[str, object] = {}
     notes = [point.notes] if point.notes else []
-    for field, value, source in _OVERRIDES.get(
+    for field, value, source, approval in _OVERRIDES.get(
         (point.geometry_config_id, point.spray_angle_degrees), []
     ):
         changes[field] = value
-        notes.append(
-            f"v1.2: {field} -> {value} ({source}; approved {V12_REVIEW_DATE}, {_WORKSHEET})."
-        )
+        notes.append(f"v1.2: {field} -> {value} ({source}; {approval}).")
     status = _status(point.geometry_config_id, point.spray_angle_degrees)
     return replace(point, **changes, review_status=status, notes=" ".join(notes))  # type: ignore[arg-type]
 

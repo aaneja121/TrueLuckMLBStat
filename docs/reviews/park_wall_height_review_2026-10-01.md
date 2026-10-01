@@ -13,6 +13,14 @@ wall or beyond it, 2021–2024). The frozen trainer drops any feature below 50% 
 marked O, S2 or S1 below raises gated-ball height coverage to **77.4%** (76.7–78.3% by
 season). Also taking every suggestion in "Decisions" gives **88.2%**.
 
+## Maintainer decision (2026-10-01)
+
+**Approved:** every O, S2 and S1 row, and the suggestions for decisions 1–6 and 8 (Fenway
+LC 17 and RF 3, Coors LC and CF 8, PNC LC 10 and RC 21, Angel RF 5, Comerica RC before 2023
+13). **Left empty:** decisions 7, 9, 10 and 11. Applied in `park_geometry_v12.py`. Each
+note cites this worksheet and its tier. Measured gated-ball height coverage afterwards:
+**88.2%**.
+
 ## Evidence tiers
 
 - **O — official:** the team or MLB.com, quoted. Proposed as `maintainer_approved_official_source`.

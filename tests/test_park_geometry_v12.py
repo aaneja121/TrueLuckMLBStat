@@ -307,3 +307,120 @@ def test_officially_confirmed_points_are_marked_official() -> None:
     assert _point("pnc_park_v1", LF).review_status == v12.REVIEW_STATUS_MAINTAINER_OFFICIAL
     assert _point("wrigley_field_v1", LC).review_status == v12.REVIEW_STATUS_MAINTAINER_OFFICIAL
     assert _point("oracle_park_v1", RF).review_status == v12.REVIEW_STATUS_MAINTAINER_OFFICIAL
+
+
+# --------------------------------------------------------------------------
+# Wall-height review (docs/reviews/park_wall_height_review_2026-10-01.md)
+# --------------------------------------------------------------------------
+
+_ALL = v10.STANDARD_ANGLES
+
+#: Every height the maintainer approved on 2026-10-01 (sourced rows plus the
+#: accepted suggestions for contested points).
+HEIGHT_REVIEW_2026_10_01: list[tuple[str, float, float]] = [
+    *[("truist_park_v1", a, h) for a, h in zip(_ALL, (6.0, 8.67, 8.67, 16.0, 16.0), strict=True)],
+    *[
+        ("citizens_bank_park_v1", a, h)
+        for a, h in zip(_ALL, (10.5, 10.5, 6.0, 13.25, 13.25), strict=True)
+    ],
+    *[("globe_life_field_v1", a, 8.0) for a in _ALL],
+    *[("wrigley_field_v1", a, 11.5) for a in (LC, CF, RC)],
+    ("camden_yards_pre2022", LC, 7.0),
+    ("camden_yards_2022_2024", LC, 13.0),
+    *[
+        (cfg, a, h)
+        for cfg in ("camden_yards_pre2022", "camden_yards_2022_2024", "camden_yards_2025")
+        for a, h in ((CF, 7.0), (RC, 7.0), (RF, 21.0))
+    ],
+    ("fenway_park_v1", LC, 17.0),
+    ("fenway_park_v1", CF, 17.0),
+    ("fenway_park_v1", RC, 5.0),
+    ("fenway_park_v1", RF, 3.0),
+    ("coors_field_v1", LC, 8.0),
+    ("coors_field_v1", CF, 8.0),
+    ("coors_field_v1", RF, 16.5),
+    ("comerica_park_pre2023", CF, 8.5),
+    ("comerica_park_pre2023", RC, 13.0),
+    ("comerica_park_pre2023", RF, 8.5),
+    ("loandepot_park_v1", LF, 7.0),
+    ("loandepot_park_v1", LC, 11.5),
+    ("loandepot_park_v1", RF, 7.0),
+    ("petco_park_v1", CF, 7.0),
+    ("petco_park_v1", RC, 7.0),
+    *[
+        ("oakland_coliseum_v1", a, h)
+        for a, h in zip(_ALL, (8.0, 15.0, 8.0, 15.0, 8.0), strict=True)
+    ],
+    *[("busch_stadium_v1", a, 8.0) for a in _ALL],
+    *[
+        ("tropicana_field_v1", a, h)
+        for a, h in zip(_ALL, (11.0, 11.0, 9.0, 11.0, 11.0), strict=True)
+    ],
+    *[("angel_stadium_v1", a, h) for a, h in zip(_ALL, (5.0, 8.0, 8.0, 8.0, 5.0), strict=True)],
+    ("yankee_stadium_v1", LC, 8.0),
+    ("yankee_stadium_v1", CF, 8.0),
+    ("yankee_stadium_v1", RC, 8.0),
+    ("progressive_field_v1", LC, 19.0),
+    ("progressive_field_v1", RC, 9.0),
+    ("gabp_v1", LC, 12.0),
+    ("gabp_v1", RC, 8.0),
+    ("chase_field_v1", LC, 7.5),
+    ("chase_field_v1", RC, 7.5),
+    ("pnc_park_v1", LC, 10.0),
+    ("pnc_park_v1", RC, 21.0),
+]
+
+#: Points the review deliberately left without a height.
+HEIGHTS_LEFT_EMPTY_2026_10_01: list[tuple[str, float]] = [
+    *[(cfg, a) for cfg in ("comerica_park_pre2023", "comerica_park_2023_2024") for a in (LF, LC)],
+    ("loandepot_park_v1", CF),
+    ("loandepot_park_v1", RC),
+    *[("nationals_park_v1", a) for a in _ALL],
+    ("oracle_park_v1", LC),
+    ("dodger_stadium_v1", LC),
+    ("dodger_stadium_v1", RC),
+    *[("sutter_health_park_2025_2027", a) for a in _ALL],
+    *[("las_vegas_ballpark_2026_2027", a) for a in _ALL],
+]
+
+
+def test_height_review_covers_75_points_once() -> None:
+    keys = [(c, a) for c, a, _ in HEIGHT_REVIEW_2026_10_01]
+    assert len(keys) == len(set(keys)) == 75
+
+
+@pytest.mark.parametrize(("config_id", "angle", "expected"), HEIGHT_REVIEW_2026_10_01)
+def test_each_reviewed_height_is_applied(config_id: str, angle: float, expected: float) -> None:
+    assert _point(config_id, angle).wall_height_feet == expected
+
+
+@pytest.mark.parametrize(("config_id", "angle", "_"), HEIGHT_REVIEW_2026_10_01)
+def test_each_reviewed_height_cites_the_height_worksheet(
+    config_id: str, angle: float, _: float
+) -> None:
+    notes = _point(config_id, angle).notes
+    assert "park_wall_height_review_2026-10-01.md" in notes
+    assert "approved 2026-10-01" in notes
+
+
+@pytest.mark.parametrize(("config_id", "angle"), HEIGHTS_LEFT_EMPTY_2026_10_01)
+def test_points_the_review_left_empty_have_no_height(config_id: str, angle: float) -> None:
+    assert _point(config_id, angle).wall_height_feet is None
+
+
+def test_height_review_changes_no_distance_or_distance_status() -> None:
+    for config_id, angle, _ in HEIGHT_REVIEW_2026_10_01:
+        if config_id == "camden_yards_2025":
+            continue  # a v1.2-only configuration, absent from the frozen table
+        point = _point(config_id, angle)
+        frozen = _frozen_point(config_id, angle)
+        assert point.wall_distance_feet in (frozen.wall_distance_feet,) or any(
+            c == config_id and a == angle for c, a, _ in DISTANCE_CORRECTIONS
+        )
+    assert _point("nationals_park_v1", LF).review_status == v12.REVIEW_STATUS_MAINTAINER_OFFICIAL
+    assert _point("angel_stadium_v1", RC).review_status == v12.REVIEW_STATUS_MAINTAINER_SECONDARY
+
+
+def test_height_count_after_the_review() -> None:
+    with_height = sum(p.wall_height_feet is not None for p in v12.PARK_GEOMETRY_POINTS_V12)
+    assert with_height == 86 + 75

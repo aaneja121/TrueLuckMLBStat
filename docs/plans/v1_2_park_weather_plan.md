@@ -401,6 +401,15 @@ proposal-and-approval review as the distances. The evaluation waits for that rev
 five-feature candidate is unchanged. Coverage of gated rows is re-measured after the review
 and recorded here before anything is fitted.
 
+**Height review done (2026-10-01).** The maintainer approved 75 heights from
+`docs/reviews/park_wall_height_review_2026-10-01.md`: all official, two-source and
+one-source rows, plus the suggested values for eight contested points. Eleven contested
+points stay empty (Comerica LF/LC, loanDepot CF/RC, Nationals Park, Oracle LC), as do the
+Dodger alleys and the 2025–27 neutral-site parks. They are applied in `park_geometry_v12.py`
+with the evidence tier in each note. **Re-measured coverage of gated rows: 88.2%** (87.8–88.4%
+by season; 88.3% in each leave-one-season-out training set). Five of 30 venues are below 50%.
+Missing heights are still median-imputed with no indicator, as the frozen trainer does.
+
 **Decisions approved by the maintainer on 2026-09-30 (all as proposed):**
 
 - **[D1]** Leave-one-season-out within 2021–2023 as the decision basis, with 2024 able only
