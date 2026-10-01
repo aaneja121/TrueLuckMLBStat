@@ -443,6 +443,61 @@ Missing heights are still median-imputed with no indicator, as the frozen traine
 - **[D4]** The weather perturbation checks replaced by the longer-ball check plus a
   weather-residual diagnostic.
 
+### Step 3 result: the single run (2026-10-01, code `4c40763`, clean tree)
+
+Command: `.venv/bin/python -m mlb_luck_score.models.evaluate_gated_geometry_v12`. Output:
+`outputs/tables/v1_2_gated_geometry_evaluation.json` (gitignored). Pooled out-of-fold rows
+for 2021–2023: 364,311, of which 34,861 are gated. All five specialist features were kept
+in every fold. Gated-row height coverage was 88.3%.
+
+| Criterion | Result | Pass |
+|---|---|---|
+| Log loss, all rows (candidate − baseline) | −0.0360 [−0.0368, −0.0351] | ✅ |
+| Log loss, gated rows only | −0.3759 [−0.3849, −0.3672] | (reported) |
+| Overall ECE | 0.01468 → 0.01539; paired Δ +0.00071 [+0.00045, +0.00097] | ✅ not material |
+| Home-run ECE | 0.00272 → 0.00331; paired Δ +0.00059 [+0.00011, +0.00115] | ✅ not material |
+| Venue/subgroup paired regression | none credible | ✅ |
+| Perturbations (pooled ΔP(HR)) | farther wall −0.261; taller wall −0.039 (n=30,792); longer ball +0.261. No venue backwards; same on 2024 | ✅ |
+| Open field identical | asserted in every fold | ✅ |
+| 2024 confirmation | −0.0350 [−0.0366, −0.0334] | ✅ |
+
+**Automated rule:** `recommend_adopt: True`. Under the plan this is input to the
+maintainer's decision, not the decision. Calibration worsened slightly but credibly (both
+ECE intervals are above 0), though below the materiality rule.
+
+**Reported only:**
+
+- **Gate-boundary jump:** mean |ΔP(HR)| = 0.114 for 3,116 balls within 2 ft of the −20 ft
+  line. That's a real discontinuity: a ball's expectation changes by about 11 points when it
+  crosses an arbitrary line.
+- **Weather residual (within venue):** air density. Baseline slope −0.27 [−0.45, −0.10] per
+  kg/m³ (thinner air → more home runs than predicted). Candidate −0.02 [−0.15, +0.10].
+  Following wind at the 15 supported venues: both CIs include 0.
+
+**⚠ Plausibility finding — not automated, needs the maintainer.** The gated-row gain
+(0.376 nats) is very large. `hit_distance_sc` is the glove point for a caught ball, the wall
+contact point for a ball off the wall, and the seat landing point for a home run (Statcast
+definition, step 1). So `distance − wall` partly records the outcome itself. On gated rows,
+2021–2023:
+
+| Margin vs wall | n | Home-run share |
+|---|---|---|
+| −20 to −10 ft | 7,481 | 1.0% |
+| −5 to 0 | 3,165 | 7.0% |
+| 0 to +5 | 2,761 | 19.0% |
+| +10 to +30 | 7,747 | 81.5% |
+| ≥ +30 | 7,835 | 99.0% |
+
+The sign of the margin alone classifies home run vs not correctly 84.0% of the time. Some of
+this is physics: a ball 30 ft past the wall was never catchable. Some is truncation by the
+result. A robbed home run reads as "at the wall", so the model learns that such balls are
+outs, and the robbery stops looking like bad luck. **The gain therefore overstates what
+geometry adds to "what the contact earned."** The baseline has had the same property since
+v0.1 (it also uses `hit_distance_sc`), but geometry makes it much sharper: knowing where the
+wall is turns the truncated distance into a near-label. This is the
+`RESEARCH_RULES.md` target-leakage concern in spirit, though `hit_distance_sc` is not on
+`LEAKAGE_COLUMNS`.
+
 ## Freeze and prospective test
 
 1. Freeze the v1.2 code, features and adoption decision with a recorded date **before the
