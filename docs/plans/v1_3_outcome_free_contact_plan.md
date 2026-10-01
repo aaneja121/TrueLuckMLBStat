@@ -82,6 +82,48 @@ From the v1.2 work (`docs/plans/v1_2_park_weather_plan.md`):
 - Output: `outputs/tables/v1_3_outcome_free_evaluation.json`. **One run.** A failure partway
   through is fixed as a code defect, recorded here; never as a response to results.
 
+## Result: the single development run (2026-10-01, code `deebae1`, clean tree)
+
+`outputs/tables/v1_3_outcome_free_evaluation.json` (gitignored). 364,311 pooled rows from
+2021–2023, reused as disclosed.
+
+| Gate | Result | Pass |
+|---|---|---|
+| Log loss (candidate − baseline) | **−0.2014 [−0.2041, −0.1989]** | ✅ |
+| Calibration | ECE 0.0147 → 0.0045; home-run ECE 0.0027 → 0.0014 (both better; paired CIs below 0) | ✅ |
+| Venue/subgroup regression | none credible in 44 adequately supported groups. Popups are the only group with a worse point estimate (+0.010, CI to +0.027) | ✅ |
+| Physical directions | harder hit +0.040 P(HR); thinner air +0.008, backwards only at Chase Field (venue 15), also in 2024 | ✅ |
+| 2024 confirmation | −0.2088 [−0.2137, −0.2041] | ✅ |
+
+**Development gates: all pass (`recommend_adopt: True`).** Under D12 that is necessary, not
+sufficient: the real test is 2027.
+
+**Reported only — caveats the maintainer should weigh:**
+
+- **Two changes are bundled.** The gain mixes removing the outcome-revealing distance with
+  moving from multinomial logistic regression to gradient boosting. They aren't separated,
+  so the gain can't be credited to "outcome-free" alone.
+- **Air density doesn't do its job.** Ablation: *with* density, log loss is **worse** by
+  +0.0043 [+0.0022, +0.0069]. The within-venue weather residual on air density is −0.073
+  [−0.092, −0.055] for the candidate vs −0.042 [−0.062, −0.025] for the baseline. Following
+  wind at the 15 supported venues: candidate +0.0009 [+0.0007, +0.0012]; baseline ~0. So
+  weather remains partly in luck, somewhat more than in production, despite D10. Density
+  does appear to absorb altitude: Coors Field's home-run residual is −1.64 per 100 batted
+  balls for the baseline and +0.06 for the candidate.
+- **Spray angle carries a lot:** removing it worsens log loss by 0.103 overall and 0.084 on
+  ground balls. It comes from fielded coordinates, so part of this may be fielding-location
+  information. Direction is also genuinely predictive (pull, gaps, holes), and this run
+  can't separate the two.
+- **Park:** the baseline was already park-neutral (its `venue` input is 100% null), so D11
+  keeps the status quo rather than changing it. The largest candidate park residuals are at
+  temporary venues: Estadio Alfredo Harp Helu +5.4 per 100 (n=101); TD Ballpark +1.4;
+  Sahlen Field +1.2. Kauffman −1.2 and Great American +1.1 are next.
+- **Robbery zone** (caught air balls within 5 ft of the wall, n=2,727): mean P(HR) is 0.336
+  for the baseline and 0.244 for the candidate. The outcome-free model gives these balls
+  less home-run credit than production, not more. Read as descriptive.
+- **Per-class ECE (baseline → candidate):** out 0.031 → 0.011; single 0.037 → 0.007;
+  double 0.003 → 0.002; triple 0.0001 → 0.002 (worse, tiny); home run 0.003 → 0.001.
+
 ## If the gates pass: freeze and the 2027 test
 
 1. Freeze code, inputs and settings with a recorded date **before the first 2027
