@@ -565,6 +565,45 @@ v0.1; flagged, out of scope).
 
 Output: `outputs/tables/v1_2b_airball_geometry_evaluation.json`. **One run.**
 
+### v1.2b result: the single run (2026-10-01, code `3ccc227`, clean tree)
+
+364,311 pooled rows from 2021–2023; 172,066 in scope (air balls with geometry). Wall-height
+known for 87.3% of them.
+
+| Criterion | Result | Pass |
+|---|---|---|
+| Geometry adds (candidate − reference log loss) | **+0.0051 [+0.0014, +0.0081]**: geometry makes it worse | ❌ |
+| Calibration vs reference | ECE 0.00507 → 0.00583; HR ECE 0.00281 → 0.00231; not material | ✅ |
+| Venue/subgroup regression | **11 credible regressions**: venues 4, 10, 14, 680, 3289 (Guaranteed Rate, Oakland, Rogers Centre, T-Mobile, Citi); wall height short and medium; spray sectors center, right-center and right; line drives | ❌ |
+| Perturbations | farther wall −0.028, taller wall −0.009, harder hit +0.082, all in the right direction (taller wall backwards at venue 22 only) | ✅ |
+| Out of scope identical | asserted | ✅ |
+| 2024 confirmation | **+0.0031 [+0.0011, +0.0049]**: a credible regression | ❌ |
+
+**Under the frozen rule: `recommend_adopt: False`.** `airball_geometry_v12b` fails three
+criteria.
+
+**Reported only — read before deciding anything:**
+
+- **Leak gap, the largest number here.** The candidate's log loss is **0.251 lower than
+  `baseline_v02`'s** on in-scope rows [−0.255, −0.246]. ECE is 0.0058 vs 0.0292. A
+  gradient-boosting model on launch conditions alone (the reference does about as well)
+  predicts air-ball outcomes far better than the production logistic model, even though
+  production reads the outcome-revealing distance. This is a separate finding about the
+  production contact model, not a v1.2 result. 2021–2023 have now been used twice, which
+  any follow-up must disclose.
+- **Weather moves into "luck" without distance.** Within-venue residual vs air density:
+  baseline −0.08 [−0.12, −0.04]; candidate **−0.37 [−0.41, −0.33]**. Following wind at the
+  15 supported venues: baseline ~0; candidate +0.0023 [+0.0018, +0.0028]. Measured distance
+  had been carrying weather (step 1). Dropping it puts weather back into the residual, which
+  goes against the Option B weather decision unless weather is modelled explicitly.
+- **Robbery zone** (caught air balls within 5 ft of the wall, n=2,727): mean P(HR) is 0.336
+  under the baseline and 0.234 under the candidate. This doesn't show the hoped-for
+  "robberies now count as bad luck" effect. Read as descriptive only.
+- **Why geometry hurts (hypothesis, untested):** wall distance plus height at a spray angle
+  nearly fingerprints the venue. Like v0.3's `venue_id`, a flexible model can memorize venue
+  quirks that don't carry across seasons. The five regressing venues and the 2024
+  regression fit that, but don't prove it.
+
 ## Freeze and prospective test
 
 1. Freeze the v1.2 code, features and adoption decision with a recorded date **before the
