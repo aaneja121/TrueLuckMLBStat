@@ -498,6 +498,73 @@ wall is turns the truncated distance into a near-label. This is the
 `RESEARCH_RULES.md` target-leakage concern in spirit, though `hit_distance_sc` is not on
 `LEAKAGE_COLUMNS`.
 
+### Redesign: outcome-free air-ball model — FROZEN 2026-10-01
+
+**Decision (maintainer, 2026-10-01): option 1, redesign.** `gated_geometry_v12` is **not
+adopted**. Decisions D5–D8 were approved as proposed on 2026-10-01, before any redesign
+code existed.
+
+**Disclosure:** the redesign responds to the plausibility finding above, and 2021–2023 have
+now been evaluated once (the `gated_geometry_v12` run). The same folds are reused. They are
+no longer untouched for v1.2, and every result below says so. Nothing from that run's
+metrics is used to choose features or settings below; the features follow D6, and the model
+settings are repository defaults.
+
+**Candidate: `airball_geometry_v12b`.**
+
+- **Scope [D5]:** eligible rows with `bb_type` in {fly_ball, line_drive} and v1.2 geometry
+  resolved. Everything else (ground balls, popups, air balls without geometry) keeps the
+  `baseline_v02` prediction, bit-identical.
+- **Inputs [D6]:** `launch_speed`, `launch_angle`, `spray_angle_approx`, `stand`,
+  `bb_type`, `wall_distance_in_spray_direction`, `wall_height_in_spray_direction`. **No
+  `hit_distance_sc` and nothing derived from it.** Caveat: `spray_angle_approx` comes from
+  the fielded hit coordinates. It is kept as the only direction data and flagged.
+- **Model [D7]:** `HistGradientBoostingClassifier` with scikit-learn defaults,
+  `random_state = RANDOM_SEED`, no class weighting (the repository's existing HGB
+  convention). Numeric inputs pass through unimputed, so an unknown wall height reaches
+  the model as missing (native handling) rather than as the median. Categoricals are
+  one-hot encoded. It is fitted on in-scope rows of the training seasons only.
+- **Reference model [D8]:** identical, minus the two wall features. The comparison
+  isolates what geometry adds without outcome-revealing inputs.
+
+**Folds:** as before: leave-one-season-out within 2021–2023, pooled, plus 2021–2023 → 2024
+as a confirmation that can only block. Game-clustered bootstrap, 500 replicates, seed 42,
+95%.
+
+**Adoption criteria. ALL must hold on in-scope rows of the primary pool:**
+
+1. **Geometry adds:** the paired log-loss CI (candidate − reference) sits entirely below 0.
+2. **Calibration:** the candidate's overall ECE and home-run ECE are not materially worse
+   than the reference's (v0.3 rule: +0.01 absolute or +50% relative).
+3. **No credible venue/subgroup regression:** no adequately supported group (≥100 plays,
+   ≥20 games) whose paired log-loss CI vs the reference sits entirely above 0. Groups:
+   venue, wall-height bin (short ≤ 8 / medium / tall ≥ 15 / unknown), spray sector and
+   `bb_type`. Absolute home-run ECE status (v0.7D) is reported for both models but is
+   not gating.
+4. **Perturbations** (in-scope rows, pooled, P(HR)): wall distance ±10 ft → P(HR) lower
+   when farther; wall height 8 vs 16 ft (rows with a known height) → lower when taller;
+   launch speed ±3 mph → higher when harder. No derived columns exist to recompute.
+5. **Other rows unchanged:** every out-of-scope row is bit-identical to `baseline_v02`
+   (asserted).
+6. **2024 confirmation:** no credible regression vs the reference (CI entirely above 0
+   blocks).
+
+**Reported, never gating:**
+
+- **The leak gap:** log loss and ECE of `baseline_v02` vs the candidate on in-scope rows.
+  This measures how much `hit_distance_sc` was worth, not a quality gap.
+- **Robbery-zone behaviour:** mean P(HR) under `baseline_v02` vs the candidate for caught
+  air balls whose measured distance is within 5 ft of the wall (measured margin used for
+  reporting only).
+- Weather residual (as before), per-venue perturbation directions, and wall-height coverage.
+
+**Redefinition notice:** if adopted, air-ball luck no longer uses where the ball was
+fielded. That changes what the score means for every fly ball and line drive, not just
+near the wall. Ground balls and popups still use `hit_distance_sc` (pre-existing since
+v0.1; flagged, out of scope).
+
+Output: `outputs/tables/v1_2b_airball_geometry_evaluation.json`. **One run.**
+
 ## Freeze and prospective test
 
 1. Freeze the v1.2 code, features and adoption decision with a recorded date **before the
