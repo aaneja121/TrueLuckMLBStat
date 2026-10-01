@@ -139,4 +139,26 @@ pre-registered test season" (A2).
 | Item | Commit | Date |
 |---|---|---|
 | Design approved (this document) | recorded by the commit that adds this table | 2026-10-01 |
-| Code freeze (§2, all preconditions met) | *pending* | *before 2027-03-24 first pitch* |
+| Code freeze (§2, all preconditions met) | *pending maintainer approval*; candidate `d5303bc` | *before 2027-03-24 first pitch* |
+
+### Precondition status (2026-10-01)
+
+| Precondition | Status |
+|---|---|
+| Governance (`RESEARCH_RULES.md`, 2027 section) | done, `1d867d5` |
+| Season dates and guards (`prospective/v1_3_2027_config.py`) | done, `f252e15`; 21 synthetic tests |
+| 2027 ingestion and weather join (`prospective/v1_3_2027_ingestion.py`) | done, `497906b`; 6 offline tests, including a full clean, venue and weather join on synthetic files |
+| One-shot comparison (`prospective/run_v1_3_2027_comparison.py`) | done, `d5303bc`; 18 synthetic tests; `make check` 3,831 passed, 8 skipped |
+| Real-data smoke run (engineering only) | 2026-10-01: trained on 486,443 real development rows and ran the full comparison with 2024 rows standing in for 2027 (122,132 rows, 24 s). It completed and serialized. **No metric was printed or read**; 2024 is development data and nothing was decided from it |
+
+**Weather-station gap (needs the maintainer's acceptance):** the frozen
+`venue_environment` table has no station for Sutter Health Park (venue 2529, the Athletics'
+2025–27 home) or Las Vegas Ballpark (5355). Their 2027 games get missing air density, which
+the model handles natively, as it does for indoor games. Adding stations would need new
+reviewed reference data in a new table (`venue_environment.py` is frozen). That is about 81
+home games, roughly 6% of batted balls. `ingest_2027` records which venues lack a station.
+
+**The only edit permitted after the freeze** (besides a recorded defect fix): setting
+`SEASON_2027_END_DATE`, `_SOURCE` and `_VERIFIED_AT` together in
+`prospective/v1_3_2027_config.py` from a maintainer-provided official-schedule citation. The
+comparison records the commit it ran on.
