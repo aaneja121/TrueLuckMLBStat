@@ -139,7 +139,7 @@ pre-registered test season" (A2).
 | Item | Commit | Date |
 |---|---|---|
 | Design approved (this document) | recorded by the commit that adds this table | 2026-10-01 |
-| Code freeze (§2, all preconditions met) | *pending maintainer approval*; candidate `d5303bc` | *before 2027-03-24 first pitch* |
+| **Code freeze (§2, all preconditions met)** | **`d5303bc`**, approved by the maintainer | **2026-10-01** |
 
 ### Precondition status (2026-10-01)
 
@@ -151,7 +151,7 @@ pre-registered test season" (A2).
 | One-shot comparison (`prospective/run_v1_3_2027_comparison.py`) | done, `d5303bc`; 18 synthetic tests; `make check` 3,831 passed, 8 skipped |
 | Real-data smoke run (engineering only) | 2026-10-01: trained on 486,443 real development rows and ran the full comparison with 2024 rows standing in for 2027 (122,132 rows, 24 s). It completed and serialized. **No metric was printed or read**; 2024 is development data and nothing was decided from it |
 
-**Weather-station gap (needs the maintainer's acceptance):** the frozen
+**Weather-station gap — accepted by the maintainer 2026-10-01:** the frozen
 `venue_environment` table has no station for Sutter Health Park (venue 2529, the Athletics'
 2025–27 home) or Las Vegas Ballpark (5355). Their 2027 games get missing air density, which
 the model handles natively, as it does for indoor games. Adding stations would need new
@@ -162,3 +162,8 @@ home games, roughly 3% of batted balls (81 of about 2,430 games). `ingest_2027` 
 `SEASON_2027_END_DATE`, `_SOURCE` and `_VERIFIED_AT` together in
 `prospective/v1_3_2027_config.py` from a maintainer-provided official-schedule citation. The
 comparison records the commit it ran on.
+
+**Verifying the run against the freeze:** the comparison writes the commit it ran on.
+`git diff d5303bc <that commit> -- src prospective` must show only the three
+`SEASON_2027_END_*` lines, plus any defect fix recorded in this document with its date and
+reason. Commits after `d5303bc` that touch only `docs/` do not affect the freeze.
