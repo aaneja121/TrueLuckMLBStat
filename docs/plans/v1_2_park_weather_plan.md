@@ -410,6 +410,28 @@ with the evidence tier in each note. **Re-measured coverage of gated rows: 88.2%
 by season; 88.3% in each leave-one-season-out training set). Five of 30 venues are below 50%.
 Missing heights are still median-imputed with no indicator, as the frozen trainer does.
 
+**Implementation details the spec left open, fixed 2026-10-01 before the run**
+(`mlb_luck_score.models.evaluate_gated_geometry_v12`). None was chosen from v1.2 results.
+
+- **Wall-height subgroups:** short ≤ 8 ft; tall ≥ 15 ft (the existing
+  `DEFAULT_HIGH_WALL_THRESHOLD_FT`); medium in between; unknown when missing. These are fixed
+  bins, not the v0.7C terciles, which fail on the many tied 8 ft values.
+- **Wall bands:** beyond (margin ≥ 0) and short of the wall by 0–5, 5–10 and 10–20 ft.
+- **Perturbations:** wall distance ±10 ft; hit distance ±10 ft; wall height 8 vs 16 ft,
+  only on rows whose height is known. The specialist always scores the perturbed rows.
+- **Pooling:** each fold's held-out gated rows are perturbed with that fold's specialist,
+  and mean P(HR) is pooled across folds.
+- **Gate-boundary diagnostic:** air balls with geometry whose margin is within 2 ft of −20.
+- **Absolute home-run ECE per group (reported only):** binary P(HR) through the v0.7D
+  bootstrap and classifier, for both models.
+- **Weather-residual diagnostic (reported only):** home-run indicator minus P(HR), demeaned
+  within venue, regressed on within-venue-demeaned air density (outdoor/roof-open gated rows)
+  and on following wind (the 15 `wind_supported` venues only), with a game-clustered
+  bootstrap.
+- Output: `outputs/tables/v1_2_gated_geometry_evaluation.json` (gitignored). **One run.**
+  If it fails partway, the fix is a code defect fix, recorded here, never a change in
+  response to results.
+
 **Decisions approved by the maintainer on 2026-09-30 (all as proposed):**
 
 - **[D1]** Leave-one-season-out within 2021–2023 as the decision basis, with 2024 able only
