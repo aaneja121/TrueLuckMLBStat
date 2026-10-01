@@ -386,6 +386,21 @@ the number of looks small (v0.4 and v0.5 each compared several).
 **Output:** a `recommend_v12_adoption`-style summary. It is input to the maintainer's
 decision, never the decision.
 
+**Amendment 2026-10-01: wall-height precondition (before any v1.2 model was fitted or
+outcome read).** Building the candidate showed that the v1.2 table gives a wall height for
+only 29.0% of gated balls (46,218 gated, 2021–2024). 19 of 30 venues have none, and only 86
+of 185 points carry a height. Two consequences:
+
+- The frozen trainer (`select_available_features`, `MIN_NON_NULL_FRACTION = 0.5`) would
+  drop both height features without warning.
+- The spec wrongly said missing heights take a "missing category". Numeric features are
+  median-imputed with no indicator.
+
+**Maintainer decision (2026-10-01):** source the missing heights first, through the same
+proposal-and-approval review as the distances. The evaluation waits for that review. The
+five-feature candidate is unchanged. Coverage of gated rows is re-measured after the review
+and recorded here before anything is fitted.
+
 **Decisions approved by the maintainer on 2026-09-30 (all as proposed):**
 
 - **[D1]** Leave-one-season-out within 2021–2023 as the decision basis, with 2024 able only

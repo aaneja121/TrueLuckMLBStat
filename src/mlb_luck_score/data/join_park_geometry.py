@@ -70,6 +70,7 @@ def _resolve_row(
     game_date: Any,
     spray_angle: Any,
     configs_by_venue: dict[int, tuple[ParkGeometryConfig, ...]],
+    excluded_venue_ids: frozenset[int] = TEMPORARY_OR_SPECIAL_VENUE_IDS,
 ) -> tuple[str, ParkGeometryConfig | None, GeometryLookupResult | None]:
     """Resolve one row's geometry status/config/lookup. Pure function, no pandas state."""
     if venue_id is None or (isinstance(venue_id, float) and pd.isna(venue_id)):
@@ -80,7 +81,7 @@ def _resolve_row(
     if not bool(has_venue_metadata):
         return GEOMETRY_STATUS_MISSING_VENUE_METADATA, None, None
 
-    if venue_id_int in TEMPORARY_OR_SPECIAL_VENUE_IDS:
+    if venue_id_int in excluded_venue_ids:
         return GEOMETRY_STATUS_TEMPORARY_VENUE, None, None
 
     if game_date is None or (isinstance(game_date, float) and pd.isna(game_date)):
@@ -108,8 +109,17 @@ def _resolve_row(
     return GEOMETRY_STATUS_OK, config, lookup
 
 
-def join_park_geometry(df: pd.DataFrame) -> pd.DataFrame:
+def join_park_geometry(
+    df: pd.DataFrame,
+    *,
+    configs: tuple[ParkGeometryConfig, ...] = PARK_GEOMETRY_CONFIGS,
+    excluded_venue_ids: frozenset[int] = TEMPORARY_OR_SPECIAL_VENUE_IDS,
+) -> pd.DataFrame:
     """Join reviewed park geometry onto every row of `df`.
+
+    `configs`/`excluded_venue_ids` default to the frozen v1.0 table, so
+    existing callers see no change. The v1.2 candidate passes
+    `park_geometry_v12.PARK_GEOMETRY_CONFIGS_V12` / `V12_EXCLUDED_VENUE_IDS`.
 
     Args:
         df: Cleaned development data already joined with venue metadata
@@ -138,7 +148,7 @@ def join_park_geometry(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     configs_by_venue_lists: dict[int, list[ParkGeometryConfig]] = {}
-    for c in PARK_GEOMETRY_CONFIGS:
+    for c in configs:
         configs_by_venue_lists.setdefault(c.venue_id, []).append(c)
     configs_by_venue: dict[int, tuple[ParkGeometryConfig, ...]] = {
         k: tuple(v) for k, v in configs_by_venue_lists.items()
@@ -160,7 +170,12 @@ def join_park_geometry(df: pd.DataFrame) -> pd.DataFrame:
 
     for i in range(n):
         status, config, lookup = _resolve_row(
-            venue_ids[i], has_venue[i], game_dates[i], spray_angles[i], configs_by_venue
+            venue_ids[i],
+            has_venue[i],
+            game_dates[i],
+            spray_angles[i],
+            configs_by_venue,
+            excluded_venue_ids,
         )
         statuses[i] = status
         if config is not None:
@@ -211,7 +226,7 @@ def join_park_geometry(df: pd.DataFrame) -> pd.DataFrame:
     out["high_wall_indicator"] = high_wall
 
     out["temporary_or_special_venue"] = out["venue_id"].apply(
-        lambda v: (not pd.isna(v)) and int(v) in TEMPORARY_OR_SPECIAL_VENUE_IDS
+        lambda v: (not pd.isna(v)) and int(v) in excluded_venue_ids
     )
     out["geometry_uncertain"] = (
         out["has_venue_metadata"].astype(bool)
