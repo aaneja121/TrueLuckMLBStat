@@ -1,7 +1,8 @@
 # Pre-registration: v1.3 vs v1.1 on the 2027 season
 
-**Status: DRAFT, 2026-10-01. Not binding until the maintainer approves it and the approval
-is committed.** Once approved, it is final for the 2027 test. A later change is a new
+**Status: APPROVED 2026-10-01 (maintainer approved P1–P4 as written). The design is binding.**
+The freeze commit (§2) is still pending the engineering preconditions; its hash is recorded
+here when committed, before the deadline. The design is final for the 2027 test. A later change is a new
 decision, recorded here with its date and reason, and is never permitted after any 2027
 batted ball has been scored by either model.
 
@@ -110,9 +111,16 @@ A dedicated module reads only the two 2027 namespaces, refuses any other season,
   Version 1.1 rule 5).
 - Model class and distance removal are bundled in v1.3; the test does not separate them.
 
-## Decisions for the maintainer before this becomes binding
+## Decisions approved by the maintainer (2026-10-01, all as written)
 
 - **[P1]** Train all three models on 2021–2023 (matching v1.1), not 2021–2024.
 - **[P2]** Exactly one analysis, after the regular season; no interim paired metrics.
 - **[P3]** "Inconclusive" below 60,000 batted balls (a shortened or cancelled season).
 - **[P4]** If density is not supported in 2027, the next version drops it (§5).
+
+## Freeze record
+
+| Item | Commit | Date |
+|---|---|---|
+| Design approved (this document) | recorded by the commit that adds this table | 2026-10-01 |
+| Code freeze (§2, all preconditions met) | *pending* | *before 2027-03-24 first pitch* |
