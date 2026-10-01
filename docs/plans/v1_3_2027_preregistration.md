@@ -156,7 +156,7 @@ pre-registered test season" (A2).
 2025–27 home) or Las Vegas Ballpark (5355). Their 2027 games get missing air density, which
 the model handles natively, as it does for indoor games. Adding stations would need new
 reviewed reference data in a new table (`venue_environment.py` is frozen). That is about 81
-home games, roughly 6% of batted balls. `ingest_2027` records which venues lack a station.
+home games, roughly 3% of batted balls (81 of about 2,430 games). `ingest_2027` records which venues lack a station.
 
 **The only edit permitted after the freeze** (besides a recorded defect fix): setting
 `SEASON_2027_END_DATE`, `_SOURCE` and `_VERIFIED_AT` together in
