@@ -36,11 +36,14 @@ result is necessary, not sufficient.
 
 **Engineering preconditions, all before the deadline, none reading a 2027 outcome:**
 
-1. A v1.3 prospective scoring path in its own namespace (`outputs/prospective/v1_3/`,
-   `artifacts/prospective/v1_3/`, `data/prospective/2027/`), with the same guards as v1.1:
-   clean tree, completed dates only, immutable snapshots.
-2. A 2027 weather join (station table, roof status) for prospective rows.
-3. The §7 comparison script with synthetic tests.
+1. ~~A daily v1.3 prospective scoring path~~ — **amended 2026-10-01 (A1, below)**: one
+   dedicated end-of-season entry point, `prospective/run_v1_3_2027_comparison.py`. It
+   verifies the season is complete, pulls the 2027 regular season once into
+   `data/prospective/2027/v1_3/`, trains the three models on 2021–2023, scores 2027 and runs
+   §7. It uses the v1.1 guards (clean tree, every game final, recorded season end) and
+   refuses to run twice.
+2. A 2027 weather join (station table, roof status) inside that entry point.
+3. The §7 comparison with synthetic tests.
 4. 2027 park geometry is **not** needed (v1.3 is park-neutral).
 
 ## 3. Population
@@ -91,8 +94,9 @@ The development run found that density *worsened* log loss slightly (+0.0043 [+0
 
 ## 7. Analysis script
 
-A dedicated module reads only the two 2027 namespaces, refuses any other season, and writes
-`outputs/prospective/v1_3/comparison_2027.json` once (it refuses to overwrite). It reuses
+Part of the one-shot entry point (§2). It reads 2027 only from its own namespace,
+refuses any other prospective season, and writes `outputs/prospective/v1_3/comparison_2027.json`
+once (it refuses to overwrite). It reuses
 `compute_paired_bootstrap`, the v0.3 materiality rule and the v0.7D classifier.
 
 ## 8. What this does not decide
@@ -110,6 +114,18 @@ A dedicated module reads only the two 2027 namespaces, refuses any other season,
 - 2026 may be scored by v1.3 as prospective scoring only, never as evidence (RESEARCH_RULES,
   Version 1.1 rule 5).
 - Model class and distance removal are bundled in v1.3; the test does not separate them.
+
+## Amendment A1 (maintainer, 2026-10-01, before any 2027 data exists)
+
+The daily v1.3 scoring path in §2 is replaced by one end-of-season entry point. The reasons:
+the endpoint compares contact-model probabilities, so it needs no daily snapshots, and §6
+already forbids looking before the season ends. The v1.1 daily pipeline is 2026-only (about
+130 hard-coded references, and a 2026-only publish workflow), and generalizing it would touch
+CI and the code path behind the immutable 2026 snapshots. "v1.1" in this test means the
+Version 1.1 contact model (`baseline_v02` via `train_model`, trained on 2021–2023), which is
+what the endpoint scores. Whether the public site publishes 2027 with v1.1 is a separate
+product decision. The governance for 2027 data is in `RESEARCH_RULES.md`, "2027: a
+pre-registered test season" (A2).
 
 ## Decisions approved by the maintainer (2026-10-01, all as written)
 

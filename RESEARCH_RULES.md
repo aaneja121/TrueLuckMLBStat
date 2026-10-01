@@ -413,6 +413,35 @@ without pairing it with the coverage check below:
 
 See `tests/test_prospective_statcast_cache_coverage.py` for the regression tests.
 
+## 2027: a pre-registered test season
+
+Approved by the maintainer on 2026-10-01 (decision A2), alongside
+`docs/plans/v1_3_2027_preregistration.md`. 2027 is the untouched test season for the v1.3
+vs v1.1 comparison. Nothing below loosens any rule for 2025 or 2026.
+
+1. **No development use of 2027, ever.** No training, tuning, feature selection, threshold
+   choice, calibration or exploratory analysis on 2027 data. 2027 never enters
+   `DEVELOPMENT_SEASONS`, `MLB_REGULAR_SEASON_DATE_RANGES`, any development downloader, or
+   any general-purpose CLI flag.
+2. **One code path.** Only `prospective/run_v1_3_2027_comparison.py` may download or read
+   2027 data. The 2027 season dates live in `prospective/v1_3_2027_config.py`, **not** in
+   `mlb_luck_score.config`, which is a frozen v1.0 input; `PROSPECTIVE_SEASONS` stays
+   `(2026,)`.
+3. **Only after the season ends, and only once.** The entry point refuses to run until the
+   2027 regular-season end date is recorded with an official-schedule citation (the same
+   rule as `PROSPECTIVE_2026_SEASON_END_DATE`), every game in the season is final, postponed
+   or cancelled (none suspended or in progress), and no game completed after the recorded
+   end. It refuses to run if its output already exists. A crash is fixed as a code defect
+   and recorded in the pre-registration; it is never a second look.
+4. **Its own namespace.** `data/prospective/2027/v1_3/`, `outputs/prospective/v1_3/`,
+   `artifacts/prospective/v1_3/` (gitignored). It refuses the sealed v1.0 namespaces.
+5. **Clean tree and frozen code.** It refuses a dirty working tree, and it records its
+   commit, which must be the pre-registration's freeze commit or a recorded defect fix.
+6. **Fail-fast guards are tested on synthetic data.** Building or testing the entry point
+   never touches real 2027 data or the network.
+7. Extending any of this (an interim look, a second run, another reader of 2027 data) is a
+   new decision requiring the maintainer's explicit sign-off in the moment.
+
 ## Avoid target leakage
 
 Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,
