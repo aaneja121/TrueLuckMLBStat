@@ -51,7 +51,7 @@ Research pipeline and dashboard are separate concerns: `src/mlb_luck_score/` com
 | Data / modeling | pandas, numpy, scikit-learn, pyarrow, joblib |
 | Ingestion | pybaseball (Statcast), requests (MLB Stats API) |
 | Dashboard | Jinja2 → static HTML, hand-written CSS, vanilla JS (no framework, no bundler, no npm) |
-| Hosting | Cloudflare Pages, deployed with wrangler (Node 20 in CI) |
+| Hosting | Cloudflare Pages, deployed with wrangler (Node 22 in CI) |
 | Object storage | Cloudflare R2, via boto3 |
 | CI | GitHub Actions |
 | Tooling | pytest, ruff (format + lint), mypy, jupyter, matplotlib |

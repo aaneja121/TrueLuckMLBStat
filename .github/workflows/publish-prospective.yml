@@ -248,7 +248,7 @@ jobs:
         if: steps.resolve.outputs.deploying == 'true'
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Run scripts/publish_snapshot.sh
         env:

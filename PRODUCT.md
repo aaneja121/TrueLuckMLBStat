@@ -6,7 +6,7 @@ result better or worse than what the contact itself was worth?*
 
 The metric is **Contact Luck Runs per 100 eligible batted balls**. It compares the run
 value the frozen model **expected** from a fair batted ball (from exit velocity, launch
-angle, approximate spray direction, batted-ball type, venue) against the run value that
+angle, approximate spray direction, batted-ball type) against the run value that
 **actually** occurred, and sums the gap across a player's season to date.
 
 - **Positive** = realized outcomes were more favorable than expected.
