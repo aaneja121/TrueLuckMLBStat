@@ -508,6 +508,33 @@ def list_archived_snapshots(
     return results
 
 
+def is_snapshot_archived(
+    *,
+    data_through_date: str,
+    snapshot_label: str | None,
+    season: int,
+    client: ArchiveClient,
+    prefix: str = DEFAULT_ARCHIVE_PREFIX,
+) -> bool:
+    """Read-only: does the archive already hold this snapshot? "Held" means
+    exactly what `archive_snapshot` treats as an existing entry -- its
+    `integrity_hashes.json` is present -- so a partial upload without one
+    does not count.
+
+    `scripts/publish_snapshot.sh` asks this BEFORE scoring and stops cleanly
+    on yes. Re-scoring an archived date can only end in
+    `ArchiveConflictError`: every run stamps its own `generated_at` into the
+    outputs and the manifest, so a re-score never matches the archived
+    bytes. (`SnapshotManifest.deterministic_content_hash` does not get
+    around that either: its `schema_checks` still carry per-run
+    `checked_at`/`retrieved_at`/`verified_at` timestamps.)
+    """
+    snapshot_dir_name = build_snapshot_dir_name(data_through_date, snapshot_label)
+    return client.object_exists(
+        _r2_key(prefix, season, snapshot_dir_name, f"artifacts/{INTEGRITY_HASHES_FILENAME}")
+    )
+
+
 def archive_snapshot(
     *,
     data_through_date: str,
@@ -819,10 +846,21 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--check-archived",
+        action="store_true",
+        help=(
+            "Read-only: exit 3 if the snapshot for --data-through (and --snapshot-label) is "
+            "already archived, 0 if not. Needs --season."
+        ),
+    )
+    parser.add_argument(
         "--season",
         type=int,
         default=None,
-        help="Required with --restore or --sync-history (no local manifest.json to read it from).",
+        help=(
+            "Required with --restore, --sync-history or --check-archived "
+            "(no local manifest.json to read it from)."
+        ),
     )
     return parser
 
@@ -845,6 +883,25 @@ def main(argv: list[str] | None = None) -> int:
             for name in sync_result.restored:
                 print(f"  restored: {name}")
             return 0
+
+        if args.check_archived:
+            if args.season is None:
+                raise ArchiveError("--check-archived requires --season (see --help).")
+            if args.data_through is None:
+                raise ArchiveError("--check-archived requires --data-through (see --help).")
+            archived = is_snapshot_archived(
+                data_through_date=args.data_through,
+                snapshot_label=args.snapshot_label,
+                season=args.season,
+                client=client,
+            )
+            print(
+                f"bucket={bucket_for_log} archived={'yes' if archived else 'no'} "
+                f"snapshot_dir_name="
+                f"{build_snapshot_dir_name(args.data_through, args.snapshot_label)} "
+                f"season={args.season}"
+            )
+            return 3 if archived else 0
 
         if args.restore:
             if args.season is None:

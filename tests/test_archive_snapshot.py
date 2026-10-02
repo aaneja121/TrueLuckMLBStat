@@ -393,3 +393,118 @@ class TestCliMain:
         exit_code = a.main(["--data-through", "2026-08-09", "--restore"])
 
         assert exit_code == 2
+
+
+class TestIsSnapshotArchived:
+    """The pre-scoring check `publish_snapshot.sh` uses to skip a date that is
+    already archived. "Archived" means exactly what `archive_snapshot` treats
+    as an existing entry: the snapshot's `integrity_hashes.json` is present.
+    """
+
+    def _archive(self, tmp_path: Path, client: a.ArchiveClient, *, label: str | None) -> None:
+        outputs_root, artifacts_root = tmp_path / "outputs", tmp_path / "artifacts"
+        name = a.build_snapshot_dir_name("2026-08-09", label)
+        _write_snapshot(outputs_root, artifacts_root, snapshot_dir_name=name)
+        a.archive_snapshot(
+            data_through_date="2026-08-09",
+            snapshot_label=label,
+            client=client,
+            outputs_root=outputs_root,
+            artifacts_root=artifacts_root,
+        )
+
+    def test_an_empty_archive_has_nothing(self) -> None:
+        client = a.InMemoryArchiveClient()
+        assert not a.is_snapshot_archived(
+            data_through_date="2026-08-09", snapshot_label=None, season=2026, client=client
+        )
+
+    def test_an_archived_snapshot_is_found(self, tmp_path: Path) -> None:
+        client = a.InMemoryArchiveClient()
+        self._archive(tmp_path, client, label=None)
+        assert a.is_snapshot_archived(
+            data_through_date="2026-08-09", snapshot_label=None, season=2026, client=client
+        )
+
+    def test_a_label_is_a_different_snapshot(self, tmp_path: Path) -> None:
+        client = a.InMemoryArchiveClient()
+        self._archive(tmp_path, client, label=None)
+        assert not a.is_snapshot_archived(
+            data_through_date="2026-08-09", snapshot_label="refreshed", season=2026, client=client
+        )
+
+    def test_another_season_is_a_different_snapshot(self, tmp_path: Path) -> None:
+        client = a.InMemoryArchiveClient()
+        self._archive(tmp_path, client, label=None)
+        assert not a.is_snapshot_archived(
+            data_through_date="2026-08-09", snapshot_label=None, season=2027, client=client
+        )
+
+    def test_files_without_integrity_hashes_do_not_count(self) -> None:
+        """A partial upload with no integrity_hashes.json is not an archive
+        entry -- `archive_snapshot` would write over it, so the check must
+        not skip it."""
+        client = a.InMemoryArchiveClient()
+        client.put_object_bytes("prospective/2026/2026-08-09/outputs/public_score.json", b"[]")
+        assert not a.is_snapshot_archived(
+            data_through_date="2026-08-09", snapshot_label=None, season=2026, client=client
+        )
+
+
+class TestCliCheckArchived:
+    @pytest.fixture
+    def client(self, monkeypatch: pytest.MonkeyPatch) -> a.InMemoryArchiveClient:
+        client = a.InMemoryArchiveClient()
+        monkeypatch.setenv("R2_BUCKET_NAME", "test-bucket")
+        monkeypatch.setattr(a, "_client_from_env", lambda: client)
+        return client
+
+    def test_not_archived_exits_0(
+        self, client: a.InMemoryArchiveClient, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        exit_code = a.main(["--check-archived", "--data-through", "2026-08-09", "--season", "2026"])
+        assert exit_code == 0
+        assert "archived=no" in capsys.readouterr().out
+
+    def test_archived_exits_3(
+        self, client: a.InMemoryArchiveClient, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client.put_object_bytes(
+            "prospective/2026/2026-08-09/artifacts/integrity_hashes.json", b"{}"
+        )
+        exit_code = a.main(["--check-archived", "--data-through", "2026-08-09", "--season", "2026"])
+        assert exit_code == 3
+        assert "archived=yes" in capsys.readouterr().out
+
+    def test_the_label_is_honoured(self, client: a.InMemoryArchiveClient) -> None:
+        client.put_object_bytes(
+            "prospective/2026/2026-08-09/artifacts/integrity_hashes.json", b"{}"
+        )
+        exit_code = a.main(
+            [
+                "--check-archived",
+                "--data-through",
+                "2026-08-09",
+                "--season",
+                "2026",
+                "--snapshot-label",
+                "refreshed",
+            ]
+        )
+        assert exit_code == 0
+
+    def test_it_never_writes(self, client: a.InMemoryArchiveClient) -> None:
+        a.main(["--check-archived", "--data-through", "2026-08-09", "--season", "2026"])
+        assert client.list_keys("") == []
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--check-archived", "--data-through", "2026-08-09"],
+            ["--check-archived", "--season", "2026"],
+        ],
+    )
+    def test_missing_date_or_season_exits_2(
+        self, client: a.InMemoryArchiveClient, argv: list[str]
+    ) -> None:
+        assert a.main(argv) == 2

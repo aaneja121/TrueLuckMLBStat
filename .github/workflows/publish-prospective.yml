@@ -85,15 +85,15 @@ on:
     # best-effort, and GitHub never retries a day it drops -- recover with
     # a manual workflow_dispatch for that --data-through date.
     #
-    # DO NOT add a second "catch-up" cron to cover a dropped day. A
-    # duplicate run for an already-published date re-scores it on a fresh
-    # runner with a new manifest generated_at, so the integrity hashes
-    # differ from the archived copy and scripts/archive_snapshot.py raises
-    # ArchiveConflictError (write-once, never overwritten) instead of
-    # no-opping -- i.e. it would fail red on every day the first run had
-    # already succeeded. A catch-up schedule only becomes safe once the
-    # archive compares deterministic_content_hash() rather than the raw
-    # manifest.json sha256.
+    # A duplicate run for an already-archived date (a late scheduled run
+    # after a manual recovery, or a catch-up cron) stops cleanly before
+    # scoring: scripts/publish_snapshot.sh asks the archive first
+    # (archive_snapshot.py --check-archived). Before that check existed it
+    # re-scored the date, and because every run stamps its own generated_at
+    # into the outputs, the hashes never matched and archive_snapshot.py
+    # raised ArchiveConflictError -- as on 2026-09-28. Comparing
+    # deterministic_content_hash() would NOT have avoided that: the
+    # manifest's schema_checks still carry per-run timestamps.
     #
     # DST TRADEOFF: GitHub Actions cron is fixed UTC and does NOT shift
     # with daylight saving. 13:37 UTC is:

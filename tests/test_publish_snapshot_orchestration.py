@@ -37,9 +37,9 @@ REAL_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "publish_snapsho
 # Records every invocation as "python:<stage_name>" to $CALL_LOG, then exits
 # 1 (rather than the actual scoring/archive/sync/build work) if the stage
 # named by $FAIL_STAGE matches. The archive_snapshot.py script is called for
-# TWO different stages (archive-upload and --sync-history) -- distinguished
-# by scanning the full argv, not just $1, since both pass
-# "scripts/archive_snapshot.py" as $1.
+# THREE different stages (--check-archived, archive-upload and
+# --sync-history) -- distinguished by scanning the full argv, not just $1,
+# since all three pass "scripts/archive_snapshot.py" as $1.
 FAKE_PYTHON = """#!/usr/bin/env bash
 set -euo pipefail
 FIRST_ARG="${1:-}"
@@ -49,6 +49,8 @@ case "$FIRST_ARG" in
   scripts/archive_snapshot.py)
     if [[ "$*" == *"--sync-history"* ]]; then
       STAGE_NAME="history_sync"
+    elif [[ "$*" == *"--check-archived"* ]]; then
+      STAGE_NAME="archive_check"
     else
       STAGE_NAME="archive"
     fi
@@ -178,7 +180,7 @@ class TestFailuresBlockLaterStages:
 
         assert result.returncode != 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:ensure", "python:score", "python:archive"]
+        assert lines == ["python:ensure", "python:archive_check", "python:score", "python:archive"]
         assert "python:history_sync" not in lines
         assert not any(line.startswith("python:build") for line in lines), (
             "dashboard build must never run after a failed archive"
@@ -197,6 +199,7 @@ class TestFailuresBlockLaterStages:
         lines = _log_lines(call_log)
         assert lines == [
             "python:ensure",
+            "python:archive_check",
             "python:score",
             "python:archive",
             "python:history_sync",
@@ -228,6 +231,7 @@ class TestFailuresBlockLaterStages:
         lines = _log_lines(call_log)
         assert lines == [
             "python:ensure",
+            "python:archive_check",
             "python:score",
             "python:archive",
             "python:history_sync",
@@ -252,7 +256,7 @@ class TestFailuresBlockLaterStages:
 
         assert result.returncode != 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines == ["python:ensure", "python:score"]
+        assert lines == ["python:ensure", "python:archive_check", "python:score"]
         assert not any(line.startswith("npx:") for line in lines)
 
     def test_ensure_then_score_then_archive_then_history_sync_then_explore_run_before_build_on_success(
@@ -285,6 +289,7 @@ class TestSkipFlagSemantics:
         lines = _log_lines(call_log)
         assert lines == [
             "python:ensure",
+            "python:archive_check",
             "python:score",
             "python:archive",
             "python:history_sync",
@@ -339,8 +344,9 @@ class TestSkipFlagSemantics:
 
         assert result.returncode == 0, result.stderr
         lines = _log_lines(call_log)
-        assert lines[:6] == [
+        assert lines[:7] == [
             "python:ensure",
+            "python:archive_check",
             "python:score",
             "python:archive",
             "python:history_sync",
@@ -607,7 +613,7 @@ class TestNothingToScoreIsACleanStop:
         """
         call_log = tmp_path / "calls.log"
         _run(fake_project, call_log, fail_stage="score", fail_exit_code=3)
-        assert _log_lines(call_log) == ["python:ensure", "python:score"]
+        assert _log_lines(call_log) == ["python:ensure", "python:archive_check", "python:score"]
 
     def test_an_ordinary_scoring_failure_still_fails_the_run(
         self, fake_project: Path, tmp_path: Path
@@ -616,4 +622,78 @@ class TestNothingToScoreIsACleanStop:
         call_log = tmp_path / "calls.log"
         result = _run(fake_project, call_log, fail_stage="score", fail_exit_code=2)
         assert result.returncode != 0
-        assert _log_lines(call_log) == ["python:ensure", "python:score"]
+        assert _log_lines(call_log) == ["python:ensure", "python:archive_check", "python:score"]
+
+
+class TestAlreadyArchivedIsACleanStop:
+    """Exit 3 from `archive_snapshot.py --check-archived` means "this date is
+    already in the write-once archive". Re-scoring it can only end in an
+    ArchiveConflictError: every run stamps its own `generated_at` into the
+    outputs and the manifest, so a re-score never matches the archived bytes.
+    That happened on 2026-09-28, when the scheduled run arrived about 6.5
+    hours late, after a manual run had already published 2026-09-27. So the
+    orchestrator checks first and stops cleanly, exactly like the no-games
+    stop above.
+    """
+
+    def test_an_archived_date_is_not_a_failure(self, fake_project: Path, tmp_path: Path) -> None:
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="archive_check", fail_exit_code=3)
+        assert result.returncode == 0, result.stderr
+
+    def test_it_says_plainly_why_it_stopped(self, fake_project: Path, tmp_path: Path) -> None:
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="archive_check", fail_exit_code=3)
+        assert "already archived" in (result.stdout + result.stderr).lower()
+
+    def test_it_scores_archives_builds_and_deploys_nothing(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        call_log = tmp_path / "calls.log"
+        _run(fake_project, call_log, fail_stage="archive_check", fail_exit_code=3)
+        assert _log_lines(call_log) == ["python:ensure", "python:archive_check"]
+
+    def test_a_failed_check_fails_the_run_before_scoring(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        """Only exit 3 means "already archived". An R2 error must not be read
+        as either answer: it fails the run, and nothing is scored.
+        """
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, fail_stage="archive_check", fail_exit_code=2)
+        assert result.returncode != 0
+        assert _log_lines(call_log) == ["python:ensure", "python:archive_check"]
+
+    def test_the_check_is_told_the_date_and_season(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        call_log = tmp_path / "calls.log"
+        _run(fake_project, call_log)
+        checks = [line for line in _argv_lines(call_log) if line.startswith("archive_check ")]
+        assert len(checks) == 1
+        assert "--data-through 2026-08-09" in checks[0]
+        assert "--season 2026" in checks[0]
+        assert "--snapshot-label" not in checks[0]
+
+    def test_a_labelled_run_checks_its_own_labelled_snapshot(
+        self, fake_project: Path, tmp_path: Path
+    ) -> None:
+        call_log = tmp_path / "calls.log"
+        _run(fake_project, call_log, "--snapshot-label", "refreshed")
+        checks = [line for line in _argv_lines(call_log) if line.startswith("archive_check ")]
+        assert len(checks) == 1
+        assert "--snapshot-label refreshed" in checks[0]
+
+    def test_a_dry_run_never_checks(self, fake_project: Path, tmp_path: Path) -> None:
+        """A dry run writes nothing to R2, so re-scoring an archived date there
+        cannot conflict, and it stays useful for testing."""
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, "--skip-archive", "--skip-deploy")
+        assert result.returncode == 0, result.stderr
+        assert "python:archive_check" not in _log_lines(call_log)
+
+    def test_a_feature_only_build_never_checks(self, fake_project: Path, tmp_path: Path) -> None:
+        call_log = tmp_path / "calls.log"
+        result = _run(fake_project, call_log, "--build-from-existing-snapshot")
+        assert result.returncode == 0, result.stderr
+        assert "python:archive_check" not in _log_lines(call_log)

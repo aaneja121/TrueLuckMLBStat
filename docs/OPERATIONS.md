@@ -406,6 +406,15 @@ already exists, its `integrity_hashes.json` is compared (as parsed JSON, not raw
 against the local one: identical -> no-op (safe to rerun); different -> `ArchiveConflictError`,
 and the archive is NEVER silently overwritten.
 
+**Re-running an archived date stops before scoring.** A re-score is never "identical":
+every run stamps its own `generated_at` into the outputs and the manifest, so it always
+ends in `ArchiveConflictError` (the late scheduled run on 2026-09-28 did exactly that).
+`scripts/publish_snapshot.sh` therefore runs `scripts/archive_snapshot.py --check-archived
+--data-through YYYY-MM-DD --season 2026 [--snapshot-label LABEL]` first (read-only; exit 3
+= already archived) and, on exit 3, stops cleanly with exit 0 and publishes nothing. Dry
+runs (`--skip-archive`) skip the check and may re-score freely. To rebuild the site from
+an archived date, use `--build-from-existing-snapshot`.
+
 **Recovery -- two related but distinct tools.** `scripts/archive_snapshot.py --restore
 --data-through YYYY-MM-DD --season 2026 [--snapshot-label LABEL]` is the explicit,
 on-demand reverse operation for ONE known snapshot -- downloads it back into the normal
