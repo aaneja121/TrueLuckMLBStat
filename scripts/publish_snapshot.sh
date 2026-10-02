@@ -121,8 +121,8 @@
 # (same reasoning as history sync -- generation reads only this run's own
 # local outputs, no R2 write involved). Their combinations:
 #
-#   (neither flag)                  ensure -> score -> archive -> sync -> explore -> build -> deploy
-#   --skip-deploy                   ensure -> score -> archive -> sync -> explore -> build -> stop
+#   (neither flag)                  ensure -> check -> score -> archive -> sync -> explore -> build -> deploy
+#   --skip-deploy                   ensure -> check -> score -> archive -> sync -> explore -> build -> stop
 #   --skip-archive --skip-deploy    ensure -> score -> sync (read-only) -> explore -> build -> stop
 #   --skip-archive (alone)          REFUSED -- see below.
 #
@@ -132,6 +132,12 @@
 #       script stops cleanly with exit 0 and publishes nothing.
 #   *   any other non-zero code is a genuine failure and aborts the run
 #       with that same code; no later stage runs.
+#
+# "check" is `archive_snapshot.py --check-archived`, run only when this
+# script will archive. Exit 3 from it means the snapshot is ALREADY
+# archived: this script stops cleanly with exit 0 and publishes nothing,
+# because re-scoring an archived date always ends in ArchiveConflictError.
+# Any other non-zero code aborts the run before scoring.
 #
 # --skip-archive without --skip-deploy is deliberately refused: this
 # script will not deploy a dashboard built from a snapshot that was not
@@ -332,6 +338,35 @@ EXPLORER_BUILD_DIR="$PROJECT_ROOT/outputs/explorer_build/$SNAPSHOT_DIR_NAME"
 
 echo "==> [1/7] Ensuring the frozen input bundle (dev parquet + 3 detail JSONs) is present and verified"
 R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/ensure_frozen_inputs.py
+
+# Exit 3 from --check-archived is NOT a failure: this snapshot is already in
+# the write-once archive, so the date has been published. Re-scoring it can
+# only end in ArchiveConflictError -- every run stamps its own generated_at
+# into the outputs and the manifest, so a re-score never matches the archived
+# bytes. That is what happened on 2026-09-28, when the scheduled run arrived
+# about 6.5 hours late, after a manual run had already published 2026-09-27.
+# Only runs that would archive check: a dry run (--skip-archive) writes
+# nothing to R2 and may re-score freely, and --build-from-existing-snapshot
+# never scores. Any OTHER non-zero code (an R2 error) fails the run.
+if [[ "$SKIP_ARCHIVE" -eq 0 ]]; then
+  echo "==> [1b/7] Checking whether snapshot $SNAPSHOT_DIR_NAME is already archived"
+  CHECK_ARGS=(--check-archived --data-through "$DATA_THROUGH" --season "$SEASON")
+  if [[ -n "$SNAPSHOT_LABEL" ]]; then
+    CHECK_ARGS+=(--snapshot-label "$SNAPSHOT_LABEL")
+  fi
+  CHECK_STATUS=0
+  R2_BUCKET_NAME="$ARCHIVE_BUCKET" "$PYTHON" scripts/archive_snapshot.py "${CHECK_ARGS[@]}" || CHECK_STATUS=$?
+  if [[ "$CHECK_STATUS" -eq 3 ]]; then
+    echo
+    echo "==> Stopping cleanly: snapshot $SNAPSHOT_DIR_NAME is already archived."
+    echo "    Nothing was scored, archived, built, or deployed."
+    echo "    To rebuild the site from it, use --build-from-existing-snapshot."
+    exit 0
+  fi
+  if [[ "$CHECK_STATUS" -ne 0 ]]; then
+    exit "$CHECK_STATUS"
+  fi
+fi
 
 if [[ "$BUILD_FROM_EXISTING" -eq 1 ]]; then
   echo "==> [2/7] Skipping prospective scoring (--build-from-existing-snapshot)."
