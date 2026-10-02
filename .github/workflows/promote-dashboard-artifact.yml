@@ -102,15 +102,15 @@ permissions:
 
 jobs:
   promote:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # The verifier reads dashboard_config.PITCHER_PUBLIC_SEASONS, which is
       # plain Python with no third-party imports, so no venv is needed.
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -140,7 +140,7 @@ jobs:
           fi
 
       - name: Download the artifact by run id
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.artifact_name }}
           run-id: ${{ inputs.source_run_id }}
@@ -183,7 +183,7 @@ jobs:
 
       # Only reached if the gate passed.
       - name: Set up Node.js (for wrangler)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 

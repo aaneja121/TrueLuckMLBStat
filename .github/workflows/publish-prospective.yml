@@ -127,14 +127,14 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Generous: a cold cache (no prior data/prospective/2026/ raw Statcast
     # cache -- see "Risks" in the delivery notes) can mean a full-season
     # download before scoring even starts.
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve trigger, date, and deploy mode
         id: resolve
@@ -230,7 +230,7 @@ jobs:
           echo "================================================================"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -246,7 +246,7 @@ jobs:
       # runs need neither Node.js nor Cloudflare credentials.
       - name: Set up Node.js (for wrangler)
         if: steps.resolve.outputs.deploying == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
@@ -305,7 +305,7 @@ jobs:
       # delivery notes for what this means operationally).
       - name: Upload dashboard build (dry run only)
         if: always() && steps.resolve.outputs.deploying != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dashboard-dist-${{ steps.resolve.outputs.data_through }}
           path: dashboard/dist
@@ -314,7 +314,7 @@ jobs:
 
       - name: Upload snapshot manifest (dry run only)
         if: always() && steps.resolve.outputs.deploying != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: snapshot-manifest-${{ steps.resolve.outputs.data_through }}
           path: |
