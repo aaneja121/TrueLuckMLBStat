@@ -3,7 +3,7 @@ logic .github/workflows/publish-prospective.yml uses when no explicit
 --data-through date is supplied.
 
 GNU-date-only (see that script's own header): this only runs for real on
-Linux (the `ubuntu-latest` GitHub Actions runner uses GNU coreutils; macOS
+Linux (the `ubuntu-24.04` GitHub Actions runner uses GNU coreutils; macOS
 ships BSD date with different flag semantics). Skipped elsewhere rather
 than attempting a Docker-based workaround, so the offline test suite never
 needs network access to pull an image -- see CLAUDE.md/conftest.py's
