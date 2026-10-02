@@ -119,12 +119,17 @@ PROSPECTIVE_2026_SEASON_START_VERIFIED = True
 #: source citation, and the verification date together -- never change one
 #: without the others.
 #:
-#: NOT a gate. `prospective_ingestion.assert_data_through_date_agrees_with_
-#: recorded_season_end` uses it as a CROSS-CHECK against the live schedule,
-#: never as a blind cutoff: a hardcoded end date that refused every later
-#: request would silently skip a rainout makeup played after the finale. The
-#: ordinary "the season is over" case is owned by the schedule-derived guard
-#: beside it, which needs no constant at all.
+#: TWO CONSUMERS, and it means something different to each.
+#:
+#: 1. NOT a gate for ingestion. `prospective_ingestion.assert_data_through_
+#:    date_agrees_with_recorded_season_end` uses it as a CROSS-CHECK against
+#:    the live schedule, never as a blind cutoff: a hardcoded end date that
+#:    refused every later request would silently skip a rainout makeup played
+#:    after the finale. The ordinary "the season is over" case is owned by the
+#:    schedule-derived guard beside it, which needs no constant at all.
+#: 2. A GATE for the Contact Forecast end-of-season resolution pass
+#:    (`forecast.phase2.resolution_spec`), which may not open a single outcome
+#:    before the season it resolves has actually finished.
 PROSPECTIVE_2026_SEASON_END_DATE = date(2026, 9, 27)
 PROSPECTIVE_2026_SEASON_END_SOURCE = (
     "MLB official 2026 championship season schedule -- Regular Season Finale: Baltimore "

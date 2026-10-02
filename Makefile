@@ -12,7 +12,15 @@
 	notebook-infield-opportunity compare-advancement-models notebook-advancement \
 	run-season-aggregation evaluate-aggregation-stability notebook-season-aggregation \
 	run-public-score notebook-public-score run-prospective-scoring notebook-prospective-review \
-	build-demo-fixture freeze-pitcher-replication question-f-2024 \
+	build-demo-fixture score-forecast-seasons run-forecast-r1 freeze-forecast-r1 \
+	verify-forecast-r1-freeze run-forecast-ridge freeze-forecast-ridge \
+	verify-forecast-ridge-freeze run-forecast-hgb freeze-forecast-hgb \
+	verify-forecast-hgb-freeze verify-forecast-freezes run-forecast-phase2-2026 \
+	freeze-forecast-h200-spec run-forecast-h200-2026 regenerate-forecast-phase2-reports \
+	freeze-forecast-resolution-spec run-forecast-resolution-2026 \
+	forecast-resolution-preflight \
+	freeze-preflight $(addprefix freeze-preflight,-$(FREEZE_STAGES)) \
+	freeze-pitcher-replication question-f-2024 \
 	seal-pitcher-replication-execution check-pitcher-replication-readiness \
 	run-pitcher-replication-2025
 
@@ -26,13 +34,13 @@ setup:
 	$(PIP) install -e ".[dev]"
 
 format:
-	$(PY) -m ruff format src tests
+	$(PY) -m ruff format src tests forecast
 
 lint:
-	$(PY) -m ruff check src tests
+	$(PY) -m ruff check src tests forecast
 
 typecheck:
-	$(PY) -m mypy src
+	$(PY) -m mypy src forecast
 
 test:
 	$(PY) -m pytest
@@ -432,6 +440,163 @@ notebook-prospective-review:
 build-demo-fixture:
 	$(PY) demo/build_demo_fixture.py
 
+# Contact Forecast R1 (research layer, `forecast/`): walk-forward scoring of the
+# 2022-2024 development seasons with the FROZEN contact model refit on strictly
+# earlier seasons. Writes per-season ledgers + manifests to data/forecast/
+# (gitignored). Never touches 2025 (sealed) or 2026 (Phase 2). Changes nothing
+# in src/mlb_luck_score/ and produces no public score.
+score-forecast-seasons:
+	$(PY) -m forecast.score_development_seasons
+
+# Contact Forecast R1 descriptive analysis over the ledgers above: the frozen
+# baseline ladder, the paired globally-batter-clustered bootstrap, the
+# batter-balanced sensitivity, and the regression-direction experiment with its
+# permutation placebo. Fits NO forecasting model. Writes the prediction table,
+# three JSON artifacts and the report to outputs/forecast_research/ (gitignored).
+# Requires `make score-forecast-seasons` to have been run first.
+run-forecast-r1:
+	$(PY) -m forecast.run_r1_analysis
+
+# Seals the R1 baseline package: hashes every artifact, source module and input
+# ledger, checks the recorded conclusion against the numbers it describes, and
+# writes forecast_spec.json (written ONCE -- a differing specification is
+# refused without --force-respecify) plus r1_freeze_manifest.json and
+# r1_frozen_conclusion.md. Run after `make run-forecast-r1`.
+freeze-forecast-r1: freeze-preflight-r1
+	$(PY) -m forecast.freeze_r1
+
+# Re-hashes the frozen R1 package and names anything that drifted. Exits
+# non-zero on drift, so it is safe to wire into a pre-flight check.
+verify-forecast-r1-freeze:
+	$(PY) -m forecast.freeze_r1 --verify
+
+# The ridge forecasting experiment over the FROZEN R1 package: four prespecified
+# nested ablations, season-forward alpha and model selection (train 2022 ->
+# validate 2023, then train 2022-2023 -> evaluate 2024), measured against
+# league_mean / shrunk_realized / shrunk_deserved with batter-clustered
+# bootstrap intervals. Ridge only -- no nonlinear candidate. Refuses to run if
+# the R1 prediction table has drifted from its freeze.
+run-forecast-ridge:
+	$(PY) -m forecast.run_ridge_forecast
+
+# Seals the ridge stage: hashes its artifacts and source, checks the recorded
+# conclusion against the numbers it describes (including the preserved negative
+# ablation), and chains provenance back to the R1 freeze.
+freeze-forecast-ridge: freeze-preflight-ridge
+	$(PY) -m forecast.freeze_ridge
+
+verify-forecast-ridge-freeze:
+	$(PY) -m forecast.freeze_ridge --verify
+
+# The single nonlinear experiment over the FROZEN R1 + ridge packages:
+# HistGradientBoosting only, two prespecified formulations, a 16-candidate grid
+# recorded before evaluation, season-forward selection (fit 2022 -> select 2023),
+# then one evaluation on 2024. Refuses to run unless both upstream stages are
+# sealed and the prediction table matches its freeze.
+run-forecast-hgb:
+	$(PY) -m forecast.run_hgb_forecast
+
+# Seals the nonlinear stage, chaining provenance through ridge back to R1.
+freeze-forecast-hgb: freeze-preflight-hgb
+	$(PY) -m forecast.freeze_hgb
+
+verify-forecast-hgb-freeze:
+	$(PY) -m forecast.freeze_hgb --verify
+
+# Verifies all three frozen stages in dependency order. Exits non-zero on any
+# drift, so it is safe to wire into a pre-flight check.
+verify-forecast-freezes: verify-forecast-r1-freeze verify-forecast-ridge-freeze \
+	verify-forecast-hgb-freeze
+
+# Contact Forecast PHASE 2: the first held-out evaluation, on 2026. Verifies the
+# R1/ridge/HGB freeze chain and refuses to proceed on any drift, records and
+# hashes the Phase 2 authorization, pins ONE immutable 2026 prospective snapshot
+# and verifies its integrity hashes, then evaluates the already-frozen Model D
+# ridge against the frozen benchmarks. Fits nothing on 2026, tunes nothing,
+# deploys nothing, and never reads 2025. Writes to outputs/forecast_phase2/.
+run-forecast-phase2-2026:
+	$(PY) -m forecast.phase2.run_phase2_evaluation
+
+# Contact Forecast H=200: freeze the SEPARATE H=200 specification on development
+# data (`freeze-forecast-h200-spec`), then run its single held-out 2026
+# evaluation (`run-forecast-h200-2026`). The H=200 model is a REFIT, not the
+# frozen H=100 Contact Forecast measured over a longer window; the two results
+# are never pooled and the H=100 Phase 2 result is never modified. The
+# evaluation re-derives the sealed fit and refuses to proceed unless it
+# reproduces the frozen coefficients exactly. Fits nothing on 2026, tunes
+# nothing, deploys nothing, never reads 2025. Writes to
+# outputs/forecast_phase2_h200/.
+freeze-forecast-h200-spec: freeze-preflight-h200_spec
+	$(PY) -m forecast.phase2.h200_spec
+
+run-forecast-h200-2026:
+	$(PY) -m forecast.phase2.run_h200_evaluation
+
+# Re-render the Phase 2 reports (H=100 and H=200) from the FROZEN numerical
+# artifacts. Presentation only: runs no evaluation, opens no snapshot, fits
+# nothing, and never rewrites a result manifest. Refuses to run if any
+# numerical artifact has moved since its freeze, and records each re-render as
+# an erratum carrying the original and corrected report hashes.
+regenerate-forecast-phase2-reports:
+	$(PY) -m forecast.phase2.regenerate_reports
+
+# Contact Forecast: freeze the END-OF-SEASON RESOLUTION PASS specification.
+# Prespecifies what may be done with the PENDING predictions the Phase 2
+# evaluations sealed, once the 2026 regular season is over. The pass is a
+# SECOND unadjusted look at 2026, so its primary cohort, deciding metric,
+# interval and classification are fixed here, before any end-of-season outcome
+# exists. Opens no outcome, fits nothing, reads no snapshot, never touches
+# 2025. Writes to outputs/forecast_phase2_resolution/.
+freeze-forecast-resolution-spec: freeze-preflight-resolution_spec
+	$(PY) -m forecast.phase2.resolution_spec
+
+# Contact Forecast: the END-OF-SEASON RESOLUTION PASS. Executes the frozen
+# resolution specification ONCE, after the verified 2026 regular-season end
+# date (2026-09-27). Attaches outcomes to predictions sealed at the 2026-09-01
+# first look; never regenerates a forecast, never refits, never trims, never
+# deploys. Refuses to run early, refuses a snapshot short of the season end,
+# and requires AUTHORIZED_BY -- a second unadjusted look is not a cron job.
+#
+#   make run-forecast-resolution-2026 AUTHORIZED_BY="your name"
+run-forecast-resolution-2026:
+	@test -n "$(AUTHORIZED_BY)" || \
+		{ echo "Refusing: set AUTHORIZED_BY=\"your name\" to authorize this second look."; exit 1; }
+	$(PY) -m forecast.phase2.run_resolution_evaluation --authorized-by "$(AUTHORIZED_BY)"
+
+# Contact Forecast RESOLUTION PRE-FLIGHT: run this well before the season ends,
+# and again on the day. It checks the four gate conditions that do not depend on
+# the calendar -- the five-stage freeze chain verifies with zero drift, and both
+# sealed prediction ledgers still re-hash to what their result manifests
+# recorded -- and reports the three that are blocked until the season ends.
+#
+# It also writes a preservation manifest and (with BUNDLE=) a self-describing,
+# self-verifying archive of every irreplaceable artifact. The sealed predictions
+# cannot be regenerated: a prediction made before its outcome was known is not
+# recoverable afterward at any price. MOVE THE BUNDLE OFF THIS MACHINE.
+#
+# Opens no outcome, runs no evaluation, and authorizes nothing.
+#
+#   make forecast-resolution-preflight
+#   make forecast-resolution-preflight BUNDLE=/path/to/sealed_predictions.tar.gz
+forecast-resolution-preflight:
+	$(PY) -m forecast.phase2.resolution_preflight --write \
+		$(if $(BUNDLE),--bundle "$(BUNDLE)",)
+
+# Pre-freeze formatting guard: format -> review if changed -> freeze. Runs the
+# canonical formatter over exactly the source files a stage's freeze will hash.
+# If anything changed it STOPS and names the files; nothing is sealed and no
+# manifest is written. Review the diff, then rerun the freeze target -- the
+# second run formats to a no-op and the freeze proceeds.
+#
+# These are prerequisites of the freeze targets, so make halts before the
+# freeze command runs. A freeze never seals a rewrite in the same operation
+# that made it.
+FREEZE_STAGES := r1 ridge hgb h200_spec resolution_spec
+
+$(addprefix freeze-preflight-,$(FREEZE_STAGES)): freeze-preflight-%:
+	$(PY) -m forecast.freeze_preflight --stage $*
+
+freeze-preflight: $(addprefix freeze-preflight-,$(FREEZE_STAGES))
 # Version 0.14: builds/validates the write-once pre-registration freeze for the
 # one-time 2025 held-out Pitcher Contact Luck replication. Reads NO season's
 # data -- it records constants, source hashes and the repository commit, and

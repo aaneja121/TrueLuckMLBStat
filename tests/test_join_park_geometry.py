@@ -19,7 +19,7 @@ from mlb_luck_score.data.join_park_geometry import (
     build_geometry_join_report,
     join_park_geometry,
 )
-from mlb_luck_score.data.park_geometry import TEMPORARY_OR_SPECIAL_VENUE_IDS
+from mlb_luck_score.data.park_geometry import PARK_GEOMETRY_CONFIGS, TEMPORARY_OR_SPECIAL_VENUE_IDS
 
 
 def _row(**overrides) -> dict:
@@ -209,3 +209,39 @@ def test_geometry_config_id_reflects_effective_date():
     assert (
         joined.loc[joined["game_pk"] == 2, "geometry_config_id"].iloc[0] == "camden_yards_2022_2024"
     )
+
+
+def test_v12_table_can_be_joined_and_defaults_stay_v10():
+    from mlb_luck_score.data.park_geometry_v12 import (
+        PARK_GEOMETRY_CONFIGS_V12,
+        V12_EXCLUDED_VENUE_IDS,
+        resolve_geometry_config_v12,
+    )
+
+    df = pd.DataFrame([_row(spray_angle_approx=0.0, hit_distance_sc=400)])
+    default = join_park_geometry(df)
+    explicit_v10 = join_park_geometry(df, configs=PARK_GEOMETRY_CONFIGS)
+    pd.testing.assert_frame_equal(default, explicit_v10)
+
+    v12 = join_park_geometry(
+        df, configs=PARK_GEOMETRY_CONFIGS_V12, excluded_venue_ids=V12_EXCLUDED_VENUE_IDS
+    )
+    expected = resolve_geometry_config_v12(2, "2021-06-01")
+    assert expected is not None
+    assert v12.loc[0, "geometry_config_id"] == expected.geometry_config_id
+    assert v12.loc[0, "geometry_status"] == GEOMETRY_STATUS_OK
+
+
+def test_v12_excluded_venue_resolves_to_no_geometry():
+    from mlb_luck_score.data.park_geometry_v12 import (
+        PARK_GEOMETRY_CONFIGS_V12,
+        V12_EXCLUDED_VENUE_IDS,
+    )
+
+    extra = sorted(V12_EXCLUDED_VENUE_IDS - TEMPORARY_OR_SPECIAL_VENUE_IDS)[0]
+    df = pd.DataFrame([_row(venue_id=float(extra))])
+    out = join_park_geometry(
+        df, configs=PARK_GEOMETRY_CONFIGS_V12, excluded_venue_ids=V12_EXCLUDED_VENUE_IDS
+    )
+    assert out.loc[0, "geometry_status"] == GEOMETRY_STATUS_TEMPORARY_VENUE
+    assert bool(out.loc[0, "temporary_or_special_venue"]) is True
