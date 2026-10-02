@@ -442,6 +442,29 @@ vs v1.1 comparison. Nothing below loosens any rule for 2025 or 2026.
 7. Extending any of this (an interim look, a second run, another reader of 2027 data) is a
    new decision requiring the maintainer's explicit sign-off in the moment.
 
+### A second 2027 reader IS authorized -- for grading the 2027 projection ONLY
+
+Approved by the maintainer on 2026-10-02 (decision A3), as the separate decision item 7
+requires. The plan is `docs/plans/2027_projection_model_plan.md`.
+
+- **Scope.** One dedicated entry point, under `projection/` (not yet written), may read
+  2027 regular-season data once, to grade the frozen 2027 projections against realized
+  2027 contact-stage results. Nothing else.
+- **Same data as v1.3, not a second download.** It reads the raw 2027 file the v1.3 run
+  downloaded into `data/prospective/2027/v1_3/`, and refuses it unless its SHA-256 matches
+  the v1.3 run's own provenance record. So it can run only after the v1.3 comparison has
+  run, and it never calls a downloader.
+- **Same guards as items 3-6.** Only after the recorded season end, only once (it refuses
+  if its output exists), in its own gitignored namespace, from a clean committed tree, with
+  its guards tested on synthetic data only.
+- **Bound to a frozen projection.** It grades only projections whose content hash was
+  recorded in a commit made before the first 2027 regular-season game. Changing the
+  projection specification or the projections after that voids this authorization.
+- **Not authorized.** Any interim look; any use of 2027 to fit, tune, select or calibrate
+  anything; any change to the v1.3 comparison or its namespace (this reader only reads
+  that namespace); publishing projections or grades (a separate product decision); and
+  any other reader of 2027 data.
+
 ## Avoid target leakage
 
 Never use `events`, `outcome_class`, `description`, `estimated_ba_using_speedangle`,

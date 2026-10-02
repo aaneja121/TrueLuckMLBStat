@@ -1,7 +1,8 @@
 # Plan: a 2027 season projection model
 
-Status: **PLAN — nothing here is authorized or built.** Drafted 2026-09-29.
-Research-only. No public surface is implied (see "Product scope" below).
+Status: **PLAN — specification drafted, not frozen; nothing built.** Drafted 2026-09-29;
+decisions 3–5 and the draft specification added 2026-10-02. Research-only. No public
+surface is implied (see "Product scope" below).
 
 ## The question
 
@@ -117,11 +118,9 @@ separately, after the 2027 result, not a side effect of building the model.
 
 1. ~~Contact Forecast resolution pass~~ — done 2026-09-29.
 2. ~~Inputs decided: single-season (2026 only); no 2025 authorization needed.~~
-3. Decide ordering against the v1.2 park/weather plan (`docs/plans/v1_2_park_weather_plan.md`).
-   If v1.2 is adopted, projections should use v1.2 deserved values, so v1.2's adoption
-   decision comes first.
+3. ~~Decide ordering against the v1.2 park/weather plan~~ — resolved 2026-10-02 (decision 3).
 4. Write and freeze the projection specification (targets, ladder, adoption rule, 2027
-   test). Commit.
+   test). Commit. **Drafted 2026-10-02 (S1–S8 below); awaiting maintainer approval.**
 5. Develop on 2022→2023 / 2023→2024 only. Freeze.
 6. Score 2026 once as input. Hash the 2027 projections before Opening Day 2027.
 7. Resolve after the 2027 regular season.
@@ -137,7 +136,85 @@ Decided by the maintainer on 2026-09-29, before any projection development:
    quantity R1 and Contact Forecast measured, so the 2027 result is comparable with the
    existing evidence. Not the published metric with batter-runner advancement.
 
-## Open questions for the maintainer
+Decided on 2026-10-02:
 
-1. v1.0 or v1.2 deserved values as inputs — i.e., does v1.2 come first?
-2. Minimum 2027 sample for a hitter to be evaluated.
+3. **Deserved values come from the frozen v1.0 system** (v1.1 scoring for 2026, the
+   walk-forward ledgers for development). This was the plan's open question 1, and it is
+   now forced rather than chosen: `gated_geometry_v12` and `airball_geometry_v12b` were
+   rejected, and v1.3 cannot be adopted before its own 2027 comparison resolves
+   (`docs/plans/v1_3_2027_preregistration.md`).
+4. **Minimum 2027 sample for grading: 100 resolved batted balls**, matching Contact
+   Forecast's first horizon.
+5. **A second 2027 reader is authorized for grading only (A3).** Recorded in
+   `RESEARCH_RULES.md`, "A second 2027 reader IS authorized". It reuses the v1.3 run's raw
+   2027 file by hash, so grading happens after the v1.3 comparison has run.
+
+## Draft specification (S1–S8) — for approval, NOT frozen
+
+Nothing below has been computed. Each item is a proposal; the maintainer approves, edits
+or rejects it, and the approved text is then frozen in its own commit before any
+development metric exists.
+
+**Where the code lives.** A new top-level `projection/` package, beside `forecast/`.
+The 2027 freeze forbids changing `src/` and `prospective/` after `d5303bc`; `projection/`
+only imports from them. Its data, outputs and artifacts go in gitignored namespaces of
+their own.
+
+**S1 — Population.** Projected: every batter with at least one resolved batted ball in the
+2026 contact-stage ledger. Graded: projected batters with ≥ 100 resolved 2027 batted balls.
+2027 hitters who reach 100 but had no 2026 row (rookies, returns from injury) are counted
+and reported, not graded.
+
+**S2 — Quantities.** All contact stage, per 100 resolved batted balls, the same
+definitions as Contact Forecast (`forecast/forecast_config.py`):
+- realized rate = 100 × mean `observed_contact_result_run_value` (Rc);
+- deserved rate = 100 × mean `baseline_expected_contact_run_value` (E0);
+- target = the 2027 realized rate (`target_realized_rv_per_100`).
+
+2026 inputs come from the archived 2026-09-27 v1.1 snapshot, pinned by its integrity
+hashes and read through the existing read-only contact-stage adapter
+(`forecast/phase2/snapshot.py`). Development inputs come from the walk-forward ledgers in
+`data/forecast/` (2022, 2023, 2024).
+
+**S3 — Model ladder** (unchanged from above): league mean; shrunk realized; **shrunk
+deserved (the primary benchmark)**; one challenger (S5).
+
+**S4 — Shrinkage.** One estimator for realized and deserved, the empirical-Bayes
+estimator in `forecast/baselines.py` (μ, σ², τ² by method of moments). At the season
+level, unlike Contact Forecast's fixed-size windows, `n_i` differs by hitter, so shrinkage
+*can* change rank; Spearman is reported for that reason. **Open sub-decision:** where μ,
+σ² and τ² are estimated.
+- (a) *Recommended:* on the input season itself (2026 for the 2027 projection), with the
+  procedure frozen. Only inputs are used, never the target season, so nothing is fitted
+  to an outcome. But it does fit a statistic on 2026 data, which the 2026 rule ("scored,
+  never tuned against") arguably covers, so it needs an explicit maintainer ruling.
+- (b) On the development ledgers (2022–2024), frozen as numbers. This is cleaner under the
+  2026 rule, but it carries the 2022–2024 league level into 2027.
+
+No linear rescaling: deserved and realized are on the same run scale, and Contact
+Forecast's prior-window rescaling has no season-level equivalent with only two pairs.
+
+**S5 — Challenger.** Contact Forecast's `D_full_contact_profile` ridge model
+(`forecast/ridge.py`), adapted to seasons by dropping its within-season "recent window"
+features. It is fit on 2022→2023, with the ridge penalty chosen by batter-grouped
+cross-validation inside that pair only. It is evaluated once on 2023→2024.
+
+**S6 — Development adoption rule** (fixed before any development metric). The challenger
+replaces shrunk deserved only if, on 2023→2024, ΔMAE (challenger − shrunk deserved) < 0
+**and** its batter-clustered bootstrap 95% CI lies entirely below zero. Otherwise shrunk
+deserved ships. The ladder rungs are also reported on both pairs, as descriptive results.
+The write-up must say the 2026 Contact Forecast result was known at design time.
+
+**S7 — 2027 test.** The primary result is ΔMAE (chosen projection − shrunk realized) on
+graded hitters, with a batter-clustered bootstrap 95% CI. It uses the same resample count
+and seed convention as the v1.3 pre-registration (500 replicates, seed 42), and Contact
+Forecast's four-way classification (`SUCCESS_CLASSIFICATION`) applied to the primary only.
+Secondary results are reported together, with no metric privileged: chosen projection vs.
+league mean; RMSE, Pearson and Spearman; and the survivorship counts from S1.
+
+**S8 — Freeze mechanics.** Projections for every rung, for every projected batter, are
+computed once from the pinned 2026 snapshot. Their SHA-256 and the frozen specification's
+hash are committed before the first 2027 regular-season game (2027-03-24). The
+projections file stays in the gitignored namespace. **Open sub-decision:** keep an
+off-machine copy (for example the existing R2 archive bucket), because grading is
+impossible if the only copy is lost.
