@@ -126,9 +126,10 @@ needs. This sharding exists because the old monolithic index hit Cloudflare Page
 
 ## Current redesign baseline (resolved)
 
-The active branch **`ui-redesign-v2`** is based on the current **live cream/amber
-site** — that is the intended and correct starting point. The dark "broadcast/Statcast"
-redesign on `backup-pre-skill-redesign` was **deliberately archived** before this process
+The redesign (branch `ui-redesign-v2`, merged into `main` as PR #13) was built on the
+**live cream/amber site** — that is the intended and correct baseline. The dark
+"broadcast/Statcast" redesign on `backup-pre-skill-redesign` (kept on GitHub, never
+merged) was **deliberately archived** before this process
 began: do not restore or inherit it wholesale. A specific idea from it may be inspected
 selectively later, but the new design must be derived from this baseline, `PRODUCT.md`,
 `CONTEXT.md`, the rendered product, and the design audit — which is complete, and whose
